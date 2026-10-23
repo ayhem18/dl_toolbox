@@ -37,6 +37,53 @@ dl-toolbox = { path = "../../../dl_toolbox", editable = true }
 
 Adjust the relative path to wherever the consumer lives under `DL_projects`.
 
+## Parsing and geometry
+
+Copied from `defect_dl` (the fuller set; `seam_embedder` has a subset). Originals stay in those projects until they import from here.
+
+```python
+from dl_toolbox.parsing.parse_numerical import parse_int, parse_positive_int
+from dl_toolbox.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.geometry.contours import contours_bbox
+from dl_toolbox.geometry.masks import rasterize_contours
+from dl_toolbox.geometry.bboxes import generate_tile_boxes_xyxy, contours_bbox_xyxy_int
+```
+
+`dl_toolbox.parsing` is stdlib-only. Geometry needs the extra:
+
+```toml
+[project]
+dependencies = [
+    "dl-toolbox[geometry]",
+]
+```
+
+## Currently copied from mypt
+
+```python
+from dl_toolbox.seed import seed_everything
+from dl_toolbox.loggers.tensorboard_logger import TensorBoardLogger
+
+seed_everything(42)
+logger = TensorBoardLogger(log_dir="tb_logs")
+logger.log_scalar(0, "loss", 0.12)
+```
+
+Logging backends are separate extras. Install only the one you use:
+
+```toml
+[project]
+dependencies = [
+    "dl-toolbox[dl]",           # seed_everything (numpy, torch)
+    "dl-toolbox[geometry]",     # contours, masks, bboxes
+    "dl-toolbox[tensorboard]",  # TensorBoardLogger
+    # "dl-toolbox[wandb]",
+    # "dl-toolbox[mlflow]",     # extra is declared; logger comes next
+]
+```
+
+`get_logger("tensorboard" | "wandb" | "placeholder", log_dir=...)` builds a backend. WandB-only settings such as `project` and `run_name` go in `**kwargs` so every logger keeps the same constructor: `(log_dir, **kwargs)`. Time-series methods take `step` first.
+
 ## What gets added
 
 1. Use the idea in a project until the behavior is clear.
