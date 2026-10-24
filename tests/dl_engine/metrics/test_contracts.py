@@ -8,7 +8,9 @@ from dl_toolbox.dl_engine.metrics.contracts import (
     slice_metric_inputs,
     validate_tensor_mapping,
 )
-from dl_toolbox.dl_engine.metrics.classification import binary_classification_accuracy_metric
+from dl_toolbox.dl_engine.metrics.classification.classification import (
+    binary_classification_accuracy_metric,
+)
 
 
 def test_validate_tensor_mapping_rejects_missing_keys() -> None:

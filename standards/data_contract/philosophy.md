@@ -84,7 +84,9 @@ Unique per generating process. The process claims **the `generating_process_name
 - `human_readable/{generating_process_name}.json`
 - `hashes/{hash-prefix}.json`
 
-`configuration_hash` is the hash of `generating_process_signature`. The filename is that hash’s prefix, not the full digest. `generating_process_name` is not in that hash. Reusing a finished `generating_process_name` is an error. Reusing a finished configuration under a new `generating_process_name` is an error. There is no overwrite flag that steals a `generating_process_name`.
+`configuration_hash` is the hash of `generating_process_signature`. The filename is that hash’s prefix, not the full digest. `generating_process_name` is not in that hash. Reusing a finished `generating_process_name` is an error. Reusing a finished configuration under a new `generating_process_name` is an error. `process()` has no overwrite flag that steals a `generating_process_name`.
+
+A separate helper may delete a finished freeze so a later `process()` can claim those files: `remove_named_freeze` removes the process pair, the collection alias and hashed collection file, and a payload directory the caller already resolved from `Collection.artifacts_dir(generating_process_name)`. `process_hash_occupant` returns which `generating_process_name` currently holds a process hash. Those helpers are not `process()`. They do not read an artifact path from the collection document.
 
 Availability is decided by reading those files, not by the filename alone: the document’s `generating_process_name`, `hash`, and `generating_process_signature` must agree. That document is the process configuration. The collection configuration is a different document. Its home belongs to the collection kind.
 

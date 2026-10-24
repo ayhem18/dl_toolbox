@@ -15,6 +15,7 @@ Executable helpers are `dl_toolbox.data_contract`. They are stdlib-only. They ar
 | `payload` | Join a relative path under an absolute directory; the file must exist and stay under it. |
 | `configs` | Resolve and write collection configurations (`{prefix}.json` plus `{generating_process_name}.json`). |
 | `process_records` | Claim a `generating_process_name` and signature hash, write process configuration last, delete an incomplete run. |
+| `named_freeze` | Delete a finished `generating_process_name` (process pair, collection alias, payload directory the caller passes). Find which name holds a process hash. Not `process()`. |
 
 ## Project
 

@@ -24,6 +24,10 @@ from dl_toolbox.data_contract.hashing import (
 from dl_toolbox.data_contract.json_io import read_json, write_json
 from dl_toolbox.data_contract.names import assert_generating_process_name
 from dl_toolbox.data_contract.payload import join_under
+from dl_toolbox.data_contract.named_freeze import (
+    process_hash_occupant,
+    remove_named_freeze,
+)
 from dl_toolbox.data_contract.process_records import (
     HASHES_DIRNAME,
     HUMAN_READABLE_DIRNAME,
@@ -62,7 +66,9 @@ __all__ = [
     "load_artifact",
     "process_configuration_document",
     "process_configuration_paths",
+    "process_hash_occupant",
     "read_json",
+    "remove_named_freeze",
     "resolve_artifact_path",
     "save_hashed_artifact",
     "save_process_configuration",

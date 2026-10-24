@@ -4,7 +4,7 @@ The mental framework is [philosophy.md](philosophy.md) and [philosophy_in_code.m
 
 Executable types are `dl_toolbox.dl_engine.metrics`. They are not a trained product: they do not define a run, a logger, or a monitor key.
 
-The classification helpers in `classification/classification.py` currently violate the grain rule (loss is reduced per batch, then averaged). Do not copy that file as the spec. Reimplementation follows these notes.
+Classification helpers live in `classification/classification.py`. `metric_function` returns a batch measurement. Combine concatenates on the item axis. Reducers return scalars.
 
 ## Toolbox
 

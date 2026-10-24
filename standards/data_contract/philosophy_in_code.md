@@ -104,7 +104,7 @@ Entity and collection modules at the level root. Process modules in a process pa
 
 The process class owns two config folders: `human_readable/` and `hashes/`. `assert_generating_process_name_available` checks `Collection.artifacts_dir(generating_process_name)` (if file-backed) and both process-configuration files. It reads the documents; it does not trust the filename. `mkdir` without overwrite.
 
-An incomplete run deletes leftover payload, the collection configuration it started, and any process-configuration files, so the same `generating_process_name` can be retried. The process configuration is the completion record. A finished `generating_process_name` or a finished `generating_process_signature` is not overwritten. No `--force` that steals a `generating_process_name`.
+An incomplete run deletes leftover payload, the collection configuration it started, and any process-configuration files, so the same `generating_process_name` can be retried. The process configuration is the completion record. A finished `generating_process_name` or a finished `generating_process_signature` is not overwritten by `process()`. No `--force` on `process()`. A cleanup helper may delete those files first (`remove_named_freeze`, `process_hash_occupant`); that helper is not `process()`.
 
 ### Scripts are thin
 

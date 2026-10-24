@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from dl_toolbox.dl_engine.metrics.classification import (
+from dl_toolbox.dl_engine.metrics.classification.classification import (
     binary_bce_loss_metric,
     binary_classification_accuracy_metric,
 )

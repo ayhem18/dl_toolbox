@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-import torch
 from torch import Tensor
 
 from .contracts import slice_metric_inputs
@@ -15,6 +14,13 @@ class MetricAccumulator:
         self.split = split
         self._combined: dict[str, Tensor | None] = {spec[0].name: None for spec in self.specs}
         self.n_batches = 0
+        for metric, batch_reducers, epoch_reducers in self.specs:
+            for reducer_name in (*batch_reducers, *epoch_reducers):
+                if reducer_name not in metric.reducers:
+                    raise ValueError(
+                        f"reducer {reducer_name!r} is not on metric {metric.name!r}; "
+                        f"known: {sorted(metric.reducers)}"
+                    )
 
     def reset(self) -> None:
         for key in self._combined:

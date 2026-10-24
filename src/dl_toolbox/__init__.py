@@ -15,7 +15,7 @@ or opencv:
 - `dl_toolbox.geometry.bboxes.generate_tile_boxes_xyxy`
 - `dl_toolbox.dl_engine.training.fit.fit_classification` (PyTorch Lightning + ``BaseLogger``)
 - `dl_toolbox.dl_engine.training.config.FitConfig`
-- `dl_toolbox.dl_engine.metrics.classification.binary_classification_accuracy_metric`
+- `dl_toolbox.dl_engine.metrics.classification.classification.binary_classification_accuracy_metric`
 """
 
 __version__ = "0.1.0"
