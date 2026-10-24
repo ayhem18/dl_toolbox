@@ -1,3 +1,4 @@
+import importlib
 from typing import Any, Dict
 
 from .base import BaseLogger
@@ -9,9 +10,10 @@ class TensorBoardLogger(BaseLogger):
     @staticmethod
     def _import_tensorboard():
         TensorBoardLogger._import_package("tensorboard", extra=_EXTRA)
-        torch = TensorBoardLogger._import_package("torch", extra=_EXTRA)
+        TensorBoardLogger._import_package("torch", extra=_EXTRA)
         try:
-            return torch.utils.tensorboard.SummaryWriter
+            module = importlib.import_module("torch.utils.tensorboard")
+            return module.SummaryWriter
         except (ImportError, AttributeError) as exc:
             raise ImportError(
                 "torch.utils.tensorboard.SummaryWriter could not be imported. "
