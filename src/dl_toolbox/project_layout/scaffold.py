@@ -8,8 +8,8 @@ from pathlib import Path
 from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.data_contract.names import assert_generating_process_name
 from dl_toolbox.loggers.mlflow.default_configurations import DEFAULT_SQLITE_TIMEOUT_SECONDS
-from dl_toolbox.project.discover import assert_package_name, parse_tracking_backend
-from dl_toolbox.project.layout import (
+from dl_toolbox.project_layout.discover import assert_package_name, parse_tracking_backend
+from dl_toolbox.project_layout.layout import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_TENSORBOARD,
@@ -52,8 +52,8 @@ _README_BY_RELATIVE = {
         "MLflow artifact root for this project. Run-specific files live under MLflow run ids.\n"
     ),
     f"{STORAGE_DIRNAME}/{WANDB_DIRNAME}": (
-        "Local W&B directory for this project. The cloud project name is in "
-        f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}/wandb.json.\n"
+        "Local W&B directory for this project. The cloud project name is the "
+        "toolbox project name in dl_toolbox_project.json.\n"
     ),
     f"{STORAGE_DIRNAME}/{PLACEHOLDER_DIRNAME}": (
         "Filesystem dump used by the placeholder logger. Each child folder is one run.\n"
@@ -128,7 +128,7 @@ def _write_tree(
         backend = backends[i]
         write_json(
             logging_configs / f"{backend}.json",
-            _backend_config(backend, project_name=project_name),
+            _backend_config(backend),
         )
 
     relative_dirs = (
@@ -169,16 +169,15 @@ def _backend_storage_dirs(tracking_backend: str) -> tuple[str, ...]:
     raise ValueError(f"unknown tracking backend {tracking_backend!r}")
 
 
-def _backend_config(tracking_backend: str, *, project_name: str) -> dict:
+def _backend_config(tracking_backend: str) -> dict:
     if tracking_backend == BACKEND_TENSORBOARD:
         return {"log_dir": f"{STORAGE_DIRNAME}/{TENSORBOARD_DIRNAME}"}
     if tracking_backend == BACKEND_PLACEHOLDER:
         return {"log_dir": f"{STORAGE_DIRNAME}/{PLACEHOLDER_DIRNAME}"}
     if tracking_backend == BACKEND_WANDB:
-        return {"project": project_name, "dir": f"{STORAGE_DIRNAME}/{WANDB_DIRNAME}"}
+        return {"dir": f"{STORAGE_DIRNAME}/{WANDB_DIRNAME}"}
     if tracking_backend == BACKEND_MLFLOW:
         return {
-            "experiment": project_name,
             "backend_store": {
                 "type": "database",
                 "database_type": "sqlite",

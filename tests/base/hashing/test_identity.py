@@ -12,7 +12,7 @@ from dl_toolbox.base.hashing.identity import (
     is_hashed_artifact_stem,
 )
 
-from _support import N_TRIALS, random_json_object, shuffled_mapping
+from tests.base.base_support import N_TRIALS, random_json_object, shuffled_mapping
 
 
 def test_same_object_same_hash_under_key_shuffles(rng: random.Random) -> None:

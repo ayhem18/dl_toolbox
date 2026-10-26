@@ -7,7 +7,7 @@ import pytest
 
 from dl_toolbox.base.file_management.join import join_under
 
-from _support import N_TRIALS, random_generating_process_name
+from tests.base.base_support import N_TRIALS, random_generating_process_name
 
 
 def _write_nested_file(root: Path, rng: random.Random) -> tuple[str, Path]:

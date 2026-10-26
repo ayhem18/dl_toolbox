@@ -12,7 +12,7 @@ from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys, require_key
 from dl_toolbox.data_contract.names import assert_generating_process_name
-from dl_toolbox.project.layout import (
+from dl_toolbox.project_layout.layout import (
     PROJECT_MARKER_FILENAME,
     TRACKING_BACKEND_FILENAME,
     TRACKING_BACKENDS,

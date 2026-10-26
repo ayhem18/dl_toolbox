@@ -7,7 +7,7 @@ import pytest
 from dl_toolbox.base.hashing.identity import artifact_stem, hash_payload
 from dl_toolbox.data_contract.names import assert_generating_process_name
 
-from _support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.data_contract.dc_support import N_TRIALS, random_generating_process_name, random_json_object
 
 
 def test_valid_names_round_trip(rng: random.Random) -> None:

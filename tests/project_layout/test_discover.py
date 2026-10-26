@@ -5,20 +5,20 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.project.discover import (
+from dl_toolbox.project_layout.discover import (
     assert_package_name,
     find_project_root,
     load_project_document,
     read_tracking_backend,
 )
-from dl_toolbox.project.layout import (
+from dl_toolbox.project_layout.layout import (
     DEFAULT_TRACKING_BACKEND,
     PROJECT_MARKER_FILENAME,
     TRACKING_BACKEND_FILENAME,
 )
-from dl_toolbox.project.scaffold import setup_project
+from dl_toolbox.project_layout.scaffold import setup_project
 
-from _support import N_TRIALS, random_project_name
+from tests.project_layout.pl_support import N_TRIALS, random_project_name
 
 
 def test_project_root_is_the_marker_file_parent(

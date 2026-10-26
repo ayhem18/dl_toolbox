@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from dl_toolbox.base.input_output.json_io import read_json
-from dl_toolbox.project.layout import (
+from dl_toolbox.project_layout.layout import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_WANDB,
@@ -20,9 +20,9 @@ from dl_toolbox.project.layout import (
     TRACKING_BACKEND_FILENAME,
     TRACKING_BACKENDS,
 )
-from dl_toolbox.project.scaffold import setup_project
+from dl_toolbox.project_layout.scaffold import setup_project
 
-from _support import N_TRIALS, random_package_name, random_project_name
+from tests.project_layout.pl_support import N_TRIALS, random_package_name, random_project_name
 
 _UNUSED_BACKENDS = (BACKEND_MLFLOW, BACKEND_WANDB, BACKEND_PLACEHOLDER)
 

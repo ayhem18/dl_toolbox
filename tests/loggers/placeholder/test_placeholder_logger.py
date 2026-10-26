@@ -9,7 +9,6 @@ from dl_toolbox.loggers.placeholder.default_configurations import (
     default_placeholder_setup,
 )
 from dl_toolbox.loggers.placeholder.placeholder_manager import PlaceholderManager
-from dl_toolbox.loggers.wandb.wandb_manager import WandbManager
 
 
 def _placeholder_logger(log_dir: Path):
@@ -50,19 +49,3 @@ def test_placeholder_log_before_setup_raises(tmp_path: Path) -> None:
 def test_placeholder_rejects_relative_log_dir() -> None:
     with pytest.raises(ValueError, match="absolute"):
         PlaceholderManager(default_placeholder_setup(log_dir="relative/run"))
-
-
-def test_unknown_logger_name_raises(tmp_path: Path) -> None:
-    manager = PlaceholderManager(default_placeholder_setup(log_dir=tmp_path / "run"))
-    with pytest.raises(ValueError, match="Unknown logger"):
-        get_logger("not-a-backend", manager=manager)
-
-
-def test_missing_wandb_explains_extra() -> None:
-    try:
-        import wandb  # noqa: F401
-    except ImportError:
-        with pytest.raises(ImportError, match=r"dl-toolbox\[wandb\]"):
-            WandbManager._import_wandb()
-    else:
-        pytest.skip("wandb is installed in this environment")

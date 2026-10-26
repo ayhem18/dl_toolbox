@@ -9,6 +9,7 @@ or opencv:
 - `dl_toolbox.seed.seed_everything`
 - `dl_toolbox.loggers.base_logger.Logger`
 - `dl_toolbox.loggers.factory.get_logger`
+- `dl_toolbox.run_manager.RunManager`
 - `dl_toolbox.base.hashing.identity.hash_payload`
 - `dl_toolbox.base.parsing.parse_numerical.parse_int`
 - `dl_toolbox.base.geometry.contours.contours_bbox`

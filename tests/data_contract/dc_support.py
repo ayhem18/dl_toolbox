@@ -1,4 +1,4 @@
-"""Shared generators for data-contract tests. Not collected by pytest."""
+"""Shared generators for data_contract tests. Not collected by pytest."""
 
 from __future__ import annotations
 

@@ -11,12 +11,12 @@ from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys, require_key
 from dl_toolbox.data_contract.names import assert_generating_process_name
-from dl_toolbox.loggers.mlflow.mlflow_parser import MlflowParser
-from dl_toolbox.loggers.placeholder.placeholder_parser import PlaceholderParser
-from dl_toolbox.loggers.tensorboard.tensorboard_parser import TensorBoardParser
-from dl_toolbox.loggers.wandb.wandb_parser import WandbParser
-from dl_toolbox.project.discover import find_project_root, load_project_document, read_tracking_backend
-from dl_toolbox.project.layout import (
+from dl_toolbox.loggers.mlflow.mlflow_manager import MlflowManager
+from dl_toolbox.loggers.placeholder.placeholder_manager import PlaceholderManager
+from dl_toolbox.loggers.tensorboard.tensorboard_manager import TensorBoardManager
+from dl_toolbox.loggers.wandb.wandb_manager import WandbManager
+from dl_toolbox.project_layout.discover import find_project_root, load_project_document, read_tracking_backend
+from dl_toolbox.project_layout.layout import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_TENSORBOARD,
@@ -24,14 +24,14 @@ from dl_toolbox.project.layout import (
     EXPERIMENTS_DIRNAME,
     LOGGING_CONFIGS_DIRNAME,
     PROJECT_LEVEL_CONFIGS_DIRNAME,
-    ProjectLayout,
     RUNS_DIRNAME,
     SCRIPTS_DIRNAME,
     STORAGE_DIRNAME,
 )
+from dl_toolbox.run_manager import RunManager
 
 
-class DefaultRunManager(ProjectLayout):
+class DefaultRunManager(RunManager):
     def __init__(self, project_name: str, *, start: Path) -> None:
         name = assert_generating_process_name(project_name)
         if not start.is_absolute():
@@ -77,43 +77,28 @@ class DefaultRunManager(ProjectLayout):
     def tracking_backend(self) -> str:
         return read_tracking_backend(self._root)
 
-    def get_tensorboard_global_config(self) -> dict:
-        payload = self._materialize_tensorboard()
-        TensorBoardParser(payload)
-        return payload
-
-    def get_mlflow_global_config(self) -> dict:
-        payload, unused_experiment = self._materialize_mlflow()
-        if unused_experiment == "":
-            raise ValueError("mlflow experiment is empty")
-        MlflowParser(payload)
-        return payload
-
-    def mlflow_experiment(self) -> str:
-        payload, experiment = self._materialize_mlflow()
-        MlflowParser(payload)
-        return experiment
-
-    def get_wandb_global_config(self) -> dict:
-        payload = self._materialize_wandb()
-        WandbParser(payload)
-        return payload
-
-    def get_placeholder_global_config(self) -> dict:
-        payload = self._materialize_placeholder()
-        PlaceholderParser(payload)
-        return payload
-
-    def selected_backend_setup(self) -> dict:
+    def make_logging_manager(self) -> object:
         backend = self.tracking_backend()
+        payload = self._store_payload(backend)
         if backend == BACKEND_TENSORBOARD:
-            return self.get_tensorboard_global_config()
-        if backend == BACKEND_MLFLOW:
-            return self.get_mlflow_global_config()
-        if backend == BACKEND_WANDB:
-            return self.get_wandb_global_config()
+            return TensorBoardManager(payload)
         if backend == BACKEND_PLACEHOLDER:
-            return self.get_placeholder_global_config()
+            return PlaceholderManager(payload)
+        if backend == BACKEND_WANDB:
+            return WandbManager(payload)
+        if backend == BACKEND_MLFLOW:
+            return MlflowManager(payload)
+        raise ValueError(f"unknown tracking backend {backend!r}")
+
+    def _store_payload(self, backend: str) -> dict[str, Any]:
+        if backend == BACKEND_TENSORBOARD:
+            return self._materialize_tensorboard()
+        if backend == BACKEND_PLACEHOLDER:
+            return self._materialize_placeholder()
+        if backend == BACKEND_WANDB:
+            return self._materialize_wandb()
+        if backend == BACKEND_MLFLOW:
+            return self._materialize_mlflow()
         raise ValueError(f"unknown tracking backend {backend!r}")
 
     def _read_backend_document(self, backend: str) -> dict[str, Any]:
@@ -144,25 +129,21 @@ class DefaultRunManager(ProjectLayout):
 
     def _materialize_wandb(self) -> dict:
         document = self._read_backend_document(BACKEND_WANDB)
-        require_exact_keys(document, ("project", "dir"), label="wandb project config")
+        require_exact_keys(document, ("dir",), label="wandb project config")
         directory = resolve_under_project(
             self._root,
             parse_non_empty_str(document["dir"], label="dir"),
             label="dir",
         )
-        return {
-            "project": parse_non_empty_str(document["project"], label="project"),
-            "dir": str(directory),
-        }
+        return {"dir": str(directory)}
 
-    def _materialize_mlflow(self) -> tuple[dict, str]:
+    def _materialize_mlflow(self) -> dict:
         document = self._read_backend_document(BACKEND_MLFLOW)
         require_exact_keys(
             document,
-            ("experiment", "backend_store", "artifact_store"),
+            ("backend_store", "artifact_store"),
             label="mlflow project config",
         )
-        experiment = parse_non_empty_str(document["experiment"], label="experiment")
         backend_store = parse_mapping(
             require_key(document, "backend_store", label="mlflow project config"),
             label="backend_store",
@@ -187,8 +168,7 @@ class DefaultRunManager(ProjectLayout):
                 label="artifact_store.root",
             )
         )
-        payload = {
+        return {
             "backend_store": resolved_backend,
             "artifact_store": resolved_artifacts,
         }
-        return payload, experiment

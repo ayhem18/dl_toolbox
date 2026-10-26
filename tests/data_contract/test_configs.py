@@ -16,7 +16,7 @@ from dl_toolbox.data_contract.configs import (
 from dl_toolbox.base.hashing.identity import artifact_stem, hash_payload
 from dl_toolbox.base.input_output.json_io import read_json
 
-from _support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.data_contract.dc_support import N_TRIALS, random_generating_process_name, random_json_object
 
 
 class _Collection:

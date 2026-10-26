@@ -1,4 +1,4 @@
-"""Shared generators for project-scaffold tests. Not collected by pytest."""
+"""Shared generators for project_layout tests. Not collected by pytest."""
 
 from __future__ import annotations
 

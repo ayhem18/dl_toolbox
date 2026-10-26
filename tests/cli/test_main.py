@@ -4,9 +4,9 @@ import random
 from pathlib import Path
 
 from dl_toolbox.cli.main import main
-from dl_toolbox.project.layout import PROJECT_MARKER_FILENAME
+from dl_toolbox.project_layout.layout import PROJECT_MARKER_FILENAME
 
-from _support import N_TRIALS, random_package_name, random_project_name
+from tests.project_layout.pl_support import N_TRIALS, random_package_name, random_project_name
 
 
 def test_cli_setup_project_uses_cwd(

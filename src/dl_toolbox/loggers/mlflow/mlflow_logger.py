@@ -11,7 +11,7 @@ from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 
 class MlflowLogger(Logger):
-    """One MLflow run. The caller owns setup and close."""
+    """One MLflow run. ``experiment`` is identity (``RunManager.project_name``)."""
 
     def __init__(
         self,

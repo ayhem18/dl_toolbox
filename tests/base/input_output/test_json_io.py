@@ -8,7 +8,7 @@ import pytest
 
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 
-from _support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.base.base_support import N_TRIALS, random_generating_process_name, random_json_object
 
 
 def test_written_object_round_trips_and_leaves_no_tmp(

@@ -1,10 +1,11 @@
-"""W&B project persistence. Import wandb only here."""
+"""W&B local-dir persistence. Import wandb only here. Cloud project is identity."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.loggers.base_logger import (
     LoggerError,
     copy_local_artifact,
@@ -12,7 +13,6 @@ from dl_toolbox.loggers.base_logger import (
     require_logger_open,
 )
 from dl_toolbox.loggers.wandb.wandb_parser import WandbParser
-from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 _EXTRA = "wandb"
 
@@ -20,13 +20,8 @@ _EXTRA = "wandb"
 class WandbManager:
     def __init__(self, payload: dict) -> None:
         parsed = WandbParser(payload)
-        self._project = parsed.project
         self._dir = parsed.dir
         self._open = False
-
-    @property
-    def project(self) -> str:
-        return self._project
 
     @property
     def dir(self) -> Path:
@@ -36,13 +31,14 @@ class WandbManager:
     def _import_wandb():
         return import_extra("wandb", extra=_EXTRA)
 
-    def open_run(self, *, run_name: str, tags: Mapping[str, str]) -> None:
+    def open_run(self, *, project: str, run_name: str, tags: Mapping[str, str]) -> None:
         if self._open:
             raise LoggerError("logger is already open")
+        cloud_project = parse_non_empty_str(project, label="project")
         name = parse_non_empty_str(run_name, label="run_name")
         self._dir.mkdir(parents=True, exist_ok=True)
         wandb = self._import_wandb()
-        wandb.init(project=self._project, name=name, dir=str(self._dir))
+        wandb.init(project=cloud_project, name=name, dir=str(self._dir))
         self._open = True
         if tags:
             prefixed = {f"tag.{key}": value for key, value in dict(tags).items()}

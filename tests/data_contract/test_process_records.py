@@ -16,7 +16,7 @@ from dl_toolbox.data_contract.process_records import (
     save_process_configuration,
 )
 
-from _support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.data_contract.dc_support import N_TRIALS, random_generating_process_name, random_json_object
 
 
 def test_saved_record_is_exclusive_for_name_and_signature(

@@ -18,7 +18,7 @@ from dl_toolbox.data_contract.process_records import (
     save_process_configuration,
 )
 
-from _support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.data_contract.dc_support import N_TRIALS, random_generating_process_name, random_json_object
 
 
 def _write_collection_pair(
