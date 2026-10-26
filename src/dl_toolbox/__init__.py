@@ -7,13 +7,14 @@ Heavy imports live in submodules so `import dl_toolbox` does not pull torch
 or opencv:
 
 - `dl_toolbox.seed.seed_everything`
-- `dl_toolbox.loggers.tensorboard_logger.TensorBoardLogger`
+- `dl_toolbox.loggers.base_logger.Logger`
+- `dl_toolbox.loggers.factory.get_logger`
 - `dl_toolbox.data_contract.hash_payload`
 - `dl_toolbox.parsing.parse_numerical.parse_int`
 - `dl_toolbox.geometry.contours.contours_bbox`
 - `dl_toolbox.geometry.masks.rasterize_contours`
 - `dl_toolbox.geometry.bboxes.generate_tile_boxes_xyxy`
-- `dl_toolbox.dl_engine.training.fit.fit_classification` (PyTorch Lightning + ``BaseLogger``)
+- `dl_toolbox.dl_engine.training.fit.fit_classification`
 - `dl_toolbox.dl_engine.training.config.FitConfig`
 - `dl_toolbox.dl_engine.metrics.classification.classification.binary_classification_accuracy_metric`
 """

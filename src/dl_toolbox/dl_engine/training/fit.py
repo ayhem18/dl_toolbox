@@ -33,7 +33,7 @@ def fit_classification(
     val_loader: DataLoader,
     optimizer: Optimizer,
     *,
-    prepare_tensors: Callable[[Any], Mapping[str, Tensor]],
+    prepare_tensors_fn: Callable[[Any], Mapping[str, Tensor]],
     forward_fn: Callable[[nn.Module, Mapping[str, Tensor]], Tensor],
     loss_fn: Callable[[Tensor, Mapping[str, Tensor]], Tensor],
     build_metric_inputs_fn: Callable[[Tensor, Mapping[str, Tensor]], Mapping[str, Tensor]],
@@ -51,10 +51,10 @@ def fit_classification(
         net=model,
         optimizer=optimizer,
         epoch_logger=config.logger.logger,
-        prepare_tensors=prepare_tensors,
+        prepare_tensors_fn=prepare_tensors_fn,
         forward_fn=forward_fn,
         loss_fn=loss_fn,
-        build_metric_inputs=build_metric_inputs_fn,
+        build_metric_inputs_fn=build_metric_inputs_fn,
         train_metrics=train_metrics,
         val_metrics=val_metrics,
         monitor_key=config.monitor.key,
@@ -90,5 +90,8 @@ def fit_classification(
         enable_progress_bar=config.trainer.enable_progress_bar,
         logger=False,
     )
-    trainer.fit(lit_module, train_dataloaders=train_loader, val_dataloaders=val_loader)
+    try:
+        trainer.fit(lit_module, train_dataloaders=train_loader, val_dataloaders=val_loader)
+    finally:
+        config.logger.logger.close()
     return trainer

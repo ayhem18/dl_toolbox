@@ -1,46 +1,61 @@
-import inspect
 from pathlib import Path
 
 import pytest
 
-from dl_toolbox.loggers.base import BaseLogger
-from dl_toolbox.loggers.placeholder_logger import PlaceholderLogger
-from dl_toolbox.loggers.tensorboard_logger import TensorBoardLogger
-from dl_toolbox.loggers.wandb_logger import WandbLogger
-from dl_toolbox.loggers import get_logger
-
-_METHODS = (
-    "__init__",
-    "log_scalar",
-    "log_dict",
-    "log_image",
-    "log_table",
-    "log_histogram",
-    "log_config",
-    "close",
+from dl_toolbox.data_contract.json_io import write_json
+from dl_toolbox.loggers.base_logger import LoggerError, flatten_mapping
+from dl_toolbox.loggers.factory import get_logger
+from dl_toolbox.loggers.placeholder.default_configurations import (
+    default_placeholder_setup,
 )
+from dl_toolbox.loggers.placeholder.placeholder_manager import PlaceholderManager
+from dl_toolbox.loggers.wandb.wandb_manager import WandbManager
 
 
-@pytest.mark.parametrize("cls", [PlaceholderLogger, TensorBoardLogger, WandbLogger])
-@pytest.mark.parametrize("name", _METHODS)
-def test_logger_signatures_match_base(cls, name: str) -> None:
-    base = inspect.signature(getattr(BaseLogger, name))
-    impl = inspect.signature(getattr(cls, name))
-    assert list(impl.parameters) == list(base.parameters)
+def _placeholder_logger(log_dir: Path):
+    manager = PlaceholderManager(default_placeholder_setup(log_dir=log_dir))
+    return get_logger("placeholder", manager=manager)
 
 
-def test_time_series_methods_take_step_first() -> None:
-    for name in ("log_scalar", "log_dict", "log_image", "log_table", "log_histogram"):
-        params = list(inspect.signature(getattr(BaseLogger, name)).parameters)
-        assert params[1] == "step"
-
-
-def test_placeholder_logger_writes_config(tmp_path: Path) -> None:
-    logger = get_logger("placeholder", log_dir=str(tmp_path / "run"))
-    logger.log_scalar(0, "loss", 1.0)
-    logger.log_config({"lr": 1e-3}, "train")
+def test_placeholder_logger_copies_artifact_onto_itself(tmp_path: Path) -> None:
+    log_dir = tmp_path / "run"
+    logger = _placeholder_logger(log_dir)
+    logger.setup()
+    source = log_dir / "train.json"
+    write_json(source, {"lr": 1e-3})
+    logger.log_artifact(source)
     logger.close()
-    assert (tmp_path / "run" / "train.json").read_text(encoding="utf-8")
+    assert source.is_file()
+
+
+def test_placeholder_logger_writes_artifact(tmp_path: Path) -> None:
+    log_dir = tmp_path / "run"
+    logger = _placeholder_logger(log_dir)
+    source = tmp_path / "train.json"
+    write_json(source, {"lr": 1e-3})
+    logger.setup()
+    logger.log_scalar("loss", 1.0, step=0)
+    logger.log_params(flatten_mapping({"lr": 1e-3}))
+    logger.log_artifact(source)
+    logger.close()
+    assert (log_dir / "train.json").read_text(encoding="utf-8")
+
+
+def test_placeholder_log_before_setup_raises(tmp_path: Path) -> None:
+    logger = _placeholder_logger(tmp_path / "run")
+    with pytest.raises(LoggerError, match="setup"):
+        logger.log_scalars({"loss": 1.0}, step=0)
+
+
+def test_placeholder_rejects_relative_log_dir() -> None:
+    with pytest.raises(ValueError, match="absolute"):
+        PlaceholderManager(default_placeholder_setup(log_dir="relative/run"))
+
+
+def test_unknown_logger_name_raises(tmp_path: Path) -> None:
+    manager = PlaceholderManager(default_placeholder_setup(log_dir=tmp_path / "run"))
+    with pytest.raises(ValueError, match="Unknown logger"):
+        get_logger("not-a-backend", manager=manager)
 
 
 def test_missing_wandb_explains_extra() -> None:
@@ -48,6 +63,6 @@ def test_missing_wandb_explains_extra() -> None:
         import wandb  # noqa: F401
     except ImportError:
         with pytest.raises(ImportError, match=r"dl-toolbox\[wandb\]"):
-            WandbLogger._import_wandb()
+            WandbManager._import_wandb()
     else:
         pytest.skip("wandb is installed in this environment")

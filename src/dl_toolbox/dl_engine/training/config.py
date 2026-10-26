@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dl_toolbox.loggers.base import BaseLogger
+from dl_toolbox.loggers.base_logger import Logger
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class EarlyStoppingConfig:
 
 @dataclass(frozen=True)
 class LoggerConfig:
-    logger: BaseLogger
+    logger: Logger
     run_config: dict[str, Any]
     run_config_filename: str
 

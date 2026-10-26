@@ -20,7 +20,11 @@ from dl_toolbox.dl_engine.training.config import (
     TrainerConfig,
 )
 from dl_toolbox.dl_engine.training.fit import build_metric_inputs, fit_classification
-from dl_toolbox.loggers import get_logger
+from dl_toolbox.loggers.factory import get_logger
+from dl_toolbox.loggers.placeholder.default_configurations import (
+    default_placeholder_setup,
+)
+from dl_toolbox.loggers.placeholder.placeholder_manager import PlaceholderManager
 
 
 class _LinearBinary(nn.Module):
@@ -57,7 +61,10 @@ def test_fit_classification_lightning(tmp_path) -> None:
     monitor = metric_log_name("loss", "val", LEVEL_EPOCH, "mean")
 
     run_dir = tmp_path / "logs"
-    logger = get_logger("placeholder", log_dir=str(run_dir))
+    logger = get_logger(
+        "placeholder",
+        manager=PlaceholderManager(default_placeholder_setup(log_dir=run_dir)),
+    )
 
     model = _LinearBinary()
     trainer = fit_classification(
@@ -65,7 +72,7 @@ def test_fit_classification_lightning(tmp_path) -> None:
         loader,
         loader,
         torch.optim.Adam(model.parameters(), lr=0.05),
-        prepare_tensors=_prepare_tensors,
+        prepare_tensors_fn=_prepare_tensors,
         forward_fn=_forward,
         loss_fn=_loss,
         build_metric_inputs_fn=build_metric_inputs,
