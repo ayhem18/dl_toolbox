@@ -4,6 +4,12 @@ Contracts a project can adopt before an experiment is worth comparing: metric de
 
 These are documents. They are not installed with `dl-toolbox`. When a contract becomes executable (a metric, a check, a fixture), that code moves to `src/dl_toolbox` and the standard links to it.
 
+| Folder | Job |
+|---|---|
+| [experiment_management](experiment_management/overview.md) | Run recipe, `ExpSignatureObj`, fit / log / checkpoint / inspect. |
+| [metrics](metrics/README.md) | Batch measurement, combiner, reducer. |
+| [data_contract](data_contract/README.md) | Entity, collection, process, lock. |
+
 ## Template
 
 Copy this heading block into a new file, one standard per file.
