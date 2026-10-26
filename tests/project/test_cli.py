@@ -43,3 +43,5 @@ def test_cli_setup_project_with_package(
     root = cwd / name
     assert not (root / "pyproject.toml").exists()
     assert (root / package / "pyproject.toml").is_file()
+    src_dir = root / package / "src" / package
+    assert sorted(path.name for path in src_dir.iterdir()) == ["__init__.py"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dl_toolbox.data_contract.hashing import (
+from dl_toolbox.base.hashing.identity import (
     DEFAULT_ARTIFACT_PREFIX_LEN,
     is_hashed_artifact_stem,
 )

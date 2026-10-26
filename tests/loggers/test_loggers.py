@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.data_contract.json_io import write_json
+from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.loggers.base_logger import LoggerError, flatten_mapping
 from dl_toolbox.loggers.factory import get_logger
 from dl_toolbox.loggers.placeholder.default_configurations import (

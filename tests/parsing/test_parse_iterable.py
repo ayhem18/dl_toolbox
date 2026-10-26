@@ -5,7 +5,7 @@ import string
 
 import pytest
 
-from dl_toolbox.parsing.parse_iterable import (
+from dl_toolbox.base.parsing.parse_iterable import (
     parse_mapping,
     parse_sequence,
     parse_unique_str_tuple,

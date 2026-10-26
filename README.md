@@ -42,14 +42,14 @@ Adjust the relative path to wherever the consumer lives under `DL_projects`.
 Copied from `defect_dl` (the fuller set; `seam_embedder` has a subset). Originals stay in those projects until they import from here.
 
 ```python
-from dl_toolbox.parsing.parse_numerical import parse_int, parse_positive_int
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.geometry.contours import contours_bbox
-from dl_toolbox.geometry.masks import rasterize_contours
-from dl_toolbox.geometry.bboxes import generate_tile_boxes_xyxy, contours_bbox_xyxy_int
+from dl_toolbox.base.parsing.parse_numerical import parse_int, parse_positive_int
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.geometry.contours import contours_bbox
+from dl_toolbox.base.geometry.masks import rasterize_contours
+from dl_toolbox.base.geometry.bboxes import generate_tile_boxes_xyxy, contours_bbox_xyxy_int
 ```
 
-`dl_toolbox.parsing` is stdlib-only. Geometry needs the extra:
+`dl_toolbox.base.parsing` is stdlib-only. Geometry needs the extra:
 
 ```toml
 [project]

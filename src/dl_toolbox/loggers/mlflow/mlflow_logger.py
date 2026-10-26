@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dl_toolbox.loggers.base_logger import Logger
 from dl_toolbox.loggers.mlflow.mlflow_manager import MlflowManager
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 
 class MlflowLogger(Logger):

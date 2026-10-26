@@ -6,12 +6,12 @@ import keyword
 from pathlib import Path
 from typing import Any
 
-from dl_toolbox.data_contract.json_io import read_json
+from dl_toolbox.base.file_management.parent_walk import find_file_in_parents
+from dl_toolbox.base.input_output.json_io import read_json
+from dl_toolbox.base.parsing.parse_iterable import parse_mapping
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_utils import require_exact_keys, require_key
 from dl_toolbox.data_contract.names import assert_generating_process_name
-from dl_toolbox.data_contract.repo import find_file_in_parents
-from dl_toolbox.parsing.parse_iterable import parse_mapping
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.parsing.parse_utils import require_exact_keys, require_key
 from dl_toolbox.project.layout import (
     PROJECT_MARKER_FILENAME,
     TRACKING_BACKEND_FILENAME,
@@ -48,7 +48,11 @@ def read_tracking_backend(project_root: Path) -> str:
         raise ValueError(
             f"{TRACKING_BACKEND_FILENAME} must contain exactly one line, got {len(lines)}"
         )
-    backend = parse_non_empty_str(lines[0], label=TRACKING_BACKEND_FILENAME)
+    return parse_tracking_backend(lines[0])
+
+
+def parse_tracking_backend(raw: object) -> str:
+    backend = parse_non_empty_str(raw, label=TRACKING_BACKEND_FILENAME)
     if backend not in TRACKING_BACKENDS:
         raise ValueError(
             f"{TRACKING_BACKEND_FILENAME} must be one of {sorted(TRACKING_BACKENDS)}, "

@@ -4,7 +4,7 @@ import random
 
 import pytest
 
-from dl_toolbox.parsing.parse_numerical import (
+from dl_toolbox.base.parsing.parse_numerical import (
     parse_bool,
     parse_half_open_unit_interval,
     parse_int,

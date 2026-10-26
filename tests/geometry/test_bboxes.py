@@ -5,7 +5,7 @@ import random
 import numpy as np
 import pytest
 
-from dl_toolbox.geometry.bboxes import (
+from dl_toolbox.base.geometry.bboxes import (
     compute_stride,
     contours_bbox_xyxy_int,
     generate_tile_boxes_xyxy,

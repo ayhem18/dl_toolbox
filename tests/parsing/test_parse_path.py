@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.parsing.parse_path import parse_absolute_path
+from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 
 
 def test_absolute_path(tmp_path: Path) -> None:

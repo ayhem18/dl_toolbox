@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dl_toolbox.geometry.contours import contours_bbox
+from dl_toolbox.base.geometry.contours import contours_bbox
 
 
 def contours_bbox_xyxy_int(

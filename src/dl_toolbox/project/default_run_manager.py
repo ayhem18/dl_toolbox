@@ -5,15 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dl_toolbox.data_contract.json_io import read_json
+from dl_toolbox.base.file_management.join import resolve_under_project
+from dl_toolbox.base.input_output.json_io import read_json
+from dl_toolbox.base.parsing.parse_iterable import parse_mapping
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_utils import require_exact_keys, require_key
 from dl_toolbox.data_contract.names import assert_generating_process_name
 from dl_toolbox.loggers.mlflow.mlflow_parser import MlflowParser
 from dl_toolbox.loggers.placeholder.placeholder_parser import PlaceholderParser
 from dl_toolbox.loggers.tensorboard.tensorboard_parser import TensorBoardParser
 from dl_toolbox.loggers.wandb.wandb_parser import WandbParser
-from dl_toolbox.parsing.parse_iterable import parse_mapping
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.parsing.parse_utils import require_exact_keys, require_key
 from dl_toolbox.project.discover import find_project_root, load_project_document, read_tracking_backend
 from dl_toolbox.project.layout import (
     BACKEND_MLFLOW,
@@ -21,12 +22,12 @@ from dl_toolbox.project.layout import (
     BACKEND_TENSORBOARD,
     BACKEND_WANDB,
     EXPERIMENTS_DIRNAME,
+    LOGGING_CONFIGS_DIRNAME,
     PROJECT_LEVEL_CONFIGS_DIRNAME,
     ProjectLayout,
     RUNS_DIRNAME,
     SCRIPTS_DIRNAME,
     STORAGE_DIRNAME,
-    resolve_under_project,
 )
 
 
@@ -116,7 +117,9 @@ class DefaultRunManager(ProjectLayout):
         raise ValueError(f"unknown tracking backend {backend!r}")
 
     def _read_backend_document(self, backend: str) -> dict[str, Any]:
-        path = self.project_level_configs_dir() / f"{backend}.json"
+        path = (
+            self.project_level_configs_dir() / LOGGING_CONFIGS_DIRNAME / f"{backend}.json"
+        )
         return parse_mapping(read_json(path), label=f"{backend} project config")
 
     def _materialize_tensorboard(self) -> dict:

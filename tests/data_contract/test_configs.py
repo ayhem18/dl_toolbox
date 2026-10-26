@@ -13,8 +13,8 @@ from dl_toolbox.data_contract.configs import (
     save_hashed_artifact,
     write_collection_configuration,
 )
-from dl_toolbox.data_contract.hashing import artifact_stem, hash_payload
-from dl_toolbox.data_contract.json_io import read_json
+from dl_toolbox.base.hashing.identity import artifact_stem, hash_payload
+from dl_toolbox.base.input_output.json_io import read_json
 
 from _support import N_TRIALS, random_generating_process_name, random_json_object
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dl_toolbox.geometry.masks import rasterize_contour, rasterize_contours
+from dl_toolbox.base.geometry.masks import rasterize_contour, rasterize_contours
 
 
 def _rectangle(x0: float, y0: float, x1: float, y1: float) -> np.ndarray:

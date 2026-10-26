@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from dl_toolbox.project.layout import DEFAULT_TRACKING_BACKEND, TRACKING_BACKENDS
 from dl_toolbox.project.scaffold import setup_project
 
 
@@ -23,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional Python package name. Writes a nested pyproject.toml, not one at the project root.",
     )
+    setup.add_argument(
+        "--tracking-backend",
+        default=DEFAULT_TRACKING_BACKEND,
+        choices=sorted(TRACKING_BACKENDS),
+        help="Selected tracking backend. Only this backend gets a storage folder; configs for every backend are written.",
+    )
     return parser
 
 
@@ -37,6 +44,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.project_name,
             parent=parent,
             package=args.package,
+            tracking_backend=args.tracking_backend,
         )
     except (ValueError, FileExistsError, FileNotFoundError, TypeError) as exc:
         sys.stderr.write(f"{exc}\n")

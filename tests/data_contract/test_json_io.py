@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.data_contract.json_io import read_json, write_json
+from dl_toolbox.base.input_output.json_io import read_json, write_json
 
 from _support import N_TRIALS, random_generating_process_name, random_json_object
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.data_contract.repo import find_file_in_parents, find_named_directory
+from dl_toolbox.base.file_management.parent_walk import find_file_in_parents, find_named_directory
 
 from _support import N_TRIALS, random_generating_process_name
 

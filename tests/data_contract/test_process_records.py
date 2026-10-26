@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from dl_toolbox.data_contract.configs import hashed_artifact_path
-from dl_toolbox.data_contract.hashing import hash_payload
-from dl_toolbox.data_contract.json_io import read_json, write_json
+from dl_toolbox.base.hashing.identity import hash_payload
+from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.data_contract.process_records import (
     assert_generating_process_name_available,
     create_payload_directory,

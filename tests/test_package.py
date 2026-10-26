@@ -9,10 +9,10 @@ def test_package_imports() -> None:
 
 
 def test_parsing_is_importable_without_geometry() -> None:
-    from dl_toolbox.parsing.parse_iterable import parse_mapping
-    from dl_toolbox.parsing.parse_numerical import parse_int
-    from dl_toolbox.parsing.parse_str import parse_non_empty_str
-    from dl_toolbox.parsing.parse_utils import require_key
+    from dl_toolbox.base.parsing.parse_iterable import parse_mapping
+    from dl_toolbox.base.parsing.parse_numerical import parse_int
+    from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
+    from dl_toolbox.base.parsing.parse_utils import require_key
 
     assert parse_int(3, label="n") == 3
     assert parse_non_empty_str(" a ", label="s") == "a"

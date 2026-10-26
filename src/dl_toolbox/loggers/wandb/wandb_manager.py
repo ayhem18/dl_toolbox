@@ -12,7 +12,7 @@ from dl_toolbox.loggers.base_logger import (
     require_logger_open,
 )
 from dl_toolbox.loggers.wandb.wandb_parser import WandbParser
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 _EXTRA = "wandb"
 

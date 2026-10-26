@@ -9,11 +9,11 @@ or opencv:
 - `dl_toolbox.seed.seed_everything`
 - `dl_toolbox.loggers.base_logger.Logger`
 - `dl_toolbox.loggers.factory.get_logger`
-- `dl_toolbox.data_contract.hash_payload`
-- `dl_toolbox.parsing.parse_numerical.parse_int`
-- `dl_toolbox.geometry.contours.contours_bbox`
-- `dl_toolbox.geometry.masks.rasterize_contours`
-- `dl_toolbox.geometry.bboxes.generate_tile_boxes_xyxy`
+- `dl_toolbox.base.hashing.identity.hash_payload`
+- `dl_toolbox.base.parsing.parse_numerical.parse_int`
+- `dl_toolbox.base.geometry.contours.contours_bbox`
+- `dl_toolbox.base.geometry.masks.rasterize_contours`
+- `dl_toolbox.base.geometry.bboxes.generate_tile_boxes_xyxy`
 - `dl_toolbox.dl_engine.training.fit.fit_classification`
 - `dl_toolbox.dl_engine.training.config.FitConfig`
 - `dl_toolbox.dl_engine.metrics.classification.classification.binary_classification_accuracy_metric`

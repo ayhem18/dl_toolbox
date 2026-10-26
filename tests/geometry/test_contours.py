@@ -5,7 +5,7 @@ import random
 import numpy as np
 import pytest
 
-from dl_toolbox.geometry.contours import contour_aabb_wh, contours_bbox
+from dl_toolbox.base.geometry.contours import contour_aabb_wh, contours_bbox
 
 N_TRIALS = 40
 

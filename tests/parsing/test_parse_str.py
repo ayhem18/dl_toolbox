@@ -5,7 +5,7 @@ import string
 
 import pytest
 
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 N_TRIALS = 40
 

@@ -5,7 +5,7 @@ import string
 
 import pytest
 
-from dl_toolbox.parsing.parse_utils import (
+from dl_toolbox.base.parsing.parse_utils import (
     expected_vs_actual,
     require_exact_keys,
     require_key,

@@ -9,7 +9,7 @@ import lightning as L
 import torch
 from torch import Tensor, nn
 
-from dl_toolbox.data_contract.json_io import write_json
+from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.dl_engine.metrics.accumulator import MetricAccumulator
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
 from dl_toolbox.loggers.base_logger import Logger, flatten_mapping

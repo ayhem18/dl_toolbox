@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dl_toolbox.parsing.parse_iterable import parse_mapping
-from dl_toolbox.parsing.parse_numerical import parse_positive_number
-from dl_toolbox.parsing.parse_path import parse_absolute_path
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.parsing.parse_utils import require_exact_keys
+from dl_toolbox.base.parsing.parse_iterable import parse_mapping
+from dl_toolbox.base.parsing.parse_numerical import parse_positive_number
+from dl_toolbox.base.parsing.parse_path import parse_absolute_path
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_utils import require_exact_keys
 
 _BACKEND_TYPES = frozenset({"database", "filesystem"})
 _DATABASE_TYPES = frozenset({"sqlite", "postgres"})

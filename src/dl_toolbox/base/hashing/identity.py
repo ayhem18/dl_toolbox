@@ -1,4 +1,17 @@
-"""Identity hashing. The document stores the full SHA-256; filenames use a prefix."""
+"""Identity hashing.
+
+The stored identity is always the full SHA-256 of canonical JSON. Filenames
+use a short prefix of that digest.
+
+Do not expose ``prefix_len`` as a per-call knob. One project must use one
+prefix length for writing stems, recognizing stems, and every other check.
+Passing different values on different calls is an easy, silent mismatch.
+
+Later: replace these free functions with a hasher class configured once at
+the project level (prefix length and any other identity policy). Callers
+then hash and inspect stems through that object and never choose
+``prefix_len``.
+"""
 
 from __future__ import annotations
 

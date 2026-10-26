@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from dl_toolbox.data_contract.configs import hashed_artifact_path
-from dl_toolbox.data_contract.hashing import (
+from dl_toolbox.base.hashing.identity import (
     DEFAULT_ARTIFACT_PREFIX_LEN,
     is_full_sha256,
 )
-from dl_toolbox.data_contract.json_io import read_json, write_json
+from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.data_contract.names import assert_generating_process_name
 
 HUMAN_READABLE_DIRNAME = "human_readable"

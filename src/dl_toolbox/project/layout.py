@@ -5,11 +5,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
-
 PROJECT_MARKER_FILENAME = "dl_toolbox_project.json"
 TRACKING_BACKEND_FILENAME = ".tracking-backend"
 PROJECT_LEVEL_CONFIGS_DIRNAME = "project_level_configs"
+LOGGING_CONFIGS_DIRNAME = "logging"
 STORAGE_DIRNAME = "storage"
 RUNS_DIRNAME = "runs"
 TENSORBOARD_DIRNAME = "tensorboard"
@@ -92,34 +91,3 @@ class ProjectLayout(ABC):
     @abstractmethod
     def get_placeholder_global_config(self) -> dict:
         raise NotImplementedError
-
-
-def resolve_under_project(project_root: Path, relative_path: str, *, label: str) -> Path:
-    """Join a posix-relative path under an absolute project root.
-
-    The target does not have to exist. ``..`` and absolute paths are rejected.
-    This function does not use cwd.
-    """
-    if not project_root.is_absolute():
-        raise ValueError(f"project_root must be an absolute path, got {project_root}")
-    root = project_root.resolve()
-    text = parse_non_empty_str(relative_path, label=label).replace("\\", "/")
-    if Path(text).is_absolute() or text.startswith("/"):
-        raise ValueError(f"{label} must be relative to the project root, got {relative_path!r}")
-    parts = [part for part in text.split("/") if part not in ("", ".")]
-    if not parts:
-        raise ValueError(f"{label} is empty after normalization: {relative_path!r}")
-    n_parts = len(parts)
-    for i in range(n_parts):
-        if parts[i] == "..":
-            raise ValueError(
-                f"{label} must stay under the project root, got {relative_path!r}"
-            )
-    absolute = root.joinpath(*parts).resolve()
-    try:
-        absolute.relative_to(root)
-    except ValueError as exc:
-        raise ValueError(
-            f"{label} escapes the project root: {relative_path!r}"
-        ) from exc
-    return absolute

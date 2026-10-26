@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dl_toolbox.loggers.base_logger import Logger
 from dl_toolbox.loggers.wandb.wandb_manager import WandbManager
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 
 class WandbLogger(Logger):

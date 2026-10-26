@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from dl_toolbox.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 
 def parse_mapping(raw: object, *, label: str) -> dict:

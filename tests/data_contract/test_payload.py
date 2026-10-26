@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.data_contract.payload import join_under
+from dl_toolbox.base.file_management.join import join_under
 
 from _support import N_TRIALS, random_generating_process_name
 
