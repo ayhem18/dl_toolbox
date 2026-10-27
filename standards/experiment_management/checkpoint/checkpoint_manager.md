@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | Expected | `checkpoint_config`: `{ "save_top_k": int, "save_last": bool }`. Directory: `run_dir/checkpoints`. Monitor (key + mode) from [`build_experiment`](../signature/build_experiment.md) — not from this dict, not from a `monitor_config` key. |
-| Comes from | Policy: [`dl_toolbox_config.checkpoint_config`](../recipe/dl_toolbox_config.md). Directory: [run identity](../recipe/run_identity.md). Monitor bound by [DefaultRunManager](../project/default_run_manager.md) after `build_experiment`. |
+| Comes from | Policy: [`dl_toolbox_config.checkpoint_config`](../recipe/dl_toolbox_config.md). Directory: [run identity](../recipe/run_identity.md). Monitor bound by [AbstractRunManager](../project/abstract_run_manager.md) after `build_experiment`. |
 | Conditions | Exact keys `save_top_k`, `save_last`. No `dirpath`. No filename template. Filename pattern is manager opinion: `epoch=012.ckpt`. |
 
 **Potential issues**

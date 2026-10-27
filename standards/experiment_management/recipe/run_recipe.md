@@ -57,11 +57,11 @@ flowchart TB
   hash --> identity
 ```
 
-`hash = hash(dl_toolbox_config, experiment_config)`.
+`hash = HashManager.hash_payload({dl_toolbox_config, experiment_config})`. Prefix length is not chosen here.
 
 ## 3. Output
 
 | | |
 |---|---|
 | Expected | Name (label). Two config objects (configuration). Hash of the configuration only. |
-| Consumers | [`manage_run`](../project/default_run_manager.md), [run identity](run_identity.md), [dl_toolbox_config](dl_toolbox_config.md), [build_experiment](../signature/build_experiment.md). |
+| Consumers | [`manage_run`](../project/abstract_run_manager.md), [run identity](run_identity.md), [dl_toolbox_config](dl_toolbox_config.md), [build_experiment](../signature/build_experiment.md). |

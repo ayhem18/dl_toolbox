@@ -1,66 +1,44 @@
 # DefaultRunManager
 
-Opinionated layout plus `manage_run`. Dispatches each [`dl_toolbox_config`](../recipe/dl_toolbox_config.md) sub-config to its parser. Does not parse `experiment_config`. Does not treat `human_readable_name` as configuration. Does not treat `project_name` as an MLflow experiment or W&B project.
+Opinionated project tree. Subclass of [`AbstractRunManager`](abstract_run_manager.md). Does **not** assemble [`ExpSignatureObj`](../signature/exp_signature_obj.md). `manage_run` is inherited.
 
-The ABC `RunManager` is smaller: `project_name`, `project_runs_dir()`, `tracking_backend()`, `make_logging_manager()`. Layout and recipe parsing stay on the default class.
+Does not parse nested toolbox keys. Does not parse `experiment_config`. Does not treat `project_name` as an MLflow experiment or W&B project.
 
-A project subclass is required to run: it implements [`build_experiment`](../signature/build_experiment.md).
+Store JSON and `identity.json` are parsed by `{Backend}ProjectLoggerConfigParser` and `IdentityConfigParser`. This class reads the files, constructs those parsers, constructs the `dl_engine` / `base` objects from their fields. It does not inline `require_exact_keys` for MLflow/TensorBoard (that duplication is `_materialize_*` today).
+
+The project does **not** subclass this class to teach it a loss. It passes an `ExperimentConfigManager`. Class names and files: [implementation blueprint](../implementation_blueprint.md).
 
 ## 1. Input
 
 | | |
 |---|---|
-| Expected | `project_name`, absolute `start`, and a [run recipe](../recipe/run_recipe.md). |
-| Comes from | Constructor: [project files](project_files.md). `manage_run`: the recipe JSON. |
-| Conditions | Marker name matches constructor. Recipe has the three keys. `dl_toolbox_config` matches the known schema. |
+| Expected | `project_name`, absolute `start`, an `ExperimentConfigManager`. |
+| Comes from | Constructor: [project files](project_files.md) plus the project’s experiment manager. |
+| Conditions | Marker name matches constructor. `.tracking-backend` is one of the four backends. |
 
 **Potential issues**
 
-- Instantiating `DefaultRunManager` and calling `manage_run` without a subclass: `build_experiment` is abstract.
-- Putting store paths or backend name in `dl_toolbox_config`.
-- Injecting `project_name` into Logger `experiment` / `project`.
-- Hashing the whole recipe file (that would include the name).
-- Fit assembling `dirpath` / logger / `FitConfig` in a script instead of going through `manage_run`.
-- Seeding after `build_experiment`, or skipping `seed_config`.
-- Binding monitor from a `monitor_config` key. That key does not exist. The experiment returns it.
+- Re-implementing store schema next to `{Backend}ProjectLoggerConfigParser`.
+- `LoggingManager.__init__(payload_dict)` that parses again.
+- Putting payload under `storage/runs/{name}/` next to the HashManager index folders.
 
 ## 2. Processing
 
 ```mermaid
 flowchart TD
-  recipe["run_recipe"] --> dispatch["dispatch each dl_toolbox_config key"]
-  recipe --> claim["run identity: label + hash(configuration)"]
-  dispatch --> logger["logger_config → Logger"]
-  dispatch --> ckpt["checkpoint_config → CheckpointManager"]
-  dispatch --> trainer["trainer_config → TrainerConfig"]
-  dispatch --> seed["seed_config → seed_everything"]
-  dispatch --> es["early_stopping_config → EarlyStoppingConfig"]
-  store["logging/{backend}.json"] --> lman["LoggingManager"]
-  lman --> logger
-  claim --> ckpt
-  seed --> build["build_experiment(experiment_config)"]
-  recipe --> build
-  build --> monitor["experiment.monitor"]
-  monitor --> ckpt
-  trainer --> fitcfg["FitConfig"]
-  es --> fitcfg
-  monitor --> fitcfg
-  logger --> fitcfg
-  logger --> sig["ExpSignatureObj"]
-  ckpt --> sig
-  fitcfg --> sig
-  build --> sig
-  seed --> sig
-  claim --> sig
+  start["start = Path(__file__)"] --> marker["find dl_toolbox_project.json"]
+  marker --> backend["read .tracking-backend"]
+  backend --> pparser["{Backend}ProjectLoggerConfigParser"]
+  pparser --> lman["LoggingManager"]
+  marker --> iparser["IdentityConfigParser"]
+  iparser --> hman["HashManager"]
 ```
 
-See [dl_toolbox_config](../recipe/dl_toolbox_config.md) for the key → parser → object table.
-
-Order that must not flip: parse toolbox → apply seed → claim/open → `build_experiment` → bind monitor → assemble `FitConfig`.
+`make_logging_manager()` / `make_hash_manager()` are the layout hooks `AbstractRunManager` calls. Records: `storage/runs`. Payload: `storage/run_artifacts/{name}`.
 
 ## 3. Output
 
 | | |
 |---|---|
-| Expected | [`ExpSignatureObj`](../signature/exp_signature_obj.md). |
-| Consumers | [`run_experiment`](../loops/run_experiment.md). Later: inspect. Scripts do not unpack the recipe themselves. |
+| Expected | Paths, selected `LoggingManager`, `HashManager`. Inherited `manage_run` / `open_run`. |
+| Consumers | [`AbstractRunManager`](abstract_run_manager.md). Scripts instantiate this class, then call `manage_run`. |

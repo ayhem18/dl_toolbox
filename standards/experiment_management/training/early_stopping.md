@@ -9,7 +9,7 @@ Off is a **present** value: `EarlyStoppingConfig.NONE`. Same idea as `Item.ABSEN
 | | |
 |---|---|
 | Expected | Exact keys `name`, `params`. `name` is a class constant on `EarlyStoppingConfig`. `params` is exact for that name. |
-| Comes from | [`dl_toolbox_config.early_stopping_config`](../recipe/dl_toolbox_config.md). Monitor (key + mode): [`build_experiment`](../signature/build_experiment.md), bound by [`manage_run`](../project/default_run_manager.md). |
+| Comes from | [`dl_toolbox_config.early_stopping_config`](../recipe/dl_toolbox_config.md). Monitor (key + mode): [`build_experiment`](../signature/build_experiment.md), bound by [`manage_run`](../project/abstract_run_manager.md). |
 | Conditions | `name` is `EarlyStoppingConfig.NONE` (`"none"`) or `EarlyStoppingConfig.PATIENCE` (`"patience"`). `NONE` → `params` is `{}`. `PATIENCE` → `params` is `{ "patience": int >= 1, "min_delta": float >= 0 }`. Extra or missing keys refuse. |
 
 ```json

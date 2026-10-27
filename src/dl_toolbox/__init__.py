@@ -6,10 +6,10 @@ tests that justified the move live in this repository.
 Heavy imports live in submodules so `import dl_toolbox` does not pull torch
 or opencv:
 
-- `dl_toolbox.seed.seed_everything`
-- `dl_toolbox.loggers.base_logger.Logger`
-- `dl_toolbox.loggers.factory.get_logger`
-- `dl_toolbox.run_manager.RunManager`
+- `dl_toolbox.dl_engine.seed.seed_everything`
+- `dl_toolbox.dl_engine.loggers.base_logger.Logger`
+- `dl_toolbox.dl_engine.loggers.factory.get_logger`
+- `dl_toolbox.experiment_management.project.abstract_run_manager.AbstractRunManager`
 - `dl_toolbox.base.hashing.identity.hash_payload`
 - `dl_toolbox.base.parsing.parse_numerical.parse_int`
 - `dl_toolbox.base.geometry.contours.contours_bbox`

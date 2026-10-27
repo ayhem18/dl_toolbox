@@ -5,16 +5,18 @@ Project-level store. One sqlite + artifact root, one W&B dir, one TensorBoard pa
 Not a run. Not an MLflow experiment. Not a W&B project. Those fields belong on the [Logger](logger.md) via `logger_config`.
 
 ```
-project dict → Manager parser → LoggingManager
-run dict     → Logger parser  → Logger(manager=...)
+project dict → ProjectLoggerConfigParser → LoggingManager
+run dict     → RunLoggerConfigParser     → Logger(manager=...)
 ```
+
+Parsers: `experiment_management`. Classes: `dl_engine.loggers`.
 
 ## 1. Input
 
 | | |
 |---|---|
 | Expected | Store dict for the selected backend. Paths already absolute and under the project root. |
-| Comes from | [DefaultRunManager](../project/default_run_manager.md) reading `logging/{backend}.json` after [project files](../project/project_files.md). |
+| Comes from | [DefaultRunManager](../project/default_run_manager.md) reading `logging/{backend}.json`, then `{Backend}ProjectLoggerConfigParser` (schema + resolve under project root). |
 | Conditions | Schema is backend-specific and exact. No `project`, no `experiment`, no `run_name`, no `tags`. |
 
 **Potential issues**
@@ -25,7 +27,7 @@ run dict     → Logger parser  → Logger(manager=...)
 
 ## 2. Processing
 
-Parser validates. Manager creates directories, sets tracking URI, pings the backend. It does not open a run.
+Parser validates and resolves relative paths. Manager takes typed absolute fields — it does not construct a parser. It creates directories, sets tracking URI, pings the backend. It does not open a run.
 
 | Backend | Manager holds |
 |---|---|

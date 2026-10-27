@@ -6,9 +6,9 @@ One invocation, one epoch, one folder. Same [`ExpSignatureObj`](../signature/exp
 
 | | |
 |---|---|
-| Expected | The same run recipe (so `manage_run` **opens**, not claims). A selector: `epoch=N`, `rank=1`, or `last`. Not a recipe field. |
-| Comes from | Train script’s sibling inspect script. Selector from CLI. Signature from `manage_run` (seed applied, then `build_experiment`). Weights from [`CheckpointManager.lookup`](../checkpoint/checkpoint_manager.md). Net from [`build_experiment`](../signature/build_experiment.md). |
-| Conditions | This name already claimed for this **configuration** hash. Selector must resolve in the catalog. `inspection_runs/epoch=N` must not already exist. |
+| Expected | The same run recipe (so `open_run`, not claim). A selector: `epoch=N`, `rank=1`, or `last`. Not a recipe field. |
+| Comes from | Train script’s sibling inspect script. Selector from CLI. Signature from `open_run` (HashManager **both_match**, seed applied, then `build_experiment`). Weights from [`CheckpointManager.lookup`](../checkpoint/checkpoint_manager.md). Net from [`build_experiment`](../signature/build_experiment.md). |
+| Conditions | [`HashManager.lookup`](../project/hash_manager.md) is both-exist-and-agree for this name and configuration hash. Payload dir already exists. Selector must resolve in the catalog. `inspection_runs/epoch=N` must not already exist. |
 
 **Potential issues**
 

@@ -68,17 +68,17 @@ dictionary  ->  parser  ->  manager  ->  logger
 ```
 
 - **Toolbox:** `Logger` ABC, `{backend}_parser`, `{backend}_manager`, `{backend}_logger`, and `default_configurations.py` (dicts only).
-- **Project:** store paths, plus `RunManager.project_name` as the W&B project / MLflow experiment. Run names stay on the logger.
+- **Project:** store paths. W&B `project` / MLflow `experiment` live on the Logger, not on `AbstractRunManager.project_name`. Run names stay on the logger.
 
 ```python
-from dl_toolbox.loggers.mlflow.default_configurations import (
+from dl_toolbox.dl_engine.loggers.mlflow.default_configurations import (
     default_filesystem_artifact_store,
     default_mlflow_setup,
     default_sqlite_backend_store,
 )
-from dl_toolbox.loggers.mlflow.mlflow_logger import MlflowLogger
-from dl_toolbox.loggers.mlflow.mlflow_manager import MlflowManager
-from dl_toolbox.loggers.base_logger import flatten_mapping
+from dl_toolbox.dl_engine.loggers.mlflow.mlflow_logger import MlflowLogger
+from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
+from dl_toolbox.dl_engine.loggers.base_logger import flatten_mapping
 
 mlflow_dir = storage_dir / "mlflow"
 manager = MlflowManager(
@@ -102,9 +102,9 @@ logger.close()
 TensorBoard and placeholder follow the same split: the project passes `log_dir`, the manager writes there.
 
 ```python
-from dl_toolbox.loggers.factory import get_logger
-from dl_toolbox.loggers.tensorboard.default_configurations import default_tensorboard_setup
-from dl_toolbox.loggers.tensorboard.tensorboard_manager import TensorBoardManager
+from dl_toolbox.dl_engine.loggers.factory import get_logger
+from dl_toolbox.dl_engine.loggers.tensorboard.default_configurations import default_tensorboard_setup
+from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
 
 manager = TensorBoardManager(default_tensorboard_setup(log_dir=artifacts_dir / "tensorboard"))
 logger = get_logger("tensorboard", manager=manager)

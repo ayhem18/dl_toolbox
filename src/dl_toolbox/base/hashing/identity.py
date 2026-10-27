@@ -1,16 +1,16 @@
-"""Identity hashing.
+"""Identity hashing primitives.
 
 The stored identity is always the full SHA-256 of canonical JSON. Filenames
 use a short prefix of that digest.
 
-Do not expose ``prefix_len`` as a per-call knob. One project must use one
-prefix length for writing stems, recognizing stems, and every other check.
-Passing different values on different calls is an easy, silent mismatch.
+Do not expose ``prefix_len`` as a per-call knob at product call sites. One
+project must use one prefix length for writing stems, recognizing stems, and
+every other check. Passing different values on different calls is an easy,
+silent mismatch.
 
-Later: replace these free functions with a hasher class configured once at
-the project level (prefix length and any other identity policy). Callers
-then hash and inspect stems through that object and never choose
-``prefix_len``.
+Callers go through ``HashManager`` (project ``identity.json``: prefix length
+plus the human-readable and hashes folder names). These functions stay the
+digest primitives that object uses. They are not a second public identity API.
 """
 
 from __future__ import annotations

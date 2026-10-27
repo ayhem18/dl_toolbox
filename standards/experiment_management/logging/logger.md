@@ -8,7 +8,7 @@ Two payloads, two lifetimes:
 |---|---|---|
 | Lifetime | project | this run |
 | File | `project_level_configs/logging/{backend}.json` | `dl_toolbox_config.logger_config` |
-| Parser | backend Manager parser | backend Logger parser |
+| Parser | `{Backend}ProjectLoggerConfigParser` | `{Backend}RunLoggerConfigParser` |
 | Holds | store (sqlite, artifact root, parent `log_dir`, W&B `dir`) | vendor run identity (`experiment` / `project`, `run_name`, tags) |
 
 `.tracking-backend` selects **which pair of parsers** run. It is not a recipe field.
@@ -43,7 +43,7 @@ Two payloads, two lifetimes:
 
 **Potential issues**
 
-- Setting MLflow `experiment` or W&B `project` to `RunManager.project_name` by default. One toolbox project, several tracking experiments, is a normal use. The recipe must name the experiment.
+- Setting MLflow `experiment` or W&B `project` to `AbstractRunManager.project_name` by default. One toolbox project, several tracking experiments, is a normal use. The recipe must name the experiment.
 - Putting `experiment` / `project` / `run_name` / `tags` in the LoggingManager JSON.
 - TensorBoard Logger writing on the parent `log_dir` instead of `log_dir / run_name`.
 - Inspect using fluent `start_run(run_id=)` on MLflow.
@@ -53,17 +53,17 @@ Two payloads, two lifetimes:
 
 ```mermaid
 flowchart LR
-  store["logging/{backend}.json"] --> mp["Manager parser"]
-  mp --> mgr["LoggingManager"]
-  cfg["logger_config"] --> lp["Logger parser"]
-  mgr --> logger["Logger"]
+  store["logging/{backend}.json"] --> mp["ProjectLoggerConfigParser"]
+  mp --> mgr["LoggingManager — dl_engine"]
+  cfg["logger_config"] --> lp["RunLoggerConfigParser"]
+  mgr --> logger["Logger — dl_engine"]
   lp --> logger
   logger --> setup["logger.setup()"]
   setup --> api["log_params / log_scalars / log_artifact"]
   api --> close["logger.close()"]
 ```
 
-The Logger parser is backend-specific, same as the Manager parser. Extra keys refuse. Switching `.tracking-backend` without matching `logger_config` keys fails at parse.
+Both parsers live in `experiment_management`. The manager and logger live in `dl_engine` and do not parse JSON. Extra keys refuse. Switching `.tracking-backend` without matching `logger_config` keys fails at parse.
 
 ## 3. Output
 

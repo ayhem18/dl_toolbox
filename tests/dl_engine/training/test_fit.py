@@ -11,20 +11,16 @@ from dl_toolbox.dl_engine.metrics.classification.classification import (
 )
 from dl_toolbox.dl_engine.metrics.contracts import KEY_TARGET
 from dl_toolbox.dl_engine.metrics.metric_object import LEVEL_EPOCH, metric_log_name
+from dl_toolbox.dl_engine.training.checkpoint import CheckpointManager
 from dl_toolbox.dl_engine.training.config import (
-    CheckpointConfig,
     EarlyStoppingConfig,
     FitConfig,
-    LoggerConfig,
     MonitorConfig,
     TrainerConfig,
 )
 from dl_toolbox.dl_engine.training.fit import build_metric_inputs, fit_classification
-from dl_toolbox.loggers.factory import get_logger
-from dl_toolbox.loggers.placeholder.default_configurations import (
-    default_placeholder_setup,
-)
-from dl_toolbox.loggers.placeholder.placeholder_manager import PlaceholderManager
+from dl_toolbox.dl_engine.loggers.factory import get_logger
+from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
 
 
 class _LinearBinary(nn.Module):
@@ -59,11 +55,20 @@ def test_fit_classification_lightning(tmp_path) -> None:
     acc = binary_classification_accuracy_metric()
     specs = [(loss_metric, (), ("mean",)), (acc, (), ("acc",))]
     monitor = metric_log_name("loss", "val", LEVEL_EPOCH, "mean")
+    monitor_config = MonitorConfig(key=monitor, mode="min")
 
-    run_dir = tmp_path / "logs"
+    log_dir = tmp_path / "logs"
+    run_dir = tmp_path / "run"
     logger = get_logger(
         "placeholder",
-        manager=PlaceholderManager(default_placeholder_setup(log_dir=run_dir)),
+        manager=PlaceholderManager(log_dir=log_dir),
+        run_name="test",
+    )
+    checkpoint_manager = CheckpointManager(
+        save_top_k=-1,
+        save_last=True,
+        run_dir=run_dir,
+        monitor=monitor_config,
     )
 
     model = _LinearBinary()
@@ -83,23 +88,23 @@ def test_fit_classification_lightning(tmp_path) -> None:
                 max_epochs=2,
                 accelerator="cpu",
                 devices=1,
+                precision=32,
                 enable_progress_bar=False,
             ),
-            monitor=MonitorConfig(key=monitor, mode="min"),
-            checkpoint=CheckpointConfig(
-                dirpath=tmp_path / "ckpt",
-                filename="best",
-                save_top_k=1,
-                save_last=False,
+            monitor=monitor_config,
+            early_stopping=EarlyStoppingConfig(
+                name=EarlyStoppingConfig.PATIENCE,
+                patience=3,
+                min_delta=1e-5,
             ),
-            logger=LoggerConfig(
-                logger=logger,
-                run_config={"monitor": monitor},
-                run_config_filename="run_config",
-            ),
-            early_stopping=EarlyStoppingConfig(patience=3, min_delta=1e-5),
         ),
+        checkpoint_manager=checkpoint_manager,
+        logger=logger,
+        run_config={"monitor": monitor},
     )
     assert trainer.current_epoch >= 1
-    assert (tmp_path / "ckpt" / "best.ckpt").exists()
-    assert (run_dir / "run_config.json").exists()
+    checkpoints = run_dir / "checkpoints"
+    assert (checkpoints / "catalog.json").is_file()
+    ckpt_files = list(checkpoints.glob("epoch=*.ckpt"))
+    assert ckpt_files
+    assert (log_dir / "test" / "run_config.json").exists()

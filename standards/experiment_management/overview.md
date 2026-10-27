@@ -31,6 +31,7 @@ flowchart TB
     marker["dl_toolbox_project.json"]
     backend[".tracking-backend"]
     stores["logging/{backend}.json"]
+    identityjson["identity.json"]
   end
 
   subgraph recipe ["run_recipe.json"]
@@ -44,13 +45,17 @@ flowchart TB
   name --> identity["run identity"]
   cfghash --> identity
 
-  toolbox --> drm["DefaultRunManager"]
-  experiment --> build["build_experiment"]
-  marker --> drm
+  toolbox --> arm["AbstractRunManager"]
+  experiment --> build["ExperimentConfigManager"]
+  marker --> drm["DefaultRunManager"]
   backend --> drm
   stores --> drm
+  identityjson --> drm
+  drm --> arm
 
   drm --> lman["LoggingManager"]
+  drm --> hman["HashManager"]
+  hman --> identity
   toolbox --> logger_cfg["logger_config"]
   toolbox --> ckpt_cfg["checkpoint_config"]
   toolbox --> trainer_cfg["trainer_config"]
@@ -68,7 +73,6 @@ flowchart TB
   trainer_cfg --> fitcfg["FitConfig"]
   es_cfg --> fitcfg
   monitor --> fitcfg
-  logger --> fitcfg
 
   identity --> sig["ExpSignatureObj"]
   fitcfg --> sig
@@ -99,12 +103,13 @@ Inspect never writes policy. Fit never reads inspect config.
 
 | Folder | What to read |
 |---|---|
+| [implementation_blueprint.md](implementation_blueprint.md) | Files, class names, composition. How this contract is coded. |
 | [recipe/](recipe/run_recipe.md) | The JSON file. Name vs configuration. [`dl_toolbox_config`](recipe/dl_toolbox_config.md) sub-configs. |
-| [project/](project/project_files.md) | Layout, discovery, `DefaultRunManager.manage_run`. |
+| [project/](project/project_files.md) | Layout, discovery, `HashManager`, `AbstractRunManager.manage_run`. |
 | [logging/](logging/logging_manager.md) | Store vs run logger. |
 | [checkpoint/](checkpoint/checkpoint_manager.md) | Policy, callback, catalog. |
 | [training/](training/trainer.md) | Trainer, seed, early stopping. |
-| [signature/](signature/exp_signature_obj.md) | Shared object. `build_experiment`. |
+| [signature/](signature/exp_signature_obj.md) | Shared object. `ExperimentConfigManager.build`. |
 | [loops/](loops/run_experiment.md) | Entry point, fit, inspect. |
 
 ## Keys and readers
@@ -116,10 +121,11 @@ Inspect never writes policy. Fit never reads inspect config.
 | `dl_toolbox_config.logger_config` | Run-level Logger fields. | [Logger](logging/logger.md) |
 | `dl_toolbox_config.checkpoint_config` | Retention policy. | [CheckpointManager](checkpoint/checkpoint_manager.md) |
 | `dl_toolbox_config.trainer_config` | Lightning loop knobs. | [Trainer](training/trainer.md) |
-| `dl_toolbox_config.seed_config` | RNG seed. Applied before `build_experiment`. | [Seed](training/seed.md) |
+| `dl_toolbox_config.seed_config` | RNG seed. Applied before `ExperimentConfigManager.build`. | [Seed](training/seed.md) |
 | `dl_toolbox_config.early_stopping_config` | Required. `name` is `none` or `patience`. | [Early stopping](training/early_stopping.md) |
 | `experiment_config` | Configuration (hashed). Includes which metric to monitor. | [build_experiment](signature/build_experiment.md) |
 | project files | Not in the recipe. | [project files](project/project_files.md) |
+| `project_level_configs/identity.json` | Prefix length + index folder names. Not hashed. | [`HashManager`](project/hash_manager.md) |
 | *(absent)* `monitor_config` | Task metric. Not a toolbox key. | [build_experiment](signature/build_experiment.md) |
 | *(absent)* backend, stores, dirpath, inspect epoch | Not a recipe key. | project files / inspect CLI |
 

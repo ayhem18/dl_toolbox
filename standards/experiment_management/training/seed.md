@@ -2,7 +2,7 @@
 
 `dl_toolbox_config.seed_config` → Seed parser → `SeedConfig`. Required. Applied **before** [`build_experiment`](../signature/build_experiment.md) so model init and loaders see it.
 
-The helper is `dl_toolbox.seed.seed_everything`. The recipe integer is the argument. The helper’s own default is not a run default.
+The helper is `dl_toolbox.dl_engine.seed.seed_everything`. The recipe integer is the argument. The helper’s own default is not a run default.
 
 ## 1. Input
 
@@ -43,4 +43,4 @@ flowchart TD
 | | |
 |---|---|
 | Expected | Process RNGs seeded. `SeedConfig` on the signature. |
-| Consumers | [`manage_run`](../project/default_run_manager.md) (applies). [`ExpSignatureObj`](../signature/exp_signature_obj.md) (stores). Fit does not take seed as an argument. |
+| Consumers | [`manage_run`](../project/abstract_run_manager.md) (applies). [`ExpSignatureObj`](../signature/exp_signature_obj.md) (stores). Fit does not take seed as an argument. |

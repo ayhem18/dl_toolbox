@@ -3,7 +3,11 @@
 Default entry point. Consumes [`ExpSignatureObj`](../signature/exp_signature_obj.md). Calls [fit](fit.md). Project scripts become two lines.
 
 ```python
-signature = MnistVitRunManager(start=Path(__file__)).manage_run(recipe)
+signature = DefaultRunManager(
+    project_name="mnist_vit",
+    start=Path(__file__),
+    experiment_config_manager=MnistVitExperimentConfigManager(),
+).manage_run(recipe)
 run_experiment(signature)
 ```
 
@@ -12,8 +16,8 @@ run_experiment(signature)
 | | |
 |---|---|
 | Expected | One `ExpSignatureObj`. |
-| Comes from | `manage_run` on the project subclass. |
-| Conditions | `experiment` has the fit-user args including `monitor`. `fit_config` and `checkpoint_manager` are present. Seed already applied. |
+| Comes from | `AbstractRunManager.manage_run` (on `DefaultRunManager`) after the project’s `ExperimentConfigManager` has built. |
+| Conditions | `experiment` has the fit-user args including `monitor`. `fit_config`, `checkpoint_manager`, and `logger` are present. Seed already applied. |
 
 **Potential issues**
 
@@ -37,6 +41,7 @@ def run_experiment(signature: ExpSignatureObj):
         val_metrics=e.val_metrics,
         config=signature.fit_config,
         checkpoint_manager=signature.checkpoint_manager,
+        logger=signature.logger,
     )
 ```
 

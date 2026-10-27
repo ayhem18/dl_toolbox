@@ -2,47 +2,56 @@
 
 Binds an execution **label** to a **configuration**. The configuration is the two sub-configs. The name is not part of it.
 
-Reads the top-level `human_readable_name`. Does not interpret trainer, loss, or data.
-
-Same exclusive-pair idea as data-contract process records: name is one execution, hash is configuration identity.
+The exclusive pair is **not** run-specific. [`HashManager`](../project/hash_manager.md) owns it (same ritual as data-contract process records). This page is how a **training run** uses that manager.
 
 ## 1. Input
 
 | | |
 |---|---|
-| Expected | `human_readable_name` (basename). Hash of the **configuration** (`dl_toolbox_config` + `experiment_config`). `project_runs_dir`. Mode: **claim** (fit) or **open** (inspect). |
-| Comes from | [run recipe](run_recipe.md) (the name, sitting in the file). Hash of the two config objects only. [project files](../project/project_files.md) (`storage/runs/`). |
-| Conditions | Name is not a hash stem. Hash is the full SHA-256 of the two configs. Name is not an input to the hash. |
+| Expected | `human_readable_name` (basename). Hash of the **configuration** (`dl_toolbox_config` + `experiment_config`). `HashManager` from `project_level_configs/identity.json`. Records dir: `storage/runs`. Payload dir: `storage/run_artifacts/{name}`. Mode: **claim** (fit) or **open** (inspect). |
+| Comes from | [run recipe](run_recipe.md) (the name). Hash via `HashManager.hash_payload` of the two config objects only. [project files](../project/project_files.md). |
+| Conditions | Name is not a hash stem (`HashManager.assert_name`). Hash is the full SHA-256. Name is not an input to the hash. |
 
 **Potential issues**
 
 - Hashing the name: renaming a run would look like a new configuration.
-- Same name, different configuration: folder collision. Refuse.
-- Same configuration, different name: two labels for one identity. Refuse.
+- Same name, different configuration: refuse.
+- Same configuration, different name: refuse.
+- Putting payload under `storage/runs/{name}/` next to `human_readable/` and `hashes/`.
+- Passing `prefix_len` into claim/open. That knob lives on `HashManager` only.
 - Fit claiming a name inspect already opened, or two fits claiming at once.
 
 ## 2. Processing
 
 ```mermaid
 flowchart TD
-  name["human_readable_name<br/>label"] --> lookup["lookup name and hash"]
-  hash["hash(configuration)"] --> lookup
-  lookup --> both_free["both free"]
-  lookup --> both_match["both exist and agree"]
-  lookup --> name_taken["name exists, other hash"]
-  lookup --> hash_taken["hash exists, other name"]
-  both_free --> claim["fit: create run_dir"]
-  both_match --> open["inspect: open run_dir"]
+  name["human_readable_name"] --> hm["HashManager.lookup"]
+  hash["hash(configuration)"] --> hm
+  hm --> both_free["both free"]
+  hm --> both_match["both exist and agree"]
+  hm --> name_taken["name exists, other hash"]
+  hm --> hash_taken["hash exists, other name"]
+  both_free --> claim["fit: write JSON pair, mkdir payload"]
+  both_match --> open["inspect: open payload dir"]
   both_match --> fit_exists["fit: already claimed → refuse"]
   name_taken --> refuse["refuse"]
   hash_taken --> refuse
 ```
 
-`run_dir = project_runs_dir / human_readable_name`.
+Records (HashManager):
+
+```
+storage/runs/{human_readable_dirname}/{name}.json
+storage/runs/{hashes_dirname}/{stem}.json
+```
+
+Payload (caller): `storage/run_artifacts/{name}/` — checkpoints, inspect folders.
+
+A training run writes `{ "name", "hash" }` with empty extra. Process records put `generating_process_signature` in extra; `name` is the `generating_process_name`.
 
 ## 3. Output
 
 | | |
 |---|---|
-| Expected | `run_dir`, configuration `hash`, execution `human_readable_name`. Claimed or opened. |
-| Consumers | [CheckpointManager](../checkpoint/checkpoint_manager.md) (`run_dir/checkpoints`). [ExpSignatureObj](../signature/exp_signature_obj.md). Inspect folders under this `run_dir`. Not the Logger: vendor `run_name` / `experiment` / `project` come from `logger_config`. |
+| Expected | `RunIdentity`: payload `run_dir`, configuration `hash`, execution `human_readable_name`. |
+| Consumers | [CheckpointManager](../checkpoint/checkpoint_manager.md) (`run_dir/checkpoints`). [ExpSignatureObj](../signature/exp_signature_obj.md). Inspect folders under this `run_dir`. Not the Logger. |

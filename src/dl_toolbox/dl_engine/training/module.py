@@ -12,7 +12,7 @@ from torch import Tensor, nn
 from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.dl_engine.metrics.accumulator import MetricAccumulator
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
-from dl_toolbox.loggers.base_logger import Logger, flatten_mapping
+from dl_toolbox.dl_engine.loggers.base_logger import Logger, flatten_mapping
 
 _TRACK_PROG_BAR = {"on_step": False, "on_epoch": True, "prog_bar": True, "logger": False}
 _TRACK_SILENT = {"on_step": False, "on_epoch": True, "prog_bar": False, "logger": False}

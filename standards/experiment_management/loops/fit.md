@@ -6,13 +6,14 @@ Light Lightning loop. Does not own checkpoint policy or store paths. Does not kn
 
 | | |
 |---|---|
-| Expected | Fit-user args from [`build_experiment`](../signature/build_experiment.md). `FitConfig` (trainer, bound monitor, logger, early stopping — **no checkpoint fields**). [`CheckpointManager`](../checkpoint/checkpoint_manager.md). |
+| Expected | Fit-user args from [`build_experiment`](../signature/build_experiment.md). `FitConfig` (trainer, bound monitor, early stopping). [`CheckpointManager`](../checkpoint/checkpoint_manager.md). [`Logger`](../logging/logger.md). |
 | Comes from | [`run_experiment`](run_experiment.md) unpacking [`ExpSignatureObj`](../signature/exp_signature_obj.md). |
 | Conditions | `max_epochs >= 1`. Monitor key must appear in val epoch scalars. Logger is a toolbox `Logger`. Seed already applied. |
 
 **Potential issues**
 
 - Building `ModelCheckpoint(...)` from `FitConfig.checkpoint` (current code smell). Register `checkpoint_manager.as_callback()` instead.
+- Reading `Logger` from `FitConfig.logger` (same leak). `run_experiment` passes `signature.logger`.
 - Reading inspect config. Fit does not.
 - Lightning `Trainer(logger=...)`. Toolbox logger is `epoch_logger`; Trainer stays `logger=False`.
 - Taking `seed` as a fit argument. [`seed_config`](../training/seed.md) ran in `manage_run`.

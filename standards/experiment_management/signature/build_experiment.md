@@ -1,15 +1,15 @@
 # build_experiment
 
-Abstract method on `DefaultRunManager`. The project implements the body. Toolbox specifies the return type because [`manage_run`](../project/default_run_manager.md) stores it on [`ExpSignatureObj`](exp_signature_obj.md).
+`ExperimentConfigManager.build`. Not a method on `DefaultRunManager`. The project subclasses `ExperimentConfigManager`. Toolbox specifies the return type (`ExperimentBuild`) because [`manage_run`](../project/abstract_run_manager.md) stores it on [`ExpSignatureObj`](exp_signature_obj.md).
 
-One class (the project run-manager subclass). One function. Data contract, loss, metrics, optimizer all live here. Scripts do not wire fit.
+Files and class names: [implementation blueprint](../implementation_blueprint.md). Data contract, loss, metrics, optimizer live in the project manager. Scripts do not wire fit.
 
 ## 1. Input
 
 | | |
 |---|---|
 | Expected | `experiment_config`: a mapping. Schema is the caller’s. One half of the **configuration**. |
-| Comes from | [run recipe](../recipe/run_recipe.md). `manage_run` passes it in. Toolbox does not parse the keys. |
+| Comes from | [run recipe](../recipe/run_recipe.md). `AbstractRunManager` passes it to `ExperimentConfigManager.build`, with `project_root`. Toolbox does not parse the keys. |
 | Conditions | Must be an object. Extra/missing keys are the project parser’s job. The name is not an argument. |
 
 **Potential issues**
@@ -43,4 +43,4 @@ Fit-user args. Everything `fit_classification` needs **except** what the toolbox
 
 | | |
 |---|---|
-| Consumers | `manage_run` puts this on `ExpSignatureObj.experiment` and binds `monitor` onto `FitConfig` and `CheckpointManager`. [`run_experiment`](../loops/run_experiment.md) unpacks it. Inspect reuses the builder for the net, then loads weights from the catalog. |
+| Consumers | `manage_run` puts `ExperimentBuild` on `ExpSignatureObj.experiment` and binds `monitor` onto `FitConfig` and `CheckpointManager`. [`run_experiment`](../loops/run_experiment.md) unpacks it. Inspect reuses the same manager for the net, then loads weights from the catalog. |
