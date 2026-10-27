@@ -16,7 +16,7 @@ Core orchestrator. Receives managers. Does not walk a project tree.
 - Holding fit loop objects on the engine instance for inspect. Inspect is another process. State is the catalog.
 - Folding get_new_run_or_overwrite and get_existing_run into one boolean flag at the public API. They stay two methods. `train` calls `get_new_run_or_overwrite`. `inspect` calls `get_existing_run`. The decision tree is the contract on those methods.
 - `force=True` stealing `hash_taken` or wiping `both_match`. Force only overwrites `name_taken`. See [get_new_run_or_overwrite.md](../identity/get_new_run_or_overwrite.md).
-- Opening a live vendor run on inspect. `Logger.setup` is fit-only.
+- Sharing the fit process writer on inspect. Inspect calls `Logger.setup(stream="inspect")` in its own process.
 - Putting inspect knobs in the training recipe (they would enter the hash).
 
 ## 2. Processing

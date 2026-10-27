@@ -55,8 +55,8 @@ def _engine(name: str, start: Path) -> DefaultExpEngine:
 
 
 def _note(session: RunSession, record, staging: Path) -> None:
-    del session, record
     (staging / "note.txt").write_text("ok", encoding="utf-8")
+    session.logger.log_text("inspection/note", "ok", step=record.epoch)
 
 
 def test_default_engine_discovers_project_and_default_checkpoint_json(
@@ -134,10 +134,10 @@ def test_default_engine_create_existing_and_inspect(
     dest = engine.inspect(recipe, {"selector": "rank=1"}, inspect_fn=_note)
     assert dest == session.run_dir / "inspection_runs" / "epoch=3"
     assert (dest / "note.txt").read_text(encoding="utf-8") == "ok"
-    published = (
-        root / "storage" / "placeholder" / "alpha" / "inspection" / "epoch=3" / "note.txt"
+    logged = (
+        root / "storage" / "placeholder" / "alpha" / "inspection" / "note_step3.txt"
     )
-    assert published.is_file()
+    assert logged.read_text(encoding="utf-8") == "ok"
 
 
 def test_default_engine_force_overwrites_name_and_artifacts(

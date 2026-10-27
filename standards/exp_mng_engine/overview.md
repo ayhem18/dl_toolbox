@@ -72,5 +72,5 @@ Epoch is the only absolute checkpoint index. Rank is a sort of currently retaine
 | [inspect/](inspect/inspect.md) | Request → snapshot → exclusive folder |
 | [identity/](identity/identity.md) | `(name, hash)` pair; lookup / claim / release |
 | [identity/get_new_run_or_overwrite.md](identity/get_new_run_or_overwrite.md) | Decision tree for `get_new_run_or_overwrite` |
-| [logging/](logging/logging.md) | Store vs run; inspect publish |
+| [logging/](logging/logging.md) | Store vs run; inspect logs through Logger |
 | [default/](default/engine.md) | `DefaultExpEngine` + `default_layout` (layout + parsers) |

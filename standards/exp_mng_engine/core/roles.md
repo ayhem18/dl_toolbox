@@ -5,8 +5,8 @@ What the core talks to. Implementations live in `base` / `dl_engine` (Fold 1). T
 | Role | Lifetime | Job | Default impl |
 |---|---|---|---|
 | IdentityManager | project | hash configs; exclusive `(name, hash)`; lookup / claim / release | `HashManager` |
-| LoggingManager | project | vendor store; `publish_directory` | TB / W&B / MLflow / placeholder |
-| Logger | run | live scalars / artifacts | matching Logger |
+| LoggingManager | project | vendor store; `prepare` / writer factory | TB / W&B / MLflow / placeholder |
+| Logger | run / process | `setup` / `log_scalars` / `log_image` / `log_table` / `log_text` / `close` | matching Logger |
 | CheckpointManager | project protocol, bound per run | lock, catalog, checksum, prune, snapshot copy | `dl_engine.training.checkpointer` |
 | Checkpointer | run façade | `save` / `fetch` / `fit_state` / `as_callback`; talks only to CheckpointManager | same package |
 | ExperimentConfigManager | project subclass | JSON → net, loaders, monitor | project writes this |

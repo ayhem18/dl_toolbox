@@ -21,6 +21,7 @@ from dl_toolbox.base.hashing.identity_manager import IdentityManager
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
+from dl_toolbox.dl_engine.loggers.base_logger import STREAM_INSPECT
 from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
 from dl_toolbox.dl_engine.training.checkpointer.checkpointer import Checkpointer
 from dl_toolbox.dl_engine.training.checkpointer.manager import CheckpointManager
@@ -406,20 +407,17 @@ def _inspect_once(
             },
         )
         print(f"inspect: calling inspect_fn for epoch={record.epoch}", flush=True)
-        inspect_fn(session, record, staging)
-        print(f"inspect: inspect_fn finished epoch={record.epoch}", flush=True)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        staging.replace(dest)
-        print(f"inspect: committed {dest}", flush=True)
+        session.logger.setup(stream=STREAM_INSPECT)
+        try:
+            inspect_fn(session, record, staging)
+            print(f"inspect: inspect_fn finished epoch={record.epoch}", flush=True)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            staging.replace(dest)
+            print(f"inspect: committed {dest}", flush=True)
+        finally:
+            session.logger.close()
     except Exception:
         if staging.exists():
             shutil.rmtree(staging)
         raise
-    print(f"inspect: publishing inspection/{folder}", flush=True)
-    session.logging_manager.publish_directory(
-        dest,
-        dest=f"inspection/{folder}",
-        logger=session.logger,
-    )
-    print(f"inspect: published inspection/{folder}", flush=True)
     return dest

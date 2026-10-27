@@ -111,4 +111,4 @@ def test_fit_classification_lightning(tmp_path) -> None:
     assert (checkpoints / "catalog.json").is_file()
     ckpt_files = list((checkpoints / "live").glob("*.ckpt"))
     assert ckpt_files
-    assert (log_dir / "test" / "run_config.json").exists()
+    assert (log_dir / "test" / "run_config_step0.txt").is_file()

@@ -11,8 +11,8 @@ Every field required. Keyword-only.
 | `identity` | `RunIdentity` (`run_dir`, name, hash) |
 | `fit_config` | trainer + monitor + early stopping |
 | `checkpointer` | run façade |
-| `logger` | run logger (not set up on inspect) |
-| `logging_manager` | inspect publish |
+| `logger` | run logger. Inspect calls `setup(stream="inspect")` in its own process. |
+| `logging_manager` | project store |
 | `seed` | the integer that was applied |
 | `experiment` | `ExperimentBuild` |
 
@@ -22,4 +22,4 @@ None. Value object. `run_dir` / `human_readable_name` / `hash` are properties of
 
 ## 3. Output
 
-`train` unpacks experiment + fit_config + checkpointer + logger. `inspect` unpacks checkpointer + logging_manager + experiment (for the project’s callable).
+`train` unpacks experiment + fit_config + checkpointer + logger. `inspect` unpacks checkpointer + logger + experiment (for the project’s callable).

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import tempfile
+import json
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 import lightning as L
 import torch
 from torch import Tensor, nn
 
-from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.dl_engine.metrics.accumulator import MetricAccumulator
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
 from dl_toolbox.dl_engine.loggers.base_logger import Logger, flatten_mapping
@@ -83,13 +81,11 @@ class ClassificationLightningModule(L.LightningModule):
     def on_fit_start(self) -> None:
         self.epoch_logger.setup()
         self.epoch_logger.log_params(flatten_mapping(self._run_config))
-        filename = self._run_config_filename
-        if not filename.endswith(".json"):
-            filename = f"{filename}.json"
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / filename
-            write_json(path, self._run_config)
-            self.epoch_logger.log_artifact(path)
+        self.epoch_logger.log_text(
+            self._run_config_filename,
+            json.dumps(self._run_config, indent=2, ensure_ascii=True),
+            step=0,
+        )
 
     ################################### Training Epoch functions ##################################
 

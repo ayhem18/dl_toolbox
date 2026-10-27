@@ -63,6 +63,7 @@ _README_BY_RELATIVE = {
     ),
     f"{STORAGE_DIRNAME}/{MLFLOW_DIRNAME}": (
         "Project-level MLflow store. tracking.db and artifacts/ are shared by every run.\n"
+        "run_ids/{experiment}/{run_name}.json maps the logger run to the live MLflow run_id.\n"
     ),
     f"{STORAGE_DIRNAME}/{MLFLOW_DIRNAME}/{MLFLOW_ARTIFACTS_DIRNAME}": (
         "MLflow artifact root for this project. Run-specific files live under MLflow run ids.\n"

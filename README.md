@@ -71,21 +71,15 @@ dictionary  ->  parser  ->  manager  ->  logger
 - **Project:** store paths. W&B `project` / MLflow `experiment` live on the Logger, not on the toolbox project name. Run names stay on the logger.
 
 ```python
-from dl_toolbox.dl_engine.loggers.mlflow.default_configurations import (
-    default_filesystem_artifact_store,
-    default_mlflow_setup,
-    default_sqlite_backend_store,
-)
 from dl_toolbox.dl_engine.loggers.mlflow.mlflow_logger import MlflowLogger
 from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
 from dl_toolbox.dl_engine.loggers.base_logger import flatten_mapping
 
 mlflow_dir = storage_dir / "mlflow"
 manager = MlflowManager(
-    default_mlflow_setup(
-        backend_store=default_sqlite_backend_store(path=mlflow_dir / "mlflow.sqlite"),
-        artifact_store=default_filesystem_artifact_store(root=mlflow_dir / "artifacts"),
-    )
+    db_path=mlflow_dir / "mlflow.sqlite",
+    artifact_root=mlflow_dir / "artifacts",
+    timeout_seconds=30,
 )
 logger = MlflowLogger(
     manager=manager,

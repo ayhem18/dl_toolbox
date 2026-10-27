@@ -27,6 +27,7 @@ wandb = [
 ]
 mlflow = [
     "mlflow",
+    "numpy>=1.26.0",
 ]
 
 [project.scripts]

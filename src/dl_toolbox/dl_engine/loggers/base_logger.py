@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import importlib
 import json
-import shutil
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from pathlib import Path
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+
+STREAM_FIT = "fit"
+STREAM_INSPECT = "inspect"
+_LOG_STREAMS = frozenset({STREAM_FIT, STREAM_INSPECT})
 
 
 class LoggerError(ValueError):
@@ -67,32 +71,23 @@ def require_logger_open(is_open: bool) -> None:
         raise LoggerError("logger.setup() must run before logging")
 
 
-def copy_local_artifact(
-    path: Path | str,
-    log_dir: Path,
-    *,
-    dest: str | None,
-) -> Path:
-    source = Path(path)
-    if not source.is_file():
-        raise LoggerError(f"artifact is not a file: {source}")
-    if dest is None:
-        target_dir = log_dir
-    else:
-        if not isinstance(dest, str) or not dest.strip():
-            raise LoggerError("dest must be a non-empty str when set")
-        target_dir = log_dir / dest.strip()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / source.name
-    if source.resolve() != target.resolve():
-        shutil.copy2(source, target)
-    return target
+def parse_log_stream(stream: object) -> str:
+    if not isinstance(stream, str) or stream not in _LOG_STREAMS:
+        raise LoggerError(
+            f"stream must be {STREAM_FIT!r} or {STREAM_INSPECT!r}, got {stream!r}"
+        )
+    return stream
+
+
+def table_as_json(rows: Sequence[Mapping[str, Any]]) -> str:
+    payload = [dict(row) for row in rows]
+    return json.dumps(payload, indent=2, ensure_ascii=True, default=str)
 
 
 class Logger(ABC):
     @abstractmethod
-    def setup(self) -> None:
-        """Validate the backend and open a run. Fail before training work."""
+    def setup(self, *, stream: str = STREAM_FIT) -> None:
+        """Open this process's writer or run. Inspect uses stream='inspect'."""
 
     @abstractmethod
     def log_params(self, params: Mapping[str, str]) -> None:
@@ -110,8 +105,18 @@ class Logger(ABC):
         self.log_scalars({tag: float(value)}, step=step)
 
     @abstractmethod
-    def log_artifact(self, path: Path | str, *, dest: str | None = None) -> None:
-        """Upload or copy a local file into the run."""
+    def log_image(self, tag: str, image: object, *, step: int) -> None:
+        """Record one image at step. HW, HWC, or CHW arrays."""
+
+    @abstractmethod
+    def log_table(
+        self, tag: str, rows: Sequence[Mapping[str, Any]], *, step: int
+    ) -> None:
+        """Record a table at step. TensorBoard stores JSON text."""
+
+    @abstractmethod
+    def log_text(self, tag: str, text: str, *, step: int) -> None:
+        """Record a text blob at step."""
 
     @abstractmethod
     def close(self) -> None:

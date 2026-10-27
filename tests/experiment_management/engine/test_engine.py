@@ -55,8 +55,8 @@ def _engine(tmp_path: Path) -> ExpEngine:
 
 
 def _note(session: RunSession, record, staging: Path) -> None:
-    del session, record
     (staging / "note.txt").write_text("ok", encoding="utf-8")
+    session.logger.log_text("inspection/note", "ok", step=record.epoch)
 
 
 def test_get_new_run_and_get_existing_run_match(tmp_path: Path) -> None:
@@ -140,8 +140,8 @@ def test_inspect_rank_one_exclusive_epoch_folder(tmp_path: Path) -> None:
     assert (dest / "note.txt").read_text(encoding="utf-8") == "ok"
     manifest = read_json(dest / "manifest.json")
     assert manifest["epoch"] == 3
-    published = tmp_path / "logs" / "tiny_run" / "inspection" / "epoch=3" / "note.txt"
-    assert published.is_file()
+    logged = tmp_path / "logs" / "tiny_run" / "inspection" / "note_step3.txt"
+    assert logged.read_text(encoding="utf-8") == "ok"
     with pytest.raises(FileExistsError, match="already exists"):
         engine.inspect(recipe, {"selector": "rank=1"}, inspect_fn=_note)
 

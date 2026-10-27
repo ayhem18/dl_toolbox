@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from pathlib import Path
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-from dl_toolbox.dl_engine.loggers.base_logger import Logger
+from dl_toolbox.dl_engine.loggers.base_logger import STREAM_FIT, Logger, parse_log_stream
 
 
 class NullLogger(Logger):
     def __init__(self) -> None:
         self.setup_calls = 0
+        self.setup_stream: str | None = None
         self.closed = False
         self.params: list[dict[str, str]] = []
         self.tags: list[dict[str, str]] = []
         self.scalars: list[tuple[dict[str, float], int]] = []
-        self.artifacts: list[tuple[str, str | None]] = []
+        self.images: list[tuple[str, object, int]] = []
+        self.tables: list[tuple[str, list[dict[str, Any]], int]] = []
+        self.texts: list[tuple[str, str, int]] = []
 
-    def setup(self) -> None:
+    def setup(self, *, stream: str = STREAM_FIT) -> None:
+        self.setup_stream = parse_log_stream(stream)
         self.setup_calls += 1
         self.closed = False
 
@@ -36,8 +40,16 @@ class NullLogger(Logger):
             recorded[key] = float(values[key])
         self.scalars.append((recorded, int(step)))
 
-    def log_artifact(self, path: Path | str, *, dest: str | None = None) -> None:
-        self.artifacts.append((str(path), dest))
+    def log_image(self, tag: str, image: object, *, step: int) -> None:
+        self.images.append((tag, image, int(step)))
+
+    def log_table(
+        self, tag: str, rows: Sequence[Mapping[str, Any]], *, step: int
+    ) -> None:
+        self.tables.append((tag, [dict(row) for row in rows], int(step)))
+
+    def log_text(self, tag: str, text: str, *, step: int) -> None:
+        self.texts.append((tag, str(text), int(step)))
 
     def close(self) -> None:
         self.closed = True

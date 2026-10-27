@@ -1,22 +1,25 @@
-"""MLflow store layout and persistence. Import mlflow only here."""
+"""MLflow store layout. Import mlflow only here. Logging lives on the logger."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 
+from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.dl_engine.loggers.base_logger import Logger, LoggerError, import_extra, require_logger_open
+from dl_toolbox.base.parsing.parse_utils import require_exact_keys
+from dl_toolbox.dl_engine.loggers.base_logger import LoggerError, import_extra
 from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
 
 _EXTRA = "mlflow"
-# MLflow tracking API limits (key/value length) and log_params batch size.
 _PARAM_KEY_MAX = 250
 _PARAM_VALUE_MAX = 6000
 _TAG_KEY_MAX = 250
 _TAG_VALUE_MAX = 5000
 _PARAM_CHUNK = 100
+_RUN_ID_DIRNAME = "run_ids"
+_RUN_ID_KEYS = ("run_id",)
 
 
 class MlflowSetupError(ValueError):
@@ -24,7 +27,7 @@ class MlflowSetupError(ValueError):
 
 
 class MlflowManager(LoggingManager):
-    """Persistence for one MLflow tracking store. The logger owns the run identity."""
+    """One MLflow tracking store. The logger owns the run identity."""
 
     def __init__(
         self,
@@ -45,8 +48,6 @@ class MlflowManager(LoggingManager):
         )
         self._backend_store_uri = f"sqlite:///{posix}?timeout={timeout_token}"
         self._artifact_store_uri = self._artifact_root.as_posix()
-        self._run_id: str | None = None
-        self._open = False
 
     @property
     def backend_store_uri(self) -> str:
@@ -64,161 +65,61 @@ class MlflowManager(LoggingManager):
     def artifact_root(self) -> Path:
         return self._artifact_root
 
-    @property
-    def run_id(self) -> str | None:
-        return self._run_id
+    def prepare(self) -> None:
+        self.client().search_experiments(max_results=1)
 
-    def setup(self) -> None:
-        """Create store directories, set the tracking URI, and ping the backend."""
+    def client(self):
+        """Tracking client pinned to this store. Does not open a run."""
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._artifact_root.mkdir(parents=True, exist_ok=True)
-        mlflow = _import_mlflow()
+        mlflow = import_mlflow()
         from mlflow.tracking import MlflowClient
 
         mlflow.set_tracking_uri(self._backend_store_uri)
-        MlflowClient().search_experiments(max_results=1)
+        return MlflowClient(tracking_uri=self._backend_store_uri)
 
     def open_experiment(self, *, experiment: str) -> str:
         experiment_name = parse_non_empty_str(experiment, label="experiment")
-        self.setup()
-        mlflow = _import_mlflow()
-        from mlflow.tracking import MlflowClient
-
-        client = MlflowClient()
+        client = self.client()
         existing = client.get_experiment_by_name(experiment_name)
         if existing is None:
             client.create_experiment(
                 experiment_name, artifact_location=self._artifact_store_uri
             )
-        mlflow.set_experiment(experiment_name)
         experiment_obj = client.get_experiment_by_name(experiment_name)
         if experiment_obj is None:
             raise MlflowSetupError(f"failed to open experiment {experiment_name!r}")
         return str(experiment_obj.experiment_id)
 
-    def open_run(
-        self,
-        *,
-        experiment: str,
-        run_name: str,
-        tags: Mapping[str, str],
-    ) -> str:
-        if self._open:
-            raise LoggerError("logger is already open")
+    def run_id_path(self, *, experiment: str, run_name: str) -> Path:
+        experiment_name = parse_non_empty_str(experiment, label="experiment")
         name = parse_non_empty_str(run_name, label="run_name")
-        self.open_experiment(experiment=experiment)
-        mlflow = _import_mlflow()
-        run = mlflow.start_run(run_name=name)
-        self._run_id = str(run.info.run_id)
-        self._open = True
-        mapping = _bounded_mapping(
-            tags,
-            "tags",
-            key_max=_TAG_KEY_MAX,
-            value_max=_TAG_VALUE_MAX,
+        return self._db_path.parent / _RUN_ID_DIRNAME / experiment_name / f"{name}.json"
+
+    def record_run_id(self, *, experiment: str, run_name: str, run_id: str) -> Path:
+        pointer = self.run_id_path(experiment=experiment, run_name=run_name)
+        return write_json(
+            pointer,
+            {"run_id": parse_non_empty_str(run_id, label="run_id")},
         )
-        if mapping:
-            mlflow.set_tags(mapping)
-        return self._run_id
 
-    def log_params(self, params: Mapping[str, str]) -> None:
-        require_logger_open(self._open)
-        mlflow = _import_mlflow()
-        mapping = _bounded_mapping(
-            params,
-            "params",
-            key_max=_PARAM_KEY_MAX,
-            value_max=_PARAM_VALUE_MAX,
-        )
-        keys = list(mapping)
-        n = len(keys)
-        if n == 0:
-            return
-        n_chunks = (n + _PARAM_CHUNK - 1) // _PARAM_CHUNK
-        for chunk_i in range(n_chunks):
-            start = chunk_i * _PARAM_CHUNK
-            end = min(start + _PARAM_CHUNK, n)
-            chunk: dict[str, str] = {}
-            for i in range(start, end):
-                key = keys[i]
-                chunk[key] = mapping[key]
-            mlflow.log_params(chunk)
-
-    def log_tags(self, tags: Mapping[str, str]) -> None:
-        require_logger_open(self._open)
-        mlflow = _import_mlflow()
-        mapping = _bounded_mapping(
-            tags,
-            "tags",
-            key_max=_TAG_KEY_MAX,
-            value_max=_TAG_VALUE_MAX,
-        )
-        if mapping:
-            mlflow.set_tags(mapping)
-
-    def log_metrics(self, values: Mapping[str, float], *, step: int) -> None:
-        require_logger_open(self._open)
-        mlflow = _import_mlflow()
-        if not values:
-            return
-        keys = list(values)
-        n = len(keys)
-        metrics: dict[str, float] = {}
-        for i in range(n):
-            key = keys[i]
-            if not isinstance(key, str) or not key:
-                raise LoggerError(f"metric name must be a non-empty str, got {key!r}")
-            metrics[key] = float(values[key])
-        mlflow.log_metrics(metrics, step=int(step))
-
-    def log_artifact(self, path: Path | str, *, dest: str | None = None) -> None:
-        require_logger_open(self._open)
-        mlflow = _import_mlflow()
-        source = Path(path)
-        if not source.is_file():
-            raise LoggerError(f"artifact is not a file: {source}")
-        if dest is None:
-            mlflow.log_artifact(str(source))
-            return
-        dest_name = parse_non_empty_str(dest, label="dest")
-        mlflow.log_artifact(str(source), artifact_path=dest_name)
-
-    def close_run(self) -> None:
-        if not self._open:
-            return
-        mlflow = _import_mlflow()
-        mlflow.end_run()
-        self._open = False
-
-    def publish_directory(
-        self,
-        local_dir: Path,
-        *,
-        dest: str,
-        logger: Logger,
-    ) -> None:
-        del logger
-        self.log_directory_to_run(local_dir, artifact_path=dest)
-
-    def log_directory_to_run(self, local_dir: Path, *, artifact_path: str) -> None:
-        if self._run_id is None:
-            raise LoggerError("no MLflow run_id; train must have run first")
-        dest = parse_non_empty_str(artifact_path, label="artifact_path")
-        source = Path(local_dir)
-        if not source.is_dir():
-            raise LoggerError(f"inspection directory is not a folder: {source}")
-        self.setup()
-        from mlflow.tracking import MlflowClient
-
-        client = MlflowClient(tracking_uri=self._backend_store_uri)
-        client.log_artifacts(self._run_id, str(source), artifact_path=dest)
+    def load_run_id(self, *, experiment: str, run_name: str) -> str:
+        pointer = self.run_id_path(experiment=experiment, run_name=run_name)
+        if not pointer.is_file():
+            raise LoggerError(
+                f"no MLflow run_id recorded for experiment={experiment!r} "
+                f"run_name={run_name!r}; fit logger.setup has not run"
+            )
+        payload = read_json(pointer)
+        require_exact_keys(payload, _RUN_ID_KEYS, label="mlflow run_id pointer")
+        return parse_non_empty_str(payload["run_id"], label="run_id")
 
 
-def _import_mlflow():
+def import_mlflow():
     return import_extra("mlflow", extra=_EXTRA)
 
 
-def _string_mapping(payload: Mapping[str, str], label: str) -> dict[str, str]:
+def string_mapping(payload: Mapping[str, str], label: str) -> dict[str, str]:
     keys = list(payload)
     n = len(keys)
     mapped: dict[str, str] = {}
@@ -230,14 +131,14 @@ def _string_mapping(payload: Mapping[str, str], label: str) -> dict[str, str]:
     return mapped
 
 
-def _bounded_mapping(
+def bounded_mapping(
     payload: Mapping[str, str],
     label: str,
     *,
     key_max: int,
     value_max: int,
 ) -> dict[str, str]:
-    mapped = _string_mapping(payload, label)
+    mapped = string_mapping(payload, label)
     keys = list(mapped)
     n = len(keys)
     for i in range(n):
@@ -250,3 +151,11 @@ def _bounded_mapping(
                 f"{label} value for {key!r} exceeds {value_max} characters"
             )
     return mapped
+
+
+def param_bounds() -> tuple[int, int, int]:
+    return _PARAM_KEY_MAX, _PARAM_VALUE_MAX, _PARAM_CHUNK
+
+
+def tag_bounds() -> tuple[int, int]:
+    return _TAG_KEY_MAX, _TAG_VALUE_MAX
