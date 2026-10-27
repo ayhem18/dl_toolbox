@@ -6,7 +6,6 @@ import pytest
 
 from dl_toolbox.dl_engine.loggers.placeholder.placeholder_logger import PlaceholderLogger
 from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
-from dl_toolbox.dl_engine.training.config import MonitorConfig
 from dl_toolbox.experiment_management.toolbox.manager import DlToolboxConfigManager
 from tests.experiment_management.em_support import tensorboard_toolbox_config
 
@@ -21,12 +20,9 @@ def test_toolbox_manager_exact_keys_and_logger(tmp_path: Path) -> None:
     logger = toolbox.build_logger()
     assert isinstance(logger, PlaceholderLogger)
     assert logger.run_name == "run_a"
-    checkpoint = toolbox.materialize_checkpoint(
-        run_dir=tmp_path / "run",
-        monitor=MonitorConfig(key="loss", mode="min"),
-    )
-    assert checkpoint.save_top_k == -1
-    assert checkpoint.run_dir == tmp_path / "run"
+    policy = toolbox.checkpoint_policy()
+    assert policy.save_top_k == -1
+    assert policy.save_last is True
 
 
 def test_toolbox_manager_rejects_monitor_config(tmp_path: Path) -> None:

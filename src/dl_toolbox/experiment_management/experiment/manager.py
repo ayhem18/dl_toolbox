@@ -1,4 +1,4 @@
-"""Project-owned experiment construction. Subclass this, not DefaultRunManager."""
+"""Project-owned experiment construction. Subclass this; pass it to DefaultExpEngine."""
 
 from __future__ import annotations
 

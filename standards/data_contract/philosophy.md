@@ -48,7 +48,7 @@ The home of each configuration is a property of that *kind*, not of one instance
 | Configuration | Question it answers | Home (property of the kind) |
 |---|---|---|
 | **Collection** | What is this frozen set? Consumers `load` this file. | The collection kind’s folder / `{hash-prefix}.json` (optional `{generating_process_name}.json` alias) |
-| **Process** | Which strategy ran, with which signature, under which `generating_process_name`? | The process kind’s pair under [`HashManager`](../experiment_management/project/hash_manager.md): `{human_readable_dirname}/{name}.json` and `{hashes_dirname}/{hash-prefix}.json` (defaults `human_readable/` and `hashes/`) |
+| **Process** | Which strategy ran, with which signature, under which `generating_process_name`? | The process kind’s pair under [`HashManager`](../exp_mng_engine/identity/identity.md): `{human_readable_dirname}/{name}.json` and `{hashes_dirname}/{hash-prefix}.json` (defaults `human_readable/` and `hashes/`) |
 
 The collection configuration is the identity the in-memory collection already has. The process configuration stores `generating_process_signature` plus the `generating_process_name` of that execution. They are not interchangeable.
 
@@ -79,7 +79,7 @@ The process has one write helper for collection configurations. The collection h
 
 ### 4. A generating_process_name is one execution
 
-Unique per generating process. The process claims **the `generating_process_name` and the generating-process configuration** (`generating_process_signature`). After payload (if any) and the collection configuration are on disk, it writes the same process-configuration document through [`HashManager`](../experiment_management/project/hash_manager.md) — the same exclusive pair training runs use. Folder names come from `project_level_configs/identity.json`, not from constants in the process class. Defaults:
+Unique per generating process. The process claims **the `generating_process_name` and the generating-process configuration** (`generating_process_signature`). After payload (if any) and the collection configuration are on disk, it writes the same process-configuration document through [`HashManager`](../exp_mng_engine/identity/identity.md) — the same exclusive pair training runs use. Folder names come from `project_level_configs/identity.json`, not from constants in the process class. Defaults:
 
 - `human_readable/{generating_process_name}.json`
 - `hashes/{hash-prefix}.json`

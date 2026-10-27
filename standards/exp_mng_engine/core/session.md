@@ -1,6 +1,6 @@
 # RunSession
 
-Shared handle for fit and inspect. Assembled by `ExpEngine`. Replaces `ExpSignatureObj` on the new path.
+Shared handle for fit and inspect. Assembled by `ExpEngine`.
 
 ## 1. Input
 

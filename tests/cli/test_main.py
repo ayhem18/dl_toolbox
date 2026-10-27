@@ -6,7 +6,7 @@ from pathlib import Path
 from dl_toolbox.cli.main import main
 from dl_toolbox.experiment_management.default_layout.layout.names import PROJECT_MARKER_FILENAME
 
-from tests.experiment_management.project.pl_support import N_TRIALS, random_package_name, random_project_name
+from tests.experiment_management.names import N_TRIALS, random_package_name, random_project_name
 
 
 def test_cli_setup_project_uses_cwd(

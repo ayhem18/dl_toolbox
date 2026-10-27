@@ -2,7 +2,7 @@
 
 The experiment management engine. Fit, logging, and inspect run together because they share **disk**, not a process and not RAM.
 
-This folder is the contract for the engine. The older map in [`experiment_management/`](../experiment_management/overview.md) describes the code that still runs today (`AbstractRunManager`). `DefaultExpEngine` is the new default path; that folder becomes history once projects switch.
+This folder is the contract for the engine. A project subclasses `ExperimentConfigManager`, edits scaffolded JSON, and constructs `DefaultExpEngine`.
 
 Fit and inspect never share a process.
 
@@ -34,7 +34,7 @@ flowchart TB
 flowchart TB
   subgraph core [Engine core - same for every engine]
     roles["Roles"]
-    orch["claim / open / train / inspect / fit_state"]
+    orch["get_new_run_or_overwrite / get_existing_run / train / inspect / fit_state"]
     session["RunSession"]
   end
   subgraph def [Default engine - same core, specified components]
@@ -51,12 +51,12 @@ flowchart TB
 
 **Core** does not know `identity.json` or `storage/runs`. It receives managers and injected paths. It defines the protocol between roles.
 
-**Default** keeps that core. It only does layout and parsing. Constructor: `ExperimentConfigManager` (+ optional `InspectionManager`).
+**Default** keeps that core. It only does layout and parsing. Constructor: `ExperimentConfigManager`.
 
 ```python
-ExpEngine(identity, logging, checkpoint, experiment, paths, compose_toolbox, inspection=None)
+ExpEngine(identity, logging, checkpoint, experiment, paths, compose_toolbox, tracking_backend)
 
-DefaultExpEngine(project_name, start=..., experiment=..., inspection=None)
+DefaultExpEngine(project_name, start=..., experiment=...)
 ```
 
 ## Epoch vs rank
@@ -70,6 +70,7 @@ Epoch is the only absolute checkpoint index. Rank is a sort of currently retaine
 | [core/](core/engine.md) | `ExpEngine`, roles, `RunSession`, fit state |
 | [checkpoint/](checkpoint/protocol.md) | Lock, save, prune, fetch |
 | [inspect/](inspect/inspect.md) | Request → snapshot → exclusive folder |
-| [identity/](identity/identity.md) | `(name, hash)` claim / open |
+| [identity/](identity/identity.md) | `(name, hash)` pair; lookup / claim / release |
+| [identity/get_new_run_or_overwrite.md](identity/get_new_run_or_overwrite.md) | Decision tree for `get_new_run_or_overwrite` |
 | [logging/](logging/logging.md) | Store vs run; inspect publish |
 | [default/](default/engine.md) | `DefaultExpEngine` + `default_layout` (layout + parsers) |

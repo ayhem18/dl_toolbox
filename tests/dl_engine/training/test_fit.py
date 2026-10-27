@@ -11,7 +11,9 @@ from dl_toolbox.dl_engine.metrics.classification.classification import (
 )
 from dl_toolbox.dl_engine.metrics.contracts import KEY_TARGET
 from dl_toolbox.dl_engine.metrics.metric_object import LEVEL_EPOCH, metric_log_name
-from dl_toolbox.dl_engine.training.checkpoint import CheckpointManager
+from dl_toolbox.dl_engine.training.checkpointer.checkpointer import Checkpointer
+from dl_toolbox.dl_engine.training.checkpointer.manager import CheckpointManager
+from dl_toolbox.dl_engine.training.checkpointer.types import CheckpointPolicy
 from dl_toolbox.dl_engine.training.config import (
     EarlyStoppingConfig,
     FitConfig,
@@ -64,11 +66,13 @@ def test_fit_classification_lightning(tmp_path) -> None:
         manager=PlaceholderManager(log_dir=log_dir),
         run_name="test",
     )
-    checkpoint_manager = CheckpointManager(
-        save_top_k=-1,
-        save_last=True,
-        run_dir=run_dir,
-        monitor=monitor_config,
+    checkpointer = Checkpointer(
+        binding=CheckpointManager(lock_timeout_seconds=5.0).bind(
+            run_dir=run_dir,
+            policy=CheckpointPolicy(save_top_k=-1, save_last=True),
+            monitor=monitor_config,
+            max_epochs=2,
+        )
     )
 
     model = _LinearBinary()
@@ -98,13 +102,13 @@ def test_fit_classification_lightning(tmp_path) -> None:
                 min_delta=1e-5,
             ),
         ),
-        checkpoint_manager=checkpoint_manager,
+        checkpointer=checkpointer,
         logger=logger,
         run_config={"monitor": monitor},
     )
     assert trainer.current_epoch >= 1
     checkpoints = run_dir / "checkpoints"
     assert (checkpoints / "catalog.json").is_file()
-    ckpt_files = list(checkpoints.glob("epoch=*.ckpt"))
+    ckpt_files = list((checkpoints / "live").glob("*.ckpt"))
     assert ckpt_files
     assert (log_dir / "test" / "run_config.json").exists()

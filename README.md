@@ -68,7 +68,7 @@ dictionary  ->  parser  ->  manager  ->  logger
 ```
 
 - **Toolbox:** `Logger` ABC, `{backend}_parser`, `{backend}_manager`, `{backend}_logger`, and `default_configurations.py` (dicts only).
-- **Project:** store paths. W&B `project` / MLflow `experiment` live on the Logger, not on `AbstractRunManager.project_name`. Run names stay on the logger.
+- **Project:** store paths. W&B `project` / MLflow `experiment` live on the Logger, not on the toolbox project name. Run names stay on the logger.
 
 ```python
 from dl_toolbox.dl_engine.loggers.mlflow.default_configurations import (

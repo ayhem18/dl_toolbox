@@ -7,12 +7,12 @@ import lightning as L
 from torch import Tensor, nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping
 
 from dl_toolbox.dl_engine.loggers.base_logger import Logger
 from dl_toolbox.dl_engine.metrics.contracts import KEY_OUTPUT
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
-from dl_toolbox.dl_engine.training.checkpoint import CheckpointManager
+from dl_toolbox.dl_engine.training.checkpointer.checkpointer import Checkpointer
 from dl_toolbox.dl_engine.training.config import EarlyStoppingConfig, FitConfig
 from dl_toolbox.dl_engine.training.module import ClassificationLightningModule
 
@@ -41,7 +41,7 @@ def fit_classification(
     train_metrics: Sequence[MetricSpec],
     val_metrics: Sequence[MetricSpec],
     config: FitConfig,
-    checkpoint_manager: CheckpointManager,
+    checkpointer: Checkpointer,
     logger: Logger,
     run_config: Mapping[str, Any] | None = None, # TODO: no defaults
     run_config_filename: str = "run_config", # TODO: no defaults: these 2 parameters may or may not be necessary.
@@ -64,8 +64,7 @@ def fit_classification(
         run_config_filename=run_config_filename,
     )
 
-    checkpoint_callback = checkpoint_manager.as_callback()
-    callbacks: list[L.Callback] = [checkpoint_callback]
+    callbacks: list[L.Callback] = [checkpointer.as_callback()]
     if config.early_stopping.name == EarlyStoppingConfig.PATIENCE:
         if config.early_stopping.patience is None:
             raise FitError("patience early stopping requires patience")
@@ -86,7 +85,7 @@ def fit_classification(
         callbacks=callbacks,
         enable_progress_bar=config.trainer.enable_progress_bar,
         logger=False,
-        enable_checkpointing=isinstance(checkpoint_callback, ModelCheckpoint),
+        enable_checkpointing=False,
     )
     try:
         trainer.fit(lit_module, train_dataloaders=train_loader, val_dataloaders=val_loader)

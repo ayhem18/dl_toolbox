@@ -42,11 +42,11 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
 
 _README_BY_RELATIVE = {
     f"{STORAGE_DIRNAME}/{RUNS_DIRNAME}": (
-        "HashManager records: human_readable/{name}.json and hashes/{stem}.json.\n"
+        "Run identities: human_readable/{name}.json and hashes/{stem}.json.\n"
         "The exclusive (name, hash) pair lives here. Checkpoints do not.\n"
     ),
     f"{STORAGE_DIRNAME}/{RUN_ARTIFACTS_DIRNAME}": (
-        "One payload directory per training run, named by human_readable_name.\n"
+        "One run-artifacts directory per training run, named by human_readable_name.\n"
         "Checkpoints and inspection_runs live under this folder.\n"
     ),
     f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}": (

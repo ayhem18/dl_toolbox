@@ -102,7 +102,7 @@ Entity and collection modules at the level root. Process modules in a process pa
 
 ### A generating_process_name and a process configuration are claimed exclusively
 
-The process class owns a records directory. [`HashManager`](../experiment_management/project/hash_manager.md) names the two index folders from `identity.json` (defaults `human_readable/` and `hashes/`) and owns the exclusive (name, hash) pair. Payload stays `Collection.artifacts_dir(generating_process_name)` — HashManager does not mkdir it. Claim reads both JSON files; it does not trust the filename. `mkdir` without overwrite.
+The process class owns a records directory. [`HashManager`](../exp_mng_engine/identity/identity.md) names the two index folders from `identity.json` (defaults `human_readable/` and `hashes/`) and owns the exclusive (name, hash) pair. Payload stays `Collection.artifacts_dir(generating_process_name)` — HashManager does not mkdir it. Claim reads both JSON files; it does not trust the filename. `mkdir` without overwrite.
 
 An incomplete run deletes leftover payload, the collection configuration it started, and any process-configuration files, so the same `generating_process_name` can be retried. The process configuration is the completion record. A finished `generating_process_name` or a finished `generating_process_signature` is not overwritten by `process()`. No `--force` on `process()`. A cleanup helper may delete those files first (`remove_named_freeze`, `process_hash_occupant`); that helper is not `process()`.
 

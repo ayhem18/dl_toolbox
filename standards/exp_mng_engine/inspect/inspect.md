@@ -8,8 +8,8 @@ Request → Engine → Checkpointer → CheckpointManager (Algorithm B). The eng
 
 | | |
 |---|---|
-| Expected | An already claimed run (open, not claim). An inspection recipe that is **not** in the training recipe. Selector: `epoch=N`, `rank=K`, `value=S`, or `last`. An `inspect_fn` from `InspectionManager` or the caller. |
-| Comes from | Sibling inspect script. Signature from `open`. Weights from `checkpointer.fetch`. |
+| Expected | An already existing run (`get_existing_run`, not `get_new_run_or_overwrite`). An inspection recipe that is **not** in the training recipe. Selector: `epoch=N`, `rank=K`, `value=S`, or `last`. A required `inspect_fn` from the caller. |
+| Comes from | Sibling inspect script. Signature from `get_existing_run`. Weights from `checkpointer.fetch`. |
 | Conditions | Identity both-match. Payload exists. Fetch must resolve a **retained** file. `inspection_runs/epoch=N` must not already exist. |
 
 **Potential issues**
@@ -43,7 +43,9 @@ Inspection recipe example (not hashed):
 
 `rank=1` means best right now. The snapshot is stored under the epoch returned.
 
-Periodic GPU polling stays in the project script. `CheckpointLookupError` / checksum fail → retry next interval.
+Periodic GPU polling stays in the project script. `CheckpointLookupError` / checksum fail → retry next interval. After each attempt the script reads `engine.fit_state(session)` from the catalog; `status == finished` ends the loop (one last inspect of current `rank=1` happens in that same attempt if the epoch folder does not yet exist). `inspect()` itself is one-shot.
+
+Vendor visibility of a committed folder is **not** specified here. See [publish.md](publish.md) (proposal, not locked).
 
 ## 3. Output
 

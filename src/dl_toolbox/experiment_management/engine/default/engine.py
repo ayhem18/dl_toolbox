@@ -40,7 +40,6 @@ from dl_toolbox.experiment_management.default_layout.parsing.logging import (
     parse_project_logger_config,
 )
 from dl_toolbox.experiment_management.engine.core.engine import ExpEngine
-from dl_toolbox.experiment_management.engine.core.inspection import InspectionManager
 from dl_toolbox.experiment_management.engine.core.paths import EnginePaths
 from dl_toolbox.experiment_management.experiment.manager import ExperimentConfigManager
 from dl_toolbox.experiment_management.toolbox.manager import DlToolboxConfigManager
@@ -55,7 +54,6 @@ class DefaultExpEngine(ExpEngine):
         *,
         start: Path,
         experiment: ExperimentConfigManager,
-        inspection: InspectionManager | None = None,
     ) -> None:
         name = assert_generating_process_name(project_name)
         if not start.is_absolute():
@@ -70,18 +68,17 @@ class DefaultExpEngine(ExpEngine):
             )
         backend = read_tracking_backend(root)
         super().__init__(
-            identity=_make_identity_manager(root),
-            logging=_make_logging_manager(root, backend=backend),
-            checkpoint=_make_checkpoint_manager(root),
-            experiment=experiment,
+            identity_manager=_make_identity_manager(root),
+            logging_manager=_make_logging_manager(root, backend=backend),
+            checkpoint_manager=_make_checkpoint_manager(root),
+            experiment_manager=experiment,
             paths=EnginePaths(
                 project_root=root,
-                records_dir=root / STORAGE_DIRNAME / RUNS_DIRNAME,
-                payload_root=root / STORAGE_DIRNAME / RUN_ARTIFACTS_DIRNAME,
+                run_identities_root=root / STORAGE_DIRNAME / RUNS_DIRNAME,
+                run_artifacts_root=root / STORAGE_DIRNAME / RUN_ARTIFACTS_DIRNAME,
             ),
             compose_toolbox=DlToolboxConfigManager,
             tracking_backend=backend,
-            inspection=inspection,
         )
         self._project_name = name
         self._package = document["package"] if "package" in document else None

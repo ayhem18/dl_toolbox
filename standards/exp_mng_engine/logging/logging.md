@@ -34,3 +34,5 @@ Open-run state (SummaryWriter, wandb run) belongs on the **Logger**, not the man
 ## 3. Output
 
 Vendor run for fit. Published inspect tree after commit. `RunSession` holds both `logger` and `logging_manager`.
+
+The placement rules above are what the code does today. They are **not** a UI postcondition (TensorBoard does not show copied PNGs). Tightening that is [inspect/publish.md](../inspect/publish.md) — proposal, not locked.

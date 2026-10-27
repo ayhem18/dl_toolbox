@@ -6,7 +6,7 @@ Code: `experiment_management/engine/default`. Layout and parsers: `experiment_ma
 
 ## 1. Input
 
-`project_name`, `start` path, `ExperimentConfigManager`, optional `InspectionManager`. Walks to `dl_toolbox_project.json`.
+`project_name`, `start` path, `ExperimentConfigManager`. Walks to `dl_toolbox_project.json`.
 
 ## 2. Processing
 
@@ -33,7 +33,6 @@ DefaultExpEngine(
     project_name,
     start=Path(__file__),
     experiment=MnistVitExperimentConfigManager(),
-    inspection=None,
 )
 ```
 
@@ -47,4 +46,4 @@ The project does not subclass this class to teach it a loss.
 
 ## 3. Output
 
-An `ExpEngine` ready for `train` / `inspect`. `DefaultRunManager` remains the old assemble path until projects switch.
+An `ExpEngine` ready for `train` / `inspect`.

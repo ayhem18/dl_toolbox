@@ -20,7 +20,7 @@ from tests.experiment_management.em_support import (
     TinyExperimentConfigManager,
     placeholder_recipe,
 )
-from tests.experiment_management.project.pl_support import random_project_name
+from tests.experiment_management.names import random_project_name
 
 
 class _FakeTrainer:
@@ -71,7 +71,7 @@ def test_default_engine_discovers_project_and_default_checkpoint_json(
         root / PROJECT_LEVEL_CONFIGS_DIRNAME / CHECKPOINT_CONFIG_FILENAME
     )
     assert checkpoint == DEFAULT_CHECKPOINT_CONFIG
-    assert engine._checkpoint.lock_timeout_seconds == checkpoint["lock_timeout_seconds"]
+    assert engine._checkpoint_manager.lock_timeout_seconds == checkpoint["lock_timeout_seconds"]
 
 
 def test_default_engine_reads_custom_lock_timeout(
@@ -83,7 +83,7 @@ def test_default_engine_reads_custom_lock_timeout(
         {"lock_timeout_seconds": 12.5},
     )
     engine = _engine(name, start)
-    assert engine._checkpoint.lock_timeout_seconds == 12.5
+    assert engine._checkpoint_manager.lock_timeout_seconds == 12.5
 
 
 def test_default_engine_rejects_mismatched_project_name(
@@ -107,13 +107,13 @@ def test_default_engine_rejects_relative_start(
         )
 
 
-def test_default_engine_claim_open_and_inspect(
+def test_default_engine_create_existing_and_inspect(
     tmp_path: Path, rng: random.Random
 ) -> None:
     name, root, start = _scaffold(tmp_path, rng)
     engine = _engine(name, start)
     recipe = placeholder_recipe(name="run_alpha", seed=7, run_name="alpha")
-    session = engine.claim(recipe)
+    session = engine.get_new_run_or_overwrite(recipe)
     assert session.human_readable_name == "run_alpha"
     assert session.run_dir == root / "storage" / "run_artifacts" / "run_alpha"
     assert session.run_dir.is_dir()
@@ -122,11 +122,13 @@ def test_default_engine_claim_open_and_inspect(
     )
     assert records["name"] == "run_alpha"
     assert records["hash"] == session.hash
-    opened = engine.open(recipe)
-    assert opened.hash == session.hash
-    assert opened.run_dir == session.run_dir
-    with pytest.raises(FileExistsError, match="already claimed"):
-        engine.claim(recipe)
+    existing = engine.get_existing_run(recipe)
+    assert existing.hash == session.hash
+    assert existing.run_dir == session.run_dir
+    with pytest.raises(FileExistsError, match="already exists with this configuration hash"):
+        engine.get_new_run_or_overwrite(recipe)
+    with pytest.raises(FileExistsError, match="already exists with this configuration hash"):
+        engine.get_new_run_or_overwrite(recipe, force=True)
     key = session.fit_config.monitor.key
     session.checkpointer.save(_FakeTrainer(epoch=3, metrics={key: 0.2}))
     dest = engine.inspect(recipe, {"selector": "rank=1"}, inspect_fn=_note)
@@ -138,26 +140,26 @@ def test_default_engine_claim_open_and_inspect(
     assert published.is_file()
 
 
-def test_default_engine_claim_force_reclaims_name_and_payload(
+def test_default_engine_force_overwrites_name_and_artifacts(
     tmp_path: Path, rng: random.Random
 ) -> None:
     name, _root, start = _scaffold(tmp_path, rng)
     engine = _engine(name, start)
     first = placeholder_recipe(name="run_alpha", seed=1, run_name="alpha")
     second = placeholder_recipe(name="run_alpha", seed=2, run_name="alpha")
-    first_session = engine.claim(first)
+    first_session = engine.get_new_run_or_overwrite(first)
     marker = first_session.run_dir / "marker.txt"
     marker.write_text("old", encoding="utf-8")
     first_hash = first_session.hash
-    forced = engine.claim(second, force=True)
+    forced = engine.get_new_run_or_overwrite(second, force=True)
     assert forced.hash != first_hash
     assert forced.run_dir == first_session.run_dir
     assert forced.run_dir.is_dir()
     assert not marker.exists()
-    opened = engine.open(second)
-    assert opened.hash == forced.hash
+    existing = engine.get_existing_run(second)
+    assert existing.hash == forced.hash
     with pytest.raises(FileExistsError, match="different configuration hash"):
-        engine.open(first)
+        engine.get_existing_run(first)
 
 
 def test_default_engine_train_writes_finished_catalog(
@@ -168,7 +170,7 @@ def test_default_engine_train_writes_finished_catalog(
     recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
     trainer = engine.train(recipe)
     assert trainer.current_epoch >= 0
-    session = engine.open(recipe)
+    session = engine.get_existing_run(recipe)
     state = engine.fit_state(session)
     assert state.status == FIT_FINISHED
     assert state.latest_epoch is not None

@@ -18,7 +18,7 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
 )
 from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
 
-from tests.experiment_management.project.pl_support import N_TRIALS, random_project_name
+from tests.experiment_management.names import N_TRIALS, random_project_name
 
 
 def test_project_root_is_the_marker_file_parent(

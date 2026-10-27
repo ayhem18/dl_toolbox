@@ -1,19 +1,15 @@
-"""Compose dl_toolbox_config parsers. Constructs Logger and CheckpointManager."""
+"""Compose dl_toolbox_config parsers. Constructs Logger and checkpoint policy."""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
 from dl_toolbox.dl_engine.loggers.base_logger import Logger
 from dl_toolbox.dl_engine.loggers.factory import get_logger
 from dl_toolbox.dl_engine.seed import seed_everything
-from dl_toolbox.dl_engine.training.checkpoint import CheckpointManager
 from dl_toolbox.dl_engine.training.checkpointer.types import CheckpointPolicy
 from dl_toolbox.dl_engine.training.config import (
     EarlyStoppingConfig,
-    MonitorConfig,
     SeedConfig,
     TrainerConfig,
 )
@@ -85,17 +81,4 @@ class DlToolboxConfigManager:
         return CheckpointPolicy(
             save_top_k=self._checkpoint_parser.save_top_k,
             save_last=self._checkpoint_parser.save_last,
-        )
-
-    def materialize_checkpoint(
-        self,
-        *,
-        run_dir: Path,
-        monitor: MonitorConfig,
-    ) -> CheckpointManager:
-        return CheckpointManager(
-            save_top_k=self._checkpoint_parser.save_top_k,
-            save_last=self._checkpoint_parser.save_last,
-            run_dir=run_dir,
-            monitor=monitor,
         )

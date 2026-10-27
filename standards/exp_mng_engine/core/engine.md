@@ -6,7 +6,7 @@ Core orchestrator. Receives managers. Does not walk a project tree.
 
 | | |
 |---|---|
-| Expected | `IdentityManager`, `LoggingManager`, `CheckpointManager` (project protocol), `ExperimentConfigManager`, `EnginePaths`, `compose_toolbox` (callable that builds a `ToolboxComposer` from `dl_toolbox_config`), optional `InspectionManager`, `tracking_backend`. A run recipe (path or mapping). |
+| Expected | `IdentityManager`, `LoggingManager`, `CheckpointManager` (project protocol), `ExperimentConfigManager`, `EnginePaths`, `compose_toolbox` (callable that builds a `ToolboxComposer` from `dl_toolbox_config`), `tracking_backend`. A run recipe (path or mapping). `inspect` also takes `inspect_fn`. |
 | Comes from | Default engine constructs managers from scaffolded JSON and passes them here. Tests inject fakes. |
 | Conditions | Recipe has the three keys. Toolbox schema is the composer’s problem. Name is not hashed. |
 
@@ -14,8 +14,8 @@ Core orchestrator. Receives managers. Does not walk a project tree.
 
 - Discovering `identity.json` inside the core. That is default layout.
 - Holding fit loop objects on the engine instance for inspect. Inspect is another process. State is the catalog.
-- Folding claim and open into one boolean flag at the public API. `claim` / `open` stay two methods. `train` calls `claim`. `inspect` calls `open`.
-- `force=True` stealing `hash_taken`. Force only reclaims a **name**.
+- Folding get_new_run_or_overwrite and get_existing_run into one boolean flag at the public API. They stay two methods. `train` calls `get_new_run_or_overwrite`. `inspect` calls `get_existing_run`. The decision tree is the contract on those methods.
+- `force=True` stealing `hash_taken` or wiping `both_match`. Force only overwrites `name_taken`. See [get_new_run_or_overwrite.md](../identity/get_new_run_or_overwrite.md).
 - Opening a live vendor run on inspect. `Logger.setup` is fit-only.
 - Putting inspect knobs in the training recipe (they would enter the hash).
 
@@ -31,23 +31,23 @@ sequenceDiagram
   participant S as RunSession
 
   Core->>TB: compose dl_toolbox_config, apply_seed
-  Core->>ID: hash two configs, claim or open
-  Core->>Core: payload dir
+  Core->>ID: hash two configs, get_new_run_or_overwrite or get_existing_run
+  Core->>Core: run artifacts dir
   Core->>EX: build experiment
   Core->>CM: bind run_dir plus policy plus monitor to Checkpointer
   Core->>TB: build Logger
   Core->>S: RunSession
 ```
 
-Order that must not flip: compose toolbox → apply seed → identity claim/open + mkdir payload → `ExperimentConfigManager.build` → bind checkpointer with `experiment.monitor` → logger → session.
+Order that must not flip: compose toolbox → apply seed → identity get_new_run_or_overwrite/get_existing_run + mkdir run artifacts → `ExperimentConfigManager.build` → bind checkpointer with `experiment.monitor` → logger → session.
 
-`reclaim_name` is identity `release_name` plus payload `rmtree`. Logger stores are left alone.
+`reclaim_name` is identity `release_name` plus run-artifacts `rmtree`. Logger stores are left alone.
 
-Claim/open wrap identity pair write + payload mkdir in a records-dir lock. Two JSON files plus mkdir are not one filesystem transaction.
+`get_new_run_or_overwrite` / `get_existing_run` wrap identity pair write + run-artifacts mkdir in a `run_identities_root` lock. Two JSON files plus mkdir are not one filesystem transaction. The decision tree is the contract on those methods.
 
 ```python
-engine.train(recipe)     # claim + fit; Logger.setup; enable_checkpointing=False
-engine.inspect(recipe, inspection_recipe)
+engine.train(recipe)     # get_new_run_or_overwrite + fit; Logger.setup; enable_checkpointing=False
+engine.inspect(recipe, inspection_recipe, inspect_fn=...)
 engine.fit_state(session)
 ```
 

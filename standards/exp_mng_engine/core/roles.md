@@ -4,16 +4,15 @@ What the core talks to. Implementations live in `base` / `dl_engine` (Fold 1). T
 
 | Role | Lifetime | Job | Default impl |
 |---|---|---|---|
-| IdentityManager | project | hash configs; exclusive `(name, hash)`; claim / open / release | `HashManager` |
+| IdentityManager | project | hash configs; exclusive `(name, hash)`; lookup / claim / release | `HashManager` |
 | LoggingManager | project | vendor store; `publish_directory` | TB / W&B / MLflow / placeholder |
 | Logger | run | live scalars / artifacts | matching Logger |
 | CheckpointManager | project protocol, bound per run | lock, catalog, checksum, prune, snapshot copy | `dl_engine.training.checkpointer` |
 | Checkpointer | run façade | `save` / `fetch` / `fit_state` / `as_callback`; talks only to CheckpointManager | same package |
 | ExperimentConfigManager | project subclass | JSON → net, loaders, monitor | project writes this |
 | ToolboxComposer | one recipe | seed, trainer, ES, logger kwargs, ckpt policy | `DlToolboxConfigManager` |
-| InspectionManager | project, optional | inspection recipe → inspect callable | project writes this |
 
-No manager for trainer / seed / early stopping. Parsers → values. ToolboxComposer is not a store.
+No manager for trainer / seed / early stopping. Parsers → values. ToolboxComposer is not a store. Inspect is a project `inspect_fn` passed to `engine.inspect`.
 
 ## ToolboxComposer
 
@@ -40,11 +39,4 @@ flowchart LR
 
 Engine never calls CheckpointManager. Fit and inspect never share a live path.
 
-## InspectionManager
-
-```python
-class InspectionManager(ABC):
-    def inspect_fn(self, inspection_recipe) -> Callable[[RunSession, CheckpointRecord, Path], None]: ...
-```
-
-The callable loads `record.path` (the snapshot). It never opens `checkpoints/live`.
+The inspect callable loads `record.path` (the snapshot). It never opens `checkpoints/live`.

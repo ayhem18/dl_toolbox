@@ -27,7 +27,7 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
 )
 from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
 
-from tests.experiment_management.project.pl_support import N_TRIALS, random_package_name, random_project_name
+from tests.experiment_management.names import N_TRIALS, random_package_name, random_project_name
 
 _UNUSED_BACKENDS = (BACKEND_MLFLOW, BACKEND_WANDB, BACKEND_PLACEHOLDER)
 
