@@ -7,7 +7,8 @@ from pathlib import Path
 
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.dl_engine.loggers.base_logger import LoggerError, import_extra, require_logger_open
+from dl_toolbox.dl_engine.loggers.base_logger import Logger, LoggerError, import_extra, require_logger_open
+from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
 
 _EXTRA = "mlflow"
 # MLflow tracking API limits (key/value length) and log_params batch size.
@@ -22,7 +23,7 @@ class MlflowSetupError(ValueError):
     """The MLflow store could not be opened."""
 
 
-class MlflowManager:
+class MlflowManager(LoggingManager):
     """Persistence for one MLflow tracking store. The logger owns the run identity."""
 
     def __init__(
@@ -188,6 +189,16 @@ class MlflowManager:
         mlflow = _import_mlflow()
         mlflow.end_run()
         self._open = False
+
+    def publish_directory(
+        self,
+        local_dir: Path,
+        *,
+        dest: str,
+        logger: Logger,
+    ) -> None:
+        del logger
+        self.log_directory_to_run(local_dir, artifact_path=dest)
 
     def log_directory_to_run(self, local_dir: Path, *, artifact_path: str) -> None:
         if self._run_id is None:

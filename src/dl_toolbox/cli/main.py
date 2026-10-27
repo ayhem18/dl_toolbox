@@ -7,8 +7,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from dl_toolbox.experiment_management.project.layout import DEFAULT_TRACKING_BACKEND, TRACKING_BACKENDS
-from dl_toolbox.experiment_management.project.scaffold import setup_project
+from dl_toolbox.experiment_management.default_layout.layout.names import (
+    DEFAULT_TRACKING_BACKEND,
+    TRACKING_BACKENDS,
+)
+from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
 
 
 def build_parser() -> argparse.ArgumentParser:

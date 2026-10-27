@@ -12,7 +12,7 @@ from dl_toolbox.base.hashing.hash_manager import (
     NAME_TAKEN,
     HashManager,
 )
-from dl_toolbox.base.input_output.json_io import read_json
+from dl_toolbox.base.input_output.json_io import read_json, write_json
 
 from tests.base.base_support import N_TRIALS, random_generating_process_name, random_json_object
 
@@ -106,3 +106,85 @@ def test_hash_stem_is_rejected_as_name() -> None:
     digest = manager.hash_payload({"k": 1})
     with pytest.raises(ValueError, match="hash stem"):
         manager.assert_name(manager.stem(digest))
+
+
+def test_release_name_drops_pair_and_leaves_other_hash(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    manager = _manager()
+    for i in range(N_TRIALS):
+        directory = tmp_path / f"release_{i}"
+        name = random_generating_process_name(rng)
+        configuration_hash = manager.hash_payload({"i": i, "noise": rng.randint(0, 1000)})
+        manager.write_name_hash_json_unique(
+            directory, name=name, configuration_hash=configuration_hash
+        )
+        other_name = name + "_kept"
+        other_hash = manager.hash_payload({"kept": i})
+        manager.write_name_hash_json_unique(
+            directory, name=other_name, configuration_hash=other_hash
+        )
+        assert manager.release_name(directory, name=name)["hash"] == configuration_hash
+        assert (
+            manager.lookup_name_hash_json(
+                directory, name=name, configuration_hash=configuration_hash
+            ).state
+            == BOTH_FREE
+        )
+        assert (
+            manager.lookup_name_hash_json(
+                directory, name=other_name, configuration_hash=other_hash
+            ).state
+            == BOTH_MATCH
+        )
+        replacement = manager.hash_payload({"replacement": i})
+        manager.write_name_hash_json_unique(
+            directory, name=name, configuration_hash=replacement
+        )
+        assert (
+            manager.lookup_name_hash_json(
+                directory, name=name, configuration_hash=replacement
+            ).state
+            == BOTH_MATCH
+        )
+        assert manager.release_name(directory, name=name + "_missing") is None
+
+
+def test_lookup_cross_pair_is_hash_taken(tmp_path: Path, rng: random.Random) -> None:
+    manager = _manager()
+    directory = tmp_path / "cross"
+    name_a = random_generating_process_name(rng)
+    name_b = name_a + "_b"
+    hash_a = manager.hash_payload({"who": "a", "n": rng.randint(0, 1000)})
+    hash_b = manager.hash_payload({"who": "b", "n": rng.randint(0, 1000)})
+    manager.write_name_hash_json_unique(
+        directory, name=name_a, configuration_hash=hash_a
+    )
+    manager.write_name_hash_json_unique(
+        directory, name=name_b, configuration_hash=hash_b
+    )
+    crossed = manager.lookup_name_hash_json(
+        directory, name=name_b, configuration_hash=hash_a
+    )
+    assert crossed.state == HASH_TAKEN
+    with pytest.raises(FileExistsError, match="already saved as name"):
+        manager.verify_name_hash_json_unique(
+            directory, name=name_b, configuration_hash=hash_a
+        )
+
+
+def test_release_name_refuses_disagreeing_pair(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    manager = _manager()
+    directory = tmp_path / "disagree"
+    name = random_generating_process_name(rng)
+    configuration_hash = manager.hash_payload({"k": 1})
+    other_hash = manager.hash_payload({"k": 2})
+    name_path, hash_path = manager.name_hash_paths(
+        directory, name=name, configuration_hash=configuration_hash
+    )
+    write_json(name_path, {"name": name, "hash": configuration_hash})
+    write_json(hash_path, {"name": name, "hash": other_hash})
+    with pytest.raises(ValueError, match="disagree"):
+        manager.release_name(directory, name=name)

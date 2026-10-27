@@ -353,7 +353,11 @@ class HashManager:
     def verify_name_hash_json_unique(
         self, directory: Path, *, name: str, configuration_hash: str
     ) -> None:
-        # both_free or raise
+        # both_free or raise. no overwrite flag.
+
+    def release_name(self, directory: Path, *, name: str) -> dict | None:
+        # delete name JSON + paired hash JSON. None if the name is free.
+        # identity only; never payload.
 
     def write_name_hash_json_unique(
         self,
@@ -399,12 +403,12 @@ Records directory: `storage/runs`. Payload directory: `storage/run_artifacts/{na
 
 | name vs hash | claim (fit) | open (inspect) |
 |---|---|---|
-| both free | `verify` + `write` the JSON pair, mkdir payload | refuse |
-| both exist and agree | refuse (already claimed) | payload must exist; return `RunIdentity` |
-| name taken, other hash | refuse | refuse |
-| hash taken, other name | refuse | refuse |
+| both free | `verify` + `write` the JSON pair, mkdir payload. `force` also `rmtree`s an orphan payload. | refuse |
+| both exist and agree | refuse (already claimed). `force`: `reclaim_name` then claim. | payload must exist; return `RunIdentity` |
+| name taken, other hash | refuse. `force`: `reclaim_name` then claim. | refuse |
+| hash taken, other name | refuse. `force` does not steal. | refuse |
 
-`AbstractRunManager` calls `HashManager` then creates the payload dir (path from `DefaultRunManager`). Claim vs open stay two methods on `AbstractRunManager`.
+`AbstractRunManager` calls `HashManager` then creates the payload dir (path from `DefaultRunManager`). Claim vs open stay two methods on `AbstractRunManager`. `reclaim_name` is `HashManager.release_name` plus payload `rmtree`. Logger stores are not identity.
 
 ## 11. `AbstractRunManager.manage_run`
 
@@ -415,7 +419,8 @@ Records directory: `storage/runs`. Payload directory: `storage/run_artifacts/{na
 ```python
 class AbstractRunManager(ABC):
     def __init__(self, *, experiment_config_manager: ExperimentConfigManager): ...
-    def manage_run(self, recipe) -> ExpSignatureObj: ...
+    def reclaim_name(self, name: str) -> dict | None: ...
+    def manage_run(self, recipe, *, force: bool = False) -> ExpSignatureObj: ...
     def open_run(self, recipe) -> ExpSignatureObj: ...
 
 class DefaultRunManager(AbstractRunManager):

@@ -6,6 +6,7 @@ This module has no filesystem layout. The opinionated tree lives on
 
 from __future__ import annotations
 
+import shutil
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 from dl_toolbox.base.hashing.hash_manager import (
     BOTH_FREE,
     BOTH_MATCH,
+    HASH_TAKEN,
     NAME_TAKEN,
     HashManager,
 )
@@ -67,11 +69,27 @@ class AbstractRunManager(ABC):
     def make_hash_manager(self) -> HashManager:
         raise NotImplementedError
 
-    def manage_run(self, recipe: Path | Mapping[str, Any]) -> ExpSignatureObj:
-        return self._assemble(recipe, claim=True)
+    def reclaim_name(self, name: str) -> dict[str, Any] | None:
+        """Drop the identity pair and the payload directory for ``name``.
+
+        HashManager is the identity index. Payload is derived storage under
+        ``run_payload_dir``. Logger stores are not identity and are left alone.
+        Missing name with no payload returns ``None``.
+        """
+        hash_manager = self.make_hash_manager()
+        released = hash_manager.release_name(self.project_runs_dir(), name=name)
+        payload = self.run_payload_dir(hash_manager.assert_name(name))
+        if payload.exists():
+            shutil.rmtree(payload)
+        return released
+
+    def manage_run(
+        self, recipe: Path | Mapping[str, Any], *, force: bool = False
+    ) -> ExpSignatureObj:
+        return self._assemble(recipe, claim=True, force=force)
 
     def open_run(self, recipe: Path | Mapping[str, Any]) -> ExpSignatureObj:
-        return self._assemble(recipe, claim=False)
+        return self._assemble(recipe, claim=False, force=False)
 
     def _recipe_mapping(self, recipe: Path | Mapping[str, Any]) -> dict:
         if isinstance(recipe, Path):
@@ -83,6 +101,7 @@ class AbstractRunManager(ABC):
         recipe: Path | Mapping[str, Any],
         *,
         claim: bool,
+        force: bool,
     ) -> ExpSignatureObj:
         hash_manager = self.make_hash_manager()
         logging_manager = self.make_logging_manager()
@@ -109,7 +128,14 @@ class AbstractRunManager(ABC):
             records, name=name, configuration_hash=configuration_hash
         )
         if claim:
-            if lookup.state == BOTH_FREE and payload.exists():
+            if lookup.state == HASH_TAKEN:
+                occupant = read_json(lookup.hash_path)
+                raise FileExistsError(
+                    f"configuration hash already saved as name {occupant.get('name')!r}"
+                )
+            if force:
+                self.reclaim_name(name)
+            elif lookup.state == BOTH_FREE and payload.exists():
                 raise FileExistsError(f"payload directory already exists: {payload}")
             hash_manager.write_name_hash_json_unique(
                 records, name=name, configuration_hash=configuration_hash

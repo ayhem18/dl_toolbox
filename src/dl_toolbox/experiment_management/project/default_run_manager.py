@@ -13,15 +13,12 @@ from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
 from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
 from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
 from dl_toolbox.dl_engine.loggers.wandb.wandb_manager import WandbManager
-from dl_toolbox.experiment_management.experiment.manager import ExperimentConfigManager
-from dl_toolbox.experiment_management.logging.project_parser import parse_project_logger_config
-from dl_toolbox.experiment_management.project.discover import (
+from dl_toolbox.experiment_management.default_layout.layout.discover import (
     find_project_root,
     load_project_document,
     read_tracking_backend,
 )
-from dl_toolbox.experiment_management.project.identity_parser import IdentityConfigParser
-from dl_toolbox.experiment_management.project.layout import (
+from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_TENSORBOARD,
@@ -35,6 +32,13 @@ from dl_toolbox.experiment_management.project.layout import (
     SCRIPTS_DIRNAME,
     STORAGE_DIRNAME,
 )
+from dl_toolbox.experiment_management.default_layout.parsing.identity import (
+    IdentityConfigParser,
+)
+from dl_toolbox.experiment_management.default_layout.parsing.logging import (
+    parse_project_logger_config,
+)
+from dl_toolbox.experiment_management.experiment.manager import ExperimentConfigManager
 from dl_toolbox.experiment_management.project.abstract_run_manager import AbstractRunManager
 
 

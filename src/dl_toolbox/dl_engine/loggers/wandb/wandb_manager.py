@@ -7,17 +7,23 @@ from pathlib import Path
 
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.dl_engine.loggers.base_logger import (
+    Logger,
     LoggerError,
     copy_local_artifact,
     import_extra,
     require_logger_open,
+)
+from dl_toolbox.dl_engine.loggers.base_manager import (
+    LoggingManager,
+    logger_run_name,
+    publish_run_tree,
 )
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 
 _EXTRA = "wandb"
 
 
-class WandbManager:
+class WandbManager(LoggingManager):
     def __init__(self, *, dir: Path) -> None:
         self._dir = parse_absolute_path(str(dir), label="dir")
         self._open = False
@@ -83,3 +89,17 @@ class WandbManager:
         wandb = self._import_wandb()
         wandb.finish()
         self._open = False
+
+    def publish_directory(
+        self,
+        local_dir: Path,
+        *,
+        dest: str,
+        logger: Logger,
+    ) -> None:
+        publish_run_tree(
+            local_dir,
+            dest=dest,
+            parent=self._dir,
+            run_name=logger_run_name(logger),
+        )

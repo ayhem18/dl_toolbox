@@ -4,7 +4,7 @@ import random
 from pathlib import Path
 
 from dl_toolbox.cli.main import main
-from dl_toolbox.experiment_management.project.layout import PROJECT_MARKER_FILENAME
+from dl_toolbox.experiment_management.default_layout.layout.names import PROJECT_MARKER_FILENAME
 
 from tests.experiment_management.project.pl_support import N_TRIALS, random_package_name, random_project_name
 

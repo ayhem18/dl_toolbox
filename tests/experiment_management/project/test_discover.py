@@ -5,18 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.experiment_management.project.discover import (
+from dl_toolbox.experiment_management.default_layout.layout.discover import (
     assert_package_name,
     find_project_root,
     load_project_document,
     read_tracking_backend,
 )
-from dl_toolbox.experiment_management.project.layout import (
+from dl_toolbox.experiment_management.default_layout.layout.names import (
     DEFAULT_TRACKING_BACKEND,
     PROJECT_MARKER_FILENAME,
     TRACKING_BACKEND_FILENAME,
 )
-from dl_toolbox.experiment_management.project.scaffold import setup_project
+from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
 
 from tests.experiment_management.project.pl_support import N_TRIALS, random_project_name
 

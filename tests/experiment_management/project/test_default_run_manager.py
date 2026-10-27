@@ -12,7 +12,7 @@ from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import Placeho
 from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
 from dl_toolbox.dl_engine.loggers.wandb.wandb_manager import WandbManager
 from dl_toolbox.experiment_management.project.default_run_manager import DefaultRunManager
-from dl_toolbox.experiment_management.project.layout import (
+from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_WANDB,
@@ -20,7 +20,7 @@ from dl_toolbox.experiment_management.project.layout import (
     PROJECT_LEVEL_CONFIGS_DIRNAME,
     TRACKING_BACKEND_FILENAME,
 )
-from dl_toolbox.experiment_management.project.scaffold import setup_project
+from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
 from dl_toolbox.experiment_management.project.abstract_run_manager import AbstractRunManager
 
 from tests.experiment_management.project.pl_support import (

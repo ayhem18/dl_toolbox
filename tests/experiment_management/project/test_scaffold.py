@@ -6,10 +6,12 @@ from pathlib import Path
 import pytest
 
 from dl_toolbox.base.input_output.json_io import read_json
-from dl_toolbox.experiment_management.project.layout import (
+from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_WANDB,
+    CHECKPOINT_CONFIG_FILENAME,
+    DEFAULT_CHECKPOINT_CONFIG,
     DEFAULT_IDENTITY_CONFIG,
     DEFAULT_TRACKING_BACKEND,
     EXPERIMENTS_DIRNAME,
@@ -23,7 +25,7 @@ from dl_toolbox.experiment_management.project.layout import (
     TRACKING_BACKEND_FILENAME,
     TRACKING_BACKENDS,
 )
-from dl_toolbox.experiment_management.project.scaffold import setup_project
+from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
 
 from tests.experiment_management.project.pl_support import N_TRIALS, random_package_name, random_project_name
 
@@ -62,6 +64,10 @@ def test_setup_project_writes_all_logging_configs_and_selected_storage(
             root / PROJECT_LEVEL_CONFIGS_DIRNAME / IDENTITY_CONFIG_FILENAME
         )
         assert identity == DEFAULT_IDENTITY_CONFIG
+        checkpoint = read_json(
+            root / PROJECT_LEVEL_CONFIGS_DIRNAME / CHECKPOINT_CONFIG_FILENAME
+        )
+        assert checkpoint == DEFAULT_CHECKPOINT_CONFIG
         assert (
             root / STORAGE_DIRNAME / RUN_ARTIFACTS_DIRNAME / "README.md"
         ).is_file()
@@ -78,6 +84,7 @@ def test_setup_project_writes_all_logging_configs_and_selected_storage(
             root / STORAGE_DIRNAME / "runs" / "README.md",
             root / STORAGE_DIRNAME / RUN_ARTIFACTS_DIRNAME / "README.md",
             root / STORAGE_DIRNAME / "tensorboard" / "README.md",
+            root / PROJECT_LEVEL_CONFIGS_DIRNAME / "README.md",
             logging_configs / "README.md",
             root / SCRIPTS_DIRNAME / "README.md",
             root / EXPERIMENTS_DIRNAME / "README.md",

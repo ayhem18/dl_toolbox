@@ -8,12 +8,17 @@ from pathlib import Path
 from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.data_contract.names import assert_generating_process_name
 from dl_toolbox.dl_engine.loggers.mlflow.default_configurations import DEFAULT_SQLITE_TIMEOUT_SECONDS
-from dl_toolbox.experiment_management.project.discover import assert_package_name, parse_tracking_backend
-from dl_toolbox.experiment_management.project.layout import (
+from dl_toolbox.experiment_management.default_layout.layout.discover import (
+    assert_package_name,
+    parse_tracking_backend,
+)
+from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     BACKEND_TENSORBOARD,
     BACKEND_WANDB,
+    CHECKPOINT_CONFIG_FILENAME,
+    DEFAULT_CHECKPOINT_CONFIG,
     DEFAULT_IDENTITY_CONFIG,
     DEFAULT_TRACKING_BACKEND,
     EXPERIMENTS_DIRNAME,
@@ -47,6 +52,10 @@ _README_BY_RELATIVE = {
     f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}": (
         "One JSON file per tracking backend. Edit .tracking-backend to switch; "
         "unused configs stay here so you do not recreate them.\n"
+    ),
+    PROJECT_LEVEL_CONFIGS_DIRNAME: (
+        "Project-level JSON: identity.json, checkpoint.json, logging/{backend}.json.\n"
+        "Not hashed into a run. Edit these; do not put store paths in the recipe.\n"
     ),
     f"{STORAGE_DIRNAME}/{TENSORBOARD_DIRNAME}": (
         "TensorBoard comparison index. Each child folder is one training run.\n"
@@ -129,6 +138,10 @@ def _write_tree(
         root / PROJECT_LEVEL_CONFIGS_DIRNAME / IDENTITY_CONFIG_FILENAME,
         dict(DEFAULT_IDENTITY_CONFIG),
     )
+    write_json(
+        root / PROJECT_LEVEL_CONFIGS_DIRNAME / CHECKPOINT_CONFIG_FILENAME,
+        dict(DEFAULT_CHECKPOINT_CONFIG),
+    )
 
     logging_configs = (
         root / PROJECT_LEVEL_CONFIGS_DIRNAME / LOGGING_CONFIGS_DIRNAME
@@ -149,6 +162,7 @@ def _write_tree(
         f"{STORAGE_DIRNAME}/{RUNS_DIRNAME}/{identity['human_readable_dirname']}",
         f"{STORAGE_DIRNAME}/{RUNS_DIRNAME}/{identity['hashes_dirname']}",
         f"{STORAGE_DIRNAME}/{RUN_ARTIFACTS_DIRNAME}",
+        PROJECT_LEVEL_CONFIGS_DIRNAME,
         f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}",
         *_backend_storage_dirs(tracking_backend),
         SCRIPTS_DIRNAME,

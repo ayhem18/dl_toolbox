@@ -27,6 +27,7 @@ The project does **not** subclass `DefaultRunManager` to teach it a loss. It pas
 - Seeding after `build_experiment`, or skipping `seed_config`.
 - Binding monitor from a `monitor_config` key. That key does not exist. The experiment returns it.
 - A `RunIdentityManager`. Claim/open call [`HashManager`](hash_manager.md), then mkdir the payload dir.
+- Asking HashManager to delete payload. `reclaim_name` is this class: `release_name` then `rmtree` payload.
 
 ## 2. Processing
 
@@ -61,7 +62,9 @@ See [dl_toolbox_config](../recipe/dl_toolbox_config.md) for the key → parser �
 
 Order that must not flip: parse toolbox (`DlToolboxConfigManager`) → apply seed → HashManager claim/open + mkdir payload → `ExperimentConfigManager.build` → bind monitor → assemble `FitConfig`.
 
-`manage_run` claims. Inspect calls `open_run`. Two methods. No boolean default.
+`manage_run` claims. Inspect calls `open_run`. Two methods. Do not fold them into `claim=`.
+
+`manage_run(..., force=True)` is not a third mode. It calls `reclaim_name` (HashManager `release_name` + payload `rmtree`) then claims. `open_run` never reclaims. Force does not steal `hash_taken`. Logger stores are left alone.
 
 ## 3. Output
 

@@ -27,6 +27,8 @@ Class name is `HashManager`, not `Hash`. `hash` is the digest.
 - A class named `Hash`. That is the digest.
 - `verify_name_hash_json_unique` as the only method. Inspect needs **both exist and agree**.
 - Putting payload under the records parent (`storage/runs/{name}/` next to the two index folders). Payload is the caller’s, same as process `artifacts_dir`.
+- `force=` on `write_name_hash_json_unique`. Unique write stays unique. `release_name` is the helper, same split as `process()` vs `remove_named_freeze`.
+- Treating HashManager as owning `run_artifacts` or logger folders. It is the identity index only.
 - Passing `prefix_len` into claim/open/process. One project, one length, on this object.
 - Putting the records path in `identity.json`. Folder **names** are project-wide; which tree is indexed is per call.
 - Hashing `identity.json` into the run. It is project-level, like logging JSON.
@@ -48,6 +50,9 @@ flowchart TD
   lookup --> name_taken["name_taken"]
   lookup --> hash_taken["hash_taken"]
   both_free --> write["write_name_hash_json_unique"]
+  name_taken --> release["release_name"]
+  both_match --> release
+  release --> write
 ```
 
 `IdentityConfigParser` validates. `HashManager` holds the three knobs and injects them into paths. It does not read `identity.json`.
@@ -69,9 +74,10 @@ flowchart TD
 |---|---|
 | `hash_payload` | Full SHA-256 of canonical JSON. |
 | `stem` / `is_hash_stem` / `assert_name` | Prefix policy. No `prefix_len=` on the call. |
-| `lookup_name_hash_json` | Four-way state. Reads both files; does not trust the filename. |
-| `verify_name_hash_json_unique` | `both_free` or raise. Write path only. |
-| `write_name_hash_json_unique` | `verify`, then write both files. |
+| `lookup_name_hash_json` | Four-way state. Reads both files; does not trust the filename. If both paths exist but belong to **two different pairs**, that is `hash_taken` (this hash) or `name_taken`, not a corrupt pair. |
+| `verify_name_hash_json_unique` | `both_free` or raise. Write path only. No overwrite flag. |
+| `release_name` | Delete the name JSON and the hash JSON it points at. Returns the document, or `None` if the name is free. Refuses if the two files disagree. Does not steal a hash held by another name. Does not touch payload. |
+| `write_name_hash_json_unique` | `verify`, then write both files. Still unique after a release. |
 
 `dl_engine` does not import this. Data contract and experiment management both do.
 

@@ -8,10 +8,16 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from dl_toolbox.dl_engine.loggers.base_logger import (
+    Logger,
     LoggerError,
     copy_local_artifact,
     import_extra,
     require_logger_open,
+)
+from dl_toolbox.dl_engine.loggers.base_manager import (
+    LoggingManager,
+    logger_run_name,
+    publish_run_tree,
 )
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
@@ -19,7 +25,7 @@ from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 _EXTRA = "tensorboard"
 
 
-class TensorBoardManager:
+class TensorBoardManager(LoggingManager):
     def __init__(self, *, log_dir: Path) -> None:
         self._log_dir = parse_absolute_path(str(log_dir), label="log_dir")
         self._run_dir: Path | None = None
@@ -92,6 +98,20 @@ class TensorBoardManager:
             self._writer.close()
         self._writer = None
         self._open = False
+
+    def publish_directory(
+        self,
+        local_dir: Path,
+        *,
+        dest: str,
+        logger: Logger,
+    ) -> None:
+        publish_run_tree(
+            local_dir,
+            dest=dest,
+            parent=self._log_dir,
+            run_name=logger_run_name(logger),
+        )
 
     def _require_writer(self):
         require_logger_open(self._open)

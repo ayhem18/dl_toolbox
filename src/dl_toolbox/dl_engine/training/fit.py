@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+from collections.abc import Callable, Mapping, Sequence
 
 import lightning as L
-from lightning.pytorch.callbacks import EarlyStopping
 from torch import Tensor, nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 from dl_toolbox.dl_engine.loggers.base_logger import Logger
 from dl_toolbox.dl_engine.metrics.contracts import KEY_OUTPUT
@@ -43,8 +43,8 @@ def fit_classification(
     config: FitConfig,
     checkpoint_manager: CheckpointManager,
     logger: Logger,
-    run_config: Mapping[str, Any] | None = None,
-    run_config_filename: str = "run_config",
+    run_config: Mapping[str, Any] | None = None, # TODO: no defaults
+    run_config_filename: str = "run_config", # TODO: no defaults: these 2 parameters may or may not be necessary.
 ) -> L.Trainer:
     if config.trainer.max_epochs < 1:
         raise FitError(f"max_epochs must be >= 1, got {config.trainer.max_epochs}")
@@ -64,7 +64,8 @@ def fit_classification(
         run_config_filename=run_config_filename,
     )
 
-    callbacks: list[L.Callback] = [checkpoint_manager.as_callback()]
+    checkpoint_callback = checkpoint_manager.as_callback()
+    callbacks: list[L.Callback] = [checkpoint_callback]
     if config.early_stopping.name == EarlyStoppingConfig.PATIENCE:
         if config.early_stopping.patience is None:
             raise FitError("patience early stopping requires patience")
@@ -73,7 +74,7 @@ def fit_classification(
                 monitor=config.monitor.key,
                 patience=config.early_stopping.patience,
                 mode=config.monitor.mode,
-                min_delta=float(config.early_stopping.min_delta or 0.0),
+                min_delta=float(config.early_stopping.min_delta or 0.0), # I see an "or" here ... which assumes that the min_delta can be none... 
             )
         )
 
@@ -85,6 +86,7 @@ def fit_classification(
         callbacks=callbacks,
         enable_progress_bar=config.trainer.enable_progress_bar,
         logger=False,
+        enable_checkpointing=isinstance(checkpoint_callback, ModelCheckpoint),
     )
     try:
         trainer.fit(lit_module, train_dataloaders=train_loader, val_dataloaders=val_loader)

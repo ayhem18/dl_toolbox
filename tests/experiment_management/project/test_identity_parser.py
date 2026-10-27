@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dl_toolbox.experiment_management.project.identity_parser import IdentityConfigParser
+from dl_toolbox.experiment_management.default_layout.parsing.identity import IdentityConfigParser
 
 
 def test_identity_parser_reads_exact_keys() -> None:

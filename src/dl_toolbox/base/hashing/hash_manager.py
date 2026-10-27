@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dl_toolbox.base.hashing.identity_manager import IdentityManager
 from dl_toolbox.base.hashing.identity import (
     SHA256_HEX_LENGTH,
     artifact_stem,
@@ -49,7 +50,7 @@ def assert_prefix_len(raw: object) -> int:
     return value
 
 
-class HashManager:
+class HashManager(IdentityManager):
     def __init__(
         self,
         *,
@@ -143,8 +144,13 @@ class HashManager:
             name_document = read_json(name_path)
             hash_document = read_json(hash_path)
             if name_document != hash_document:
-                raise ValueError(
-                    f"name/hash JSON disagree for {checked!r} at {name_path} and {hash_path}"
+                return self._lookup_distinct_name_and_hash_files(
+                    checked=checked,
+                    configuration_hash=configuration_hash,
+                    name_path=name_path,
+                    hash_path=hash_path,
+                    name_document=name_document,
+                    hash_document=hash_document,
                 )
             if (
                 name_document.get("name") != checked
@@ -184,6 +190,43 @@ class HashManager:
             state=BOTH_FREE, name_path=name_path, hash_path=hash_path
         )
 
+    def _lookup_distinct_name_and_hash_files(
+        self,
+        *,
+        checked: str,
+        configuration_hash: str,
+        name_path: Path,
+        hash_path: Path,
+        name_document: dict[str, Any],
+        hash_document: dict[str, Any],
+    ) -> NameHashLookup:
+        stored_hash = hash_document.get("hash")
+        if stored_hash != configuration_hash and hash_path.stem == self.stem(
+            configuration_hash
+        ):
+            raise ValueError(
+                f"hash prefix {hash_path.stem!r} already used by {stored_hash!r}"
+            )
+        name_is_this_pair = (
+            name_document.get("name") == checked
+            and name_document.get("hash") == configuration_hash
+        )
+        hash_is_this_pair = (
+            hash_document.get("name") == checked
+            and hash_document.get("hash") == configuration_hash
+        )
+        if name_is_this_pair or hash_is_this_pair:
+            raise ValueError(
+                f"name/hash JSON disagree for {checked!r} at {name_path} and {hash_path}"
+            )
+        if stored_hash == configuration_hash:
+            return NameHashLookup(
+                state=HASH_TAKEN, name_path=name_path, hash_path=hash_path
+            )
+        return NameHashLookup(
+            state=NAME_TAKEN, name_path=name_path, hash_path=hash_path
+        )
+
     def verify_name_hash_json_unique(
         self,
         directory: Path,
@@ -208,6 +251,69 @@ class HashManager:
         occupant = read_json(lookup.hash_path)
         raise FileExistsError(
             f"configuration hash already saved as name {occupant.get('name')!r}"
+        )
+
+    def release_name(self, directory: Path, *, name: str) -> dict[str, Any] | None:
+        """Delete the name JSON and its paired hash JSON.
+
+        Identity only. Does not touch payload directories. Missing name returns
+        ``None``. Does not steal a hash held by a different name.
+        """
+        if not directory.is_absolute():
+            raise ValueError(f"directory must be an absolute path, got {directory}")
+        checked = self.assert_name(name)
+        name_path = directory / self._human_readable_dirname / f"{checked}.json"
+        if not name_path.is_file():
+            return None
+        document = read_json(name_path)
+        if document.get("name") != checked:
+            raise ValueError(
+                f"stored name {document.get('name')!r} does not match {checked!r}"
+            )
+        stored_hash = document.get("hash")
+        if not isinstance(stored_hash, str) or not is_full_sha256(stored_hash):
+            raise ValueError(
+                f"stored hash for {checked!r} must be a 64-char lowercase SHA-256, "
+                f"got {stored_hash!r}"
+            )
+        _, hash_path = self.name_hash_paths(
+            directory, name=checked, configuration_hash=stored_hash
+        )
+        if hash_path.is_file():
+            hash_document = read_json(hash_path)
+            if hash_document != document:
+                raise ValueError(
+                    f"name/hash JSON disagree for {checked!r} at {name_path} "
+                    f"and {hash_path}"
+                )
+            hash_path.unlink()
+        name_path.unlink()
+        return document
+
+    def lookup(
+        self,
+        directory: Path,
+        *,
+        name: str,
+        configuration_hash: str,
+    ) -> NameHashLookup:
+        return self.lookup_name_hash_json(
+            directory, name=name, configuration_hash=configuration_hash
+        )
+
+    def claim(
+        self,
+        directory: Path,
+        *,
+        name: str,
+        configuration_hash: str,
+        extra: Mapping[str, Any] | None = None,
+    ) -> tuple[Path, Path]:
+        return self.write_name_hash_json_unique(
+            directory,
+            name=name,
+            configuration_hash=configuration_hash,
+            extra=extra,
         )
 
     def write_name_hash_json_unique(

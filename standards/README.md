@@ -6,7 +6,8 @@ These are documents. They are not installed with `dl-toolbox`. When a contract b
 
 | Folder | Job |
 |---|---|
-| [experiment_management](experiment_management/overview.md) | Run recipe, `ExpSignatureObj`, fit / log / checkpoint / inspect. |
+| [exp_mng_engine](exp_mng_engine/overview.md) | Target engine: core vs default, owned checkpoint protocol, fit/inspect via disk. |
+| [experiment_management](experiment_management/overview.md) | Current running contract (`AbstractRunManager`, Lightning `ModelCheckpoint`). |
 | [metrics](metrics/README.md) | Batch measurement, combiner, reducer. |
 | [data_contract](data_contract/README.md) | Entity, collection, process, lock. |
 

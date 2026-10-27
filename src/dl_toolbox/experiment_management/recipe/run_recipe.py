@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.base.hashing.identity_manager import IdentityManager
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
 
@@ -19,7 +19,7 @@ class RunRecipe:
 
 
 class RunRecipeParser:
-    def __init__(self, payload: dict, *, hash_manager: HashManager) -> None:
+    def __init__(self, payload: dict, *, hash_manager: IdentityManager) -> None:
         obj = parse_mapping(payload, label="recipe")
         require_exact_keys(obj, _KEYS, label="recipe")
         self._recipe = RunRecipe(

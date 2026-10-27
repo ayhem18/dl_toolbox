@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.experiment_management.logging.project_parser import (
+from dl_toolbox.experiment_management.default_layout.parsing.logging import (
     MlflowProjectLoggerConfigParser,
     ProjectLoggerParseError,
     TensorBoardProjectLoggerConfigParser,

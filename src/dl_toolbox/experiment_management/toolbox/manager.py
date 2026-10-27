@@ -10,6 +10,7 @@ from dl_toolbox.dl_engine.loggers.base_logger import Logger
 from dl_toolbox.dl_engine.loggers.factory import get_logger
 from dl_toolbox.dl_engine.seed import seed_everything
 from dl_toolbox.dl_engine.training.checkpoint import CheckpointManager
+from dl_toolbox.dl_engine.training.checkpointer.types import CheckpointPolicy
 from dl_toolbox.dl_engine.training.config import (
     EarlyStoppingConfig,
     MonitorConfig,
@@ -78,6 +79,12 @@ class DlToolboxConfigManager:
             self._backend,
             manager=self._logging_manager,
             **kwargs,
+        )
+
+    def checkpoint_policy(self) -> CheckpointPolicy:
+        return CheckpointPolicy(
+            save_top_k=self._checkpoint_parser.save_top_k,
+            save_last=self._checkpoint_parser.save_last,
         )
 
     def materialize_checkpoint(

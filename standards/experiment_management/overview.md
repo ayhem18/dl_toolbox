@@ -1,6 +1,6 @@
 # Experiment management
 
-Design contract. Code that more than one project should call moves into `src/dl_toolbox`. This folder is the map.
+Design contract for the **current** running code (`AbstractRunManager`, Lightning `ModelCheckpoint`). The target engine is [`exp_mng_engine/`](../exp_mng_engine/overview.md). Code that more than one project should call moves into `src/dl_toolbox`. This folder is the map.
 
 Writing a run recipe instantiates the framework: each key has one reader. A field with no component, or a component that reads an undeclared path, is a design hole.
 

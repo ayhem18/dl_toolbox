@@ -6,6 +6,7 @@ PROJECT_MARKER_FILENAME = "dl_toolbox_project.json"
 TRACKING_BACKEND_FILENAME = ".tracking-backend"
 PROJECT_LEVEL_CONFIGS_DIRNAME = "project_level_configs"
 IDENTITY_CONFIG_FILENAME = "identity.json"
+CHECKPOINT_CONFIG_FILENAME = "checkpoint.json"
 LOGGING_CONFIGS_DIRNAME = "logging"
 STORAGE_DIRNAME = "storage"
 RUNS_DIRNAME = "runs"
@@ -14,6 +15,9 @@ DEFAULT_IDENTITY_CONFIG = {
     "prefix_len": 12,
     "human_readable_dirname": "human_readable",
     "hashes_dirname": "hashes",
+}
+DEFAULT_CHECKPOINT_CONFIG = {
+    "lock_timeout_seconds": 600.0,
 }
 TENSORBOARD_DIRNAME = "tensorboard"
 MLFLOW_DIRNAME = "mlflow"
