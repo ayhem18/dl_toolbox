@@ -1,4 +1,8 @@
-"""Atomic JSON-object configuration files."""
+"""Atomic JSON-object configuration files.
+
+Human-readable documents keep non-ASCII glyphs (Cyrillic paths, and so on).
+Identity hashing uses ``canonical_json`` separately and stays ASCII-escaped.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +25,7 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
     tmp_path.write_text(
-        json.dumps(dict(payload), indent=2, ensure_ascii=True) + "\n",
+        json.dumps(dict(payload), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     tmp_path.replace(path)

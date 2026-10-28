@@ -23,6 +23,16 @@ def test_written_object_round_trips_and_leaves_no_tmp(
         assert not path.with_name(path.name + ".tmp").exists()
 
 
+def test_cyrillic_is_written_as_utf8_glyphs(tmp_path: Path) -> None:
+    path = tmp_path / "members.json"
+    relative = "Сортированные снимки/Мерник/04 TR-SFCC-ZEPP-DRT-11386.DCM"
+    write_json(path, {"dcm_file_path": relative, "members": {relative: {}}})
+    text = path.read_text(encoding="utf-8")
+    assert "Сортированные снимки" in text
+    assert "\\u0421" not in text
+    assert read_json(path)["dcm_file_path"] == relative
+
+
 def test_non_objects_are_rejected(tmp_path: Path, rng: random.Random) -> None:
     samples = (
         [1, 2, 3],

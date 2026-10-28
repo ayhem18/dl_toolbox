@@ -695,6 +695,7 @@ geometry = [
 ]
 mlflow = [
     { name = "mlflow" },
+    { name = "numpy" },
 ]
 tensorboard = [
     { name = "numpy" },
@@ -721,6 +722,7 @@ requires-dist = [
     { name = "mlflow", marker = "extra == 'mlflow'" },
     { name = "numpy", marker = "extra == 'dl'", specifier = ">=1.26.0" },
     { name = "numpy", marker = "extra == 'geometry'", specifier = ">=1.26.0" },
+    { name = "numpy", marker = "extra == 'mlflow'", specifier = ">=1.26.0" },
     { name = "numpy", marker = "extra == 'tensorboard'", specifier = ">=1.26.0" },
     { name = "opencv-python-headless", marker = "extra == 'geometry'", specifier = ">=4.8.0" },
     { name = "pandas", marker = "extra == 'tensorboard'", specifier = ">=2.0" },
