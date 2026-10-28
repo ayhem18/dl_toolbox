@@ -7,7 +7,15 @@ import pytest
 
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.dl_engine.training.checkpointer.types import FIT_FINISHED
+from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
+from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import (
+    PlaceholderManager,
+)
+from dl_toolbox.experiment_management.default_layout.layout.discover import (
+    read_tracking_backend,
+)
 from dl_toolbox.experiment_management.default_layout.layout.names import (
+    BACKEND_MLFLOW,
     BACKEND_PLACEHOLDER,
     CHECKPOINT_CONFIG_FILENAME,
     DEFAULT_CHECKPOINT_CONFIG,
@@ -46,11 +54,14 @@ def _scaffold(
     return name, root, start
 
 
-def _engine(name: str, start: Path) -> DefaultExpEngine:
+def _engine(
+    name: str, start: Path, *, tracking_backend: str | None = None
+) -> DefaultExpEngine:
     return DefaultExpEngine(
         name,
         start=start,
         experiment=TinyExperimentConfigManager(),
+        tracking_backend=tracking_backend,
     )
 
 
@@ -84,6 +95,27 @@ def test_default_engine_reads_custom_lock_timeout(
     )
     engine = _engine(name, start)
     assert engine._checkpoint_manager.lock_timeout_seconds == 12.5
+
+
+def test_default_engine_cli_backend_overrides_file_without_rewriting_it(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    name, root, start = _scaffold(tmp_path, rng)
+    engine = _engine(name, start, tracking_backend=BACKEND_MLFLOW)
+    assert engine.tracking_backend == BACKEND_MLFLOW
+    assert isinstance(engine._logging_manager, MlflowManager)
+    assert read_tracking_backend(root) == BACKEND_PLACEHOLDER
+    file_engine = _engine(name, start)
+    assert file_engine.tracking_backend == BACKEND_PLACEHOLDER
+    assert isinstance(file_engine._logging_manager, PlaceholderManager)
+
+
+def test_default_engine_rejects_unknown_backend_override(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    name, _root, start = _scaffold(tmp_path, rng)
+    with pytest.raises(ValueError, match="tracking_backend must be one of"):
+        _engine(name, start, tracking_backend="not-a-backend")
 
 
 def test_default_engine_rejects_mismatched_project_name(

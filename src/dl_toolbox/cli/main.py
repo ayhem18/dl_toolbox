@@ -31,7 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--tracking-backend",
         default=DEFAULT_TRACKING_BACKEND,
         choices=sorted(TRACKING_BACKENDS),
-        help="Selected tracking backend. Only this backend gets a storage folder; configs for every backend are written.",
+        help=(
+            "Project default tracking backend written to .tracking-backend. "
+            "Only this backend gets a storage folder; configs for every backend "
+            "are written. Train/inspect can still override per process."
+        ),
     )
     return parser
 

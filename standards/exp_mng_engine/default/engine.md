@@ -6,7 +6,7 @@ Code: `experiment_management/engine/default`. Layout and parsers: `experiment_ma
 
 ## 1. Input
 
-`project_name`, `start` path, `ExperimentConfigManager`. Walks to `dl_toolbox_project.json`.
+`project_name`, `start` path, `ExperimentConfigManager`, optional `tracking_backend`. Walks to `dl_toolbox_project.json`. `.tracking-backend` is the project default. `tracking_backend=` overrides it for this process and does not rewrite the file.
 
 ## 2. Processing
 
@@ -33,10 +33,19 @@ DefaultExpEngine(
     project_name,
     start=Path(__file__),
     experiment=MnistVitExperimentConfigManager(),
+    tracking_backend="mlflow",  # optional; omit to use .tracking-backend
 )
 ```
 
 The project does not subclass this class to teach it a loss.
+
+Default tree (project root):
+
+| Folder | Job |
+|---|---|
+| `scripts/` | Durable CLI (`train`, `inspect`, vendor UI) |
+| `experiments/` | Disposable experimental scripts |
+| `run_recipes/` | Run configuration JSON. `human_readable_name` is not hashed |
 
 `checkpoint.json`:
 

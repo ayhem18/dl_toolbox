@@ -4,7 +4,11 @@ import random
 from pathlib import Path
 
 from dl_toolbox.cli.main import main
-from dl_toolbox.experiment_management.default_layout.layout.names import PROJECT_MARKER_FILENAME
+from dl_toolbox.experiment_management.default_layout.layout.names import (
+    PROJECT_MARKER_FILENAME,
+    STORAGE_DIRNAME,
+    TRACKING_BACKEND_FILENAME,
+)
 
 from tests.experiment_management.names import N_TRIALS, random_package_name, random_project_name
 
@@ -45,3 +49,19 @@ def test_cli_setup_project_with_package(
     assert (root / package / "pyproject.toml").is_file()
     src_dir = root / package / "src" / package
     assert sorted(path.name for path in src_dir.iterdir()) == ["__init__.py"]
+
+
+def test_cli_setup_project_tracking_backend(
+    tmp_path: Path, rng: random.Random, monkeypatch, capsys
+) -> None:
+    cwd = tmp_path / "mlflow_cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    name = random_project_name(rng)
+    code = main(["setup-project", name, "--tracking-backend", "mlflow"])
+    assert code == 0
+    capsys.readouterr()
+    root = cwd / name
+    assert (root / TRACKING_BACKEND_FILENAME).read_text(encoding="utf-8") == "mlflow\n"
+    assert (root / STORAGE_DIRNAME / "mlflow" / "artifacts").is_dir()
+    assert not (root / STORAGE_DIRNAME / "tensorboard").exists()

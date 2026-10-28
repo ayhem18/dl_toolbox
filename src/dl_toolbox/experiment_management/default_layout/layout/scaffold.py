@@ -31,6 +31,7 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
     PROJECT_MARKER_FILENAME,
     RESERVED_CHILD_NAMES,
     RUN_ARTIFACTS_DIRNAME,
+    RUN_RECIPES_DIRNAME,
     RUNS_DIRNAME,
     SCRIPTS_DIRNAME,
     STORAGE_DIRNAME,
@@ -50,8 +51,9 @@ _README_BY_RELATIVE = {
         "Checkpoints and inspection_runs live under this folder.\n"
     ),
     f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}": (
-        "One JSON file per tracking backend. Edit .tracking-backend to switch; "
-        "unused configs stay here so you do not recreate them.\n"
+        "One JSON file per tracking backend. Edit .tracking-backend to switch, "
+        "or pass tracking_backend= to DefaultExpEngine / --tracking-backend on "
+        "project scripts. Unused configs stay here so you do not recreate them.\n"
     ),
     PROJECT_LEVEL_CONFIGS_DIRNAME: (
         "Project-level JSON: identity.json, checkpoint.json, logging/{backend}.json.\n"
@@ -76,9 +78,13 @@ _README_BY_RELATIVE = {
         "Filesystem dump used by the placeholder logger. Each child folder is one run.\n"
     ),
     SCRIPTS_DIRNAME: (
-        "Train and inspect entry points. They discover the project from this file's path.\n"
+        "Durable CLI entry points (train, inspect, vendor UI). "
+        "They discover the project from this file's path.\n"
     ),
     EXPERIMENTS_DIRNAME: (
+        "Disposable experimental scripts. Durable CLI lives in scripts/.\n"
+    ),
+    RUN_RECIPES_DIRNAME: (
         "Run configuration JSON recipes. human_readable_name is not hashed.\n"
     ),
 }
@@ -93,7 +99,7 @@ def setup_project(
 ) -> Path:
     """Create ``parent / project_name``. ``parent`` must be an existing absolute directory."""
     name = assert_generating_process_name(project_name)
-    backend = parse_tracking_backend(tracking_backend)
+    backend = parse_tracking_backend(tracking_backend, label="tracking_backend")
     if not parent.is_absolute():
         raise ValueError(f"parent must be an absolute path, got {parent}")
     if not parent.is_dir():
@@ -168,6 +174,7 @@ def _write_tree(
         *_backend_storage_dirs(tracking_backend),
         SCRIPTS_DIRNAME,
         EXPERIMENTS_DIRNAME,
+        RUN_RECIPES_DIRNAME,
     )
     n_dirs = len(relative_dirs)
     for i in range(n_dirs):

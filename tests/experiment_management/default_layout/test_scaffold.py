@@ -20,6 +20,7 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
     PROJECT_LEVEL_CONFIGS_DIRNAME,
     PROJECT_MARKER_FILENAME,
     RUN_ARTIFACTS_DIRNAME,
+    RUN_RECIPES_DIRNAME,
     SCRIPTS_DIRNAME,
     STORAGE_DIRNAME,
     TRACKING_BACKEND_FILENAME,
@@ -88,6 +89,7 @@ def test_setup_project_writes_all_logging_configs_and_selected_storage(
             logging_configs / "README.md",
             root / SCRIPTS_DIRNAME / "README.md",
             root / EXPERIMENTS_DIRNAME / "README.md",
+            root / RUN_RECIPES_DIRNAME / "README.md",
         )
         n_readmes = len(expected_readmes)
         for j in range(n_readmes):
@@ -169,4 +171,8 @@ def test_package_name_cannot_be_a_reserved_folder(
         setup_project(name, parent=parent, package="storage")
     with pytest.raises(ValueError, match="reserved"):
         setup_project(name, parent=parent, package="scripts")
+    with pytest.raises(ValueError, match="reserved"):
+        setup_project(name, parent=parent, package="experiments")
+    with pytest.raises(ValueError, match="reserved"):
+        setup_project(name, parent=parent, package="run_recipes")
     assert not (parent / name).exists()

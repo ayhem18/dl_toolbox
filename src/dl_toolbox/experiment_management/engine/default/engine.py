@@ -17,6 +17,7 @@ from dl_toolbox.dl_engine.training.checkpointer.manager import CheckpointManager
 from dl_toolbox.experiment_management.default_layout.layout.discover import (
     find_project_root,
     load_project_document,
+    parse_tracking_backend,
     read_tracking_backend,
 )
 from dl_toolbox.experiment_management.default_layout.layout.names import (
@@ -54,6 +55,7 @@ class DefaultExpEngine(ExpEngine):
         *,
         start: Path,
         experiment: ExperimentConfigManager,
+        tracking_backend: str | None = None,
     ) -> None:
         name = assert_generating_process_name(project_name)
         if not start.is_absolute():
@@ -66,7 +68,12 @@ class DefaultExpEngine(ExpEngine):
                 f"project_name {name!r} does not match dl_toolbox_project.json name "
                 f"{stored_name!r} under {root}"
             )
-        backend = read_tracking_backend(root)
+        if tracking_backend is None:
+            backend = read_tracking_backend(root)
+        else:
+            backend = parse_tracking_backend(
+                tracking_backend, label="tracking_backend"
+            )
         super().__init__(
             identity_manager=_make_identity_manager(root),
             logging_manager=_make_logging_manager(root, backend=backend),

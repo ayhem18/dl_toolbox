@@ -51,12 +51,13 @@ def read_tracking_backend(project_root: Path) -> str:
     return parse_tracking_backend(lines[0])
 
 
-def parse_tracking_backend(raw: object) -> str:
-    backend = parse_non_empty_str(raw, label=TRACKING_BACKEND_FILENAME)
+def parse_tracking_backend(
+    raw: object, *, label: str = TRACKING_BACKEND_FILENAME
+) -> str:
+    backend = parse_non_empty_str(raw, label=label)
     if backend not in TRACKING_BACKENDS:
         raise ValueError(
-            f"{TRACKING_BACKEND_FILENAME} must be one of {sorted(TRACKING_BACKENDS)}, "
-            f"got {backend!r}"
+            f"{label} must be one of {sorted(TRACKING_BACKENDS)}, got {backend!r}"
         )
     return backend
 
