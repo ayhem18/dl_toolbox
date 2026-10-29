@@ -15,6 +15,8 @@ or opencv:
 - `dl_toolbox.base.geometry.contours.contours_bbox`
 - `dl_toolbox.base.geometry.masks.rasterize_contours`
 - `dl_toolbox.base.geometry.bboxes.generate_tile_boxes_xyxy`
+- `dl_toolbox.base.image_processing.basic_processing.normalize_by_robust_percentiles`
+- `dl_toolbox.base.image_processing.edge_processing.scharr_edge_strength`
 - `dl_toolbox.dl_engine.training.fit.fit_classification`
 - `dl_toolbox.dl_engine.training.config.FitConfig`
 - `dl_toolbox.dl_engine.metrics.classification.classification.binary_classification_accuracy_metric`
