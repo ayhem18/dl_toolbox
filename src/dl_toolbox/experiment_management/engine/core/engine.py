@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import uuid
 from collections.abc import Callable, Mapping
@@ -97,7 +98,8 @@ class ExpEngine:
         4. name_taken — force=False: FileExistsError. force=True: reclaim
            this name, then create. Logger stores are not touched.
 
-        train() calls this. inspect() does not.
+        train() on the launching rank calls this. inspect() does not.
+        Lightning DDP workers attach with get_existing_run instead.
         """
         return self._assemble(recipe, create=True, force=force)
 
@@ -112,7 +114,8 @@ class ExpEngine:
         - hash_taken → FileExistsError (same hash, different name)
         - both_match but artifacts dir missing → FileNotFoundError
 
-        inspect() calls this. train() does not.
+        inspect() calls this. train() on DDP workers also calls this so they
+        attach to the rank-0 claim. force does not apply.
         """
         return self._assemble(recipe, create=False, force=False)
 
@@ -213,6 +216,16 @@ class ExpEngine:
     def train(
         self, recipe: Path | Mapping[str, Any], *, force: bool = False
     ) -> L.Trainer:
+        """Fit a recipe.
+
+        The launching process (no rank env, or global rank 0) claims identity
+        with get_new_run_or_overwrite and mark_finished. Lightning DDP
+        re-runs this script on other ranks; those processes attach with
+        get_existing_run and must not write identity or the fit catalog.
+        """
+        if _is_distributed_worker():
+            session = self.get_existing_run(recipe)
+            return self._fit(session)
         session = self.get_new_run_or_overwrite(recipe, force=force)
         try:
             return self._fit(session)
@@ -427,3 +440,36 @@ def _inspect_once(
             shutil.rmtree(staging)
         raise
     return dest
+
+
+def _optional_env_int(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        return int(raw, 10)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an int, got {raw!r}") from exc
+
+
+def _is_distributed_worker() -> bool:
+    """True when this process must attach, not claim, identity.
+
+    Lightning's default GPU launcher keeps rank 0 in the original process and
+    re-executes the training script with LOCAL_RANK/RANK set on the others.
+    torchrun sets RANK on every process from the start. NODE_RANK > 0 is a
+    worker even when LOCAL_RANK is 0.
+    """
+    for key in ("RANK", "GLOBAL_RANK"):
+        rank = _optional_env_int(key)
+        if rank is not None:
+            return rank > 0
+    node = _optional_env_int("NODE_RANK")
+    if node is None:
+        node = _optional_env_int("GROUP_RANK")
+    if node is not None and node > 0:
+        return True
+    local = _optional_env_int("LOCAL_RANK")
+    if local is None:
+        return False
+    return local > 0

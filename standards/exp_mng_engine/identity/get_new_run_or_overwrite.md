@@ -2,7 +2,7 @@
 
 Locked contract. Implementation: `ExpEngine.get_new_run_or_overwrite` / `_create_or_overwrite_run`. Changing the branches changes this document.
 
-`train()` is the only caller. `inspect()` uses `get_existing_run`, which is a different tree. A later **resume** path will also require an existing `(name, hash)` pair, like inspect. Resume is **not** a branch of this tree.
+`train()` on the launching rank (no rank env, or global rank 0) is the only **create** caller. `inspect()` uses `get_existing_run`. Lightning DDP re-runs `train.py` on other ranks; those processes also use `get_existing_run` to attach to the rank-0 claim. They do not ignore identity errors. A later **resume** path will also require an existing `(name, hash)` pair, like inspect. Resume is **not** a branch of this tree.
 
 ## What is looked up
 
@@ -84,7 +84,7 @@ This name exists with a **different** hash. This is the only branch where `force
 
 | Path | Role |
 |---|---|
-| `get_existing_run` | Inspect. Requires `both_match` and `run_artifacts/{name}` on disk. Creates nothing. |
+| `get_existing_run` | Inspect, and `train()` on DDP workers (`RANK` / `LOCAL_RANK` > 0, or `NODE_RANK` > 0). Requires `both_match` and `run_artifacts/{name}` on disk. Creates nothing. `mark_finished` stays on rank 0. |
 | Resume (later) | Attach to an existing `(name, hash)` pair. Same *kind* of gate as inspect, not a `force` branch here. |
 | Catalog / liveness | Not consulted. Finished, running, and interrupted are indistinguishable to this method. |
 

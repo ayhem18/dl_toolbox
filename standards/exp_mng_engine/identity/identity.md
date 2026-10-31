@@ -31,7 +31,7 @@ Four-way lookup: `both_free` / `both_match` / `name_taken` / `hash_taken`.
 
 `get_new_run_or_overwrite` (fit): decision tree is the contract in [get_new_run_or_overwrite.md](get_new_run_or_overwrite.md).
 
-`get_existing_run` (inspect): require `both_match` and the run artifacts directory exists.
+`get_existing_run` (inspect, and `train()` on DDP workers): require `both_match` and the run artifacts directory exists.
 
 `HashManager` keeps its existing method names and implements this ABC as aliases (`lookup` → `lookup_name_hash_json`, `claim` → `write_name_hash_json_unique`).
 

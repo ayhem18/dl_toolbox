@@ -212,3 +212,50 @@ def test_train_writes_finished_catalog(tmp_path: Path) -> None:
     state = engine.fit_state(session)
     assert state.status == FIT_FINISHED
     assert state.latest_epoch is not None
+
+
+def test_train_ddp_worker_attaches_and_does_not_mark_finished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _engine(tmp_path)
+    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    session = engine.get_new_run_or_overwrite(recipe)
+    assert engine.fit_state(session).status == "claimed"
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setattr(engine, "_fit", lambda sess: "trainer")
+    assert engine.train(recipe) == "trainer"
+    assert engine.fit_state(session).status == "claimed"
+
+
+def test_train_ddp_worker_refuses_name_taken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _engine(tmp_path)
+    engine.get_new_run_or_overwrite(placeholder_recipe(name="run_alpha", seed=1))
+    monkeypatch.setenv("LOCAL_RANK", "2")
+    with pytest.raises(FileExistsError, match="different configuration hash"):
+        engine.train(placeholder_recipe(name="run_alpha", seed=2))
+
+
+def test_train_global_rank_worker_attaches_when_local_rank_is_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _engine(tmp_path)
+    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    session = engine.get_new_run_or_overwrite(recipe)
+    monkeypatch.setenv("RANK", "4")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+    monkeypatch.setattr(engine, "_fit", lambda sess: "trainer")
+    assert engine.train(recipe) == "trainer"
+    assert engine.fit_state(session).status == "claimed"
+
+
+def test_train_rank_zero_still_refuses_both_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _engine(tmp_path)
+    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    engine.get_new_run_or_overwrite(recipe)
+    monkeypatch.setenv("LOCAL_RANK", "0")
+    with pytest.raises(FileExistsError, match="already exists with this configuration hash"):
+        engine.train(recipe)
