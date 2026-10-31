@@ -7,13 +7,32 @@ from typing import Any
 import lightning as L
 import torch
 from torch import Tensor, nn
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 
 from dl_toolbox.dl_engine.metrics.accumulator import MetricAccumulator
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
 from dl_toolbox.dl_engine.loggers.base_logger import Logger, flatten_mapping
 
-_TRACK_PROG_BAR = {"on_step": False, "on_epoch": True, "prog_bar": True, "logger": False}
-_TRACK_SILENT = {"on_step": False, "on_epoch": True, "prog_bar": False, "logger": False}
+# Epoch-end self.log is the only distributed sync. MetricAccumulator is
+# rank-local; sync_dist=True averages those rank-local epoch scalars
+# (mean-of-means). That equals a true global mean when each rank saw the
+# same number of items (DistributedSampler + drop_last). The dl_toolbox
+# logger writes on rank 0 only. Do not self.log per batch.
+_TRACK_PROG_BAR = {
+    "on_step": False,
+    "on_epoch": True,
+    "prog_bar": True,
+    "logger": False,
+    "sync_dist": True,
+}
+_TRACK_SILENT = {
+    "on_step": False,
+    "on_epoch": True,
+    "prog_bar": False,
+    "logger": False,
+    "sync_dist": True,
+}
 
 
 class ClassificationLightningModule(L.LightningModule):
@@ -36,24 +55,25 @@ class ClassificationLightningModule(L.LightningModule):
     6. validation_step: compute the validation metrics
     7. on_validation_epoch_end: log the validation metrics
 
-    8. on_fit_end: close the logger. Lightning usually calls this; fit_classification also closes in a finally block.
+    8. on_fit_end: close the logger. Lightning usually calls this; fit also closes in a finally block.
     """
 
     def __init__(
         self,
         net: nn.Module,
-        optimizer: torch.optim.Optimizer,
+        optimizer: Optimizer,
         epoch_logger: Logger,
         *,
-        prepare_tensors_fn: Callable[[Any], Mapping[str, Tensor]],
-        forward_fn: Callable[[nn.Module, Mapping[str, Tensor]], Tensor],
-        loss_fn: Callable[[Tensor, Mapping[str, Tensor]], Tensor],
-        build_metric_inputs_fn: Callable[[Tensor, Mapping[str, Tensor]], Mapping[str, Tensor]],
+        prepare_tensors_fn: Callable[[Any], Mapping[str, Any]],
+        forward_fn: Callable[[nn.Module, Mapping[str, Any]], Tensor],
+        loss_fn: Callable[[Tensor, Mapping[str, Any]], Tensor],
+        build_metric_inputs_fn: Callable[[Tensor, Mapping[str, Any]], Mapping[str, Tensor]],
         train_metrics: Sequence[MetricSpec],
         val_metrics: Sequence[MetricSpec],
         monitor_key: str,
         run_config: Mapping[str, Any],
         run_config_filename: str,
+        lr_scheduler_factory: Callable[[Optimizer], LRScheduler] | None = None,
     ) -> None:
         super().__init__()
         if not isinstance(epoch_logger, Logger):
@@ -72,6 +92,7 @@ class ClassificationLightningModule(L.LightningModule):
         self.monitor_key = monitor_key
         self._run_config = dict(run_config)
         self._run_config_filename = run_config_filename
+        self._lr_scheduler_factory = lr_scheduler_factory
         self._train_accumulator: MetricAccumulator | None = None
         self._val_accumulator: MetricAccumulator | None = None
 
@@ -79,6 +100,8 @@ class ClassificationLightningModule(L.LightningModule):
 
     ### 1. on_fit_start: log the configuration
     def on_fit_start(self) -> None:
+        if not self.trainer.is_global_zero:
+            return
         self.epoch_logger.setup()
         self.epoch_logger.log_params(flatten_mapping(self._run_config))
         self.epoch_logger.log_text(
@@ -120,12 +143,10 @@ class ClassificationLightningModule(L.LightningModule):
             return
         if self._train_accumulator is None:
             raise ValueError("train accumulator is None in on_train_epoch_end")
-        epoch = int(self.current_epoch)
-        row = self._train_accumulator.epoch_scalars()
-        for key, value in row.items():
-            self.log(key, value, **_TRACK_SILENT)
-        if row:
-            self.epoch_logger.log_scalars(row, step=epoch)
+        self._log_epoch_row(
+            self._train_accumulator.epoch_scalars(),
+            track=_TRACK_SILENT,
+        )
 
     ################################### Validation Epoch functions ##################################
     def on_validation_epoch_start(self) -> None:
@@ -145,15 +166,11 @@ class ClassificationLightningModule(L.LightningModule):
             return
         if self._val_accumulator is None:
             raise ValueError("val accumulator is None in on_validation_epoch_end")
-        epoch = int(self.current_epoch)
         val_row = self._val_accumulator.epoch_scalars()
 
         # maybe this needs to be made configurable. I do not see the problem with logging
         # multiple metrics instead of just the monitor key.
-        for key, value in val_row.items():
-            self.log(key, value, **_TRACK_PROG_BAR)
-        if val_row:
-            self.epoch_logger.log_scalars(val_row, step=epoch)
+        self._log_epoch_row(val_row, track=_TRACK_PROG_BAR)
 
         if self.monitor_key not in val_row:
             raise ValueError(
@@ -162,18 +179,48 @@ class ClassificationLightningModule(L.LightningModule):
 
     ################################### Fit End functions ##################################
     def on_fit_end(self) -> None:
+        if not self.trainer.is_global_zero:
+            return
         self.epoch_logger.close()
 
     ################################## optimizer related functions ##################################
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        # later it needs to be changed to work with learning rate schedulers.
-        # the class will later be updated to accept a configuration of some sort.
-        return self._optimizer
+    def configure_optimizers(self) -> Optimizer | dict[str, Any]:
+        if self._lr_scheduler_factory is None:
+            return self._optimizer
+        scheduler = self._lr_scheduler_factory(self._optimizer)
+        return {
+            "optimizer": self._optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch",
+            },
+        }
 
     ################################## helper functions ##################################
 
-    def _prepare(self, raw_batch: Any) -> dict[str, Tensor]:
+    def _log_epoch_row(
+        self,
+        row: Mapping[str, float],
+        *,
+        track: Mapping[str, Any],
+    ) -> None:
+        epoch = int(self.current_epoch)
+        for key, value in row.items():
+            self.log(key, value, **track)
+        if not row or not self.trainer.is_global_zero:
+            return
+        logged: dict[str, float] = {}
+        metrics = self.trainer.callback_metrics
+        for key, value in row.items():
+            metric = metrics.get(key)
+            if metric is None:
+                logged[key] = float(value)
+            else:
+                logged[key] = float(metric.detach().cpu())
+        self.epoch_logger.log_scalars(logged, step=epoch)
+
+    def _prepare(self, raw_batch: Any) -> dict[str, Any]:
         # the raw batch might be a tuple, list, raw torch.Tensor... The caller is expected to own the logic
         # for converting to a dictionary with the expected keys.
         batch_as_dict = self.prepare_tensors_fn(raw_batch)
@@ -183,4 +230,14 @@ class ClassificationLightningModule(L.LightningModule):
                 f"prepare_tensors_fn must return a dictionary, got {type(batch_as_dict)}"
             )
 
-        return {key: value.to(self.device) for key, value in batch_as_dict.items()}
+        prepared: dict[str, Any] = {}
+        keys = list(batch_as_dict)
+        n_keys = len(keys)
+        for i in range(n_keys):
+            key = keys[i]
+            value = batch_as_dict[key]
+            if isinstance(value, Tensor):
+                prepared[key] = value.to(self.device)
+            else:
+                prepared[key] = value
+        return prepared

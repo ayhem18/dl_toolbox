@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, TensorDataset
 
 from dl_toolbox.dl_engine.metrics.classification.classification import (
@@ -112,3 +113,61 @@ def test_fit_classification_lightning(tmp_path) -> None:
     ckpt_files = list((checkpoints / "live").glob("*.ckpt"))
     assert ckpt_files
     assert (log_dir / "test" / "run_config_step0.txt").is_file()
+
+
+def test_fit_accumulate_grad_batches_and_scheduler(tmp_path) -> None:
+    x = torch.randn(16, 4)
+    y = (x[:, 0] > 0).long()
+    loader = DataLoader(TensorDataset(x, y), batch_size=8)
+    loss_metric = binary_bce_loss_metric()
+    specs = [(loss_metric, (), ("mean",))]
+    monitor = metric_log_name("loss", "val", LEVEL_EPOCH, "mean")
+    monitor_config = MonitorConfig(key=monitor, mode="min")
+    log_dir = tmp_path / "logs"
+    run_dir = tmp_path / "run"
+    logger = get_logger(
+        "placeholder",
+        manager=PlaceholderManager(log_dir=log_dir),
+        run_name="accum",
+    )
+    checkpointer = Checkpointer(
+        binding=CheckpointManager(lock_timeout_seconds=5.0).bind(
+            run_dir=run_dir,
+            policy=CheckpointPolicy(save_top_k=-1, save_last=True),
+            monitor=monitor_config,
+            max_epochs=1,
+        )
+    )
+    model = _LinearBinary()
+
+    def factory(optimizer):
+        return LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0)
+
+    trainer = fit_classification(
+        model,
+        loader,
+        loader,
+        torch.optim.Adam(model.parameters(), lr=0.05),
+        prepare_tensors_fn=_prepare_tensors,
+        forward_fn=_forward,
+        loss_fn=_loss,
+        build_metric_inputs_fn=build_metric_inputs,
+        train_metrics=specs,
+        val_metrics=specs,
+        config=FitConfig(
+            trainer=TrainerConfig(
+                max_epochs=1,
+                accelerator="cpu",
+                devices=1,
+                precision=32,
+                enable_progress_bar=False,
+            ),
+            monitor=monitor_config,
+            early_stopping=EarlyStoppingConfig.none(),
+            accumulate_grad_batches=2,
+        ),
+        checkpointer=checkpointer,
+        logger=logger,
+        lr_scheduler_factory=factory,
+    )
+    assert trainer.accumulate_grad_batches == 2

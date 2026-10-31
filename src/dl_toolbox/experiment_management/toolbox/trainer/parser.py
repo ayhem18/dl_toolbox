@@ -7,6 +7,9 @@ from dl_toolbox.base.parsing.parse_numerical import parse_bool, parse_int, parse
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
 from dl_toolbox.dl_engine.training.config import TrainerConfig
+from dl_toolbox.experiment_management.toolbox.trainer.visible_gpus import (
+    bind_visible_gpus,
+)
 
 _KEYS = (
     "max_epochs",
@@ -39,10 +42,19 @@ class TrainerConfigParser:
     def __init__(self, payload: dict) -> None:
         obj = parse_mapping(payload, label="trainer_config")
         require_exact_keys(obj, _KEYS, label="trainer_config")
+        accelerator = parse_non_empty_str(obj["accelerator"], label="accelerator")
+        devices = _parse_devices(obj["devices"])
+        if accelerator == "gpu":
+            if not isinstance(devices, int):
+                raise ValueError(
+                    "trainer_config.devices must be an int (GPU count) when "
+                    f"accelerator is 'gpu', got {devices!r}"
+                )
+            bind_visible_gpus(count=devices)
         self._config = TrainerConfig(
             max_epochs=parse_positive_int(obj["max_epochs"], label="max_epochs"),
-            accelerator=parse_non_empty_str(obj["accelerator"], label="accelerator"),
-            devices=_parse_devices(obj["devices"]),
+            accelerator=accelerator,
+            devices=devices,
             precision=_parse_precision(obj["precision"]),
             enable_progress_bar=parse_bool(
                 obj["enable_progress_bar"], label="enable_progress_bar"

@@ -50,6 +50,8 @@ class _OwnedCheckpoint(L.Callback):
         del pl_module
         if trainer.sanity_checking:
             return
+        if not trainer.is_global_zero:
+            return
         self._checkpointer.save(trainer)
 
 

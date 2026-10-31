@@ -7,6 +7,7 @@ from typing import Any
 
 from torch import Tensor, nn
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
@@ -28,6 +29,8 @@ class ExperimentBuild:
         train_metrics: Sequence[MetricSpec],
         val_metrics: Sequence[MetricSpec],
         monitor: MonitorConfig,
+        lr_scheduler_factory: Callable[[Optimizer], LRScheduler] | None = None,
+        accumulate_grad_batches: int = 1,
     ) -> None:
         if not isinstance(model, nn.Module):
             raise TypeError(f"model must be nn.Module, got {type(model)!r}")
@@ -44,3 +47,9 @@ class ExperimentBuild:
         self.train_metrics = list(train_metrics)
         self.val_metrics = list(val_metrics)
         self.monitor = monitor
+        if accumulate_grad_batches < 1:
+            raise ValueError(
+                f"accumulate_grad_batches must be >= 1, got {accumulate_grad_batches}"
+            )
+        self.lr_scheduler_factory = lr_scheduler_factory
+        self.accumulate_grad_batches = accumulate_grad_batches

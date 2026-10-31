@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 import lightning as L
 from torch import Tensor, nn
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from lightning.pytorch.callbacks import EarlyStopping
 
@@ -23,21 +24,21 @@ class FitError(ValueError):
 
 def build_metric_inputs(
     output: Tensor,
-    batch: Mapping[str, Tensor],
-) -> dict[str, Tensor]:
+    batch: Mapping[str, Any],
+) -> dict[str, Any]:
     return {**batch, KEY_OUTPUT: output}
 
 
-def fit_classification(
+def fit(
     model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     optimizer: Optimizer,
     *,
-    prepare_tensors_fn: Callable[[Any], Mapping[str, Tensor]],
-    forward_fn: Callable[[nn.Module, Mapping[str, Tensor]], Tensor],
-    loss_fn: Callable[[Tensor, Mapping[str, Tensor]], Tensor],
-    build_metric_inputs_fn: Callable[[Tensor, Mapping[str, Tensor]], Mapping[str, Tensor]],
+    prepare_tensors_fn: Callable[[Any], Mapping[str, Any]],
+    forward_fn: Callable[[nn.Module, Mapping[str, Any]], Tensor],
+    loss_fn: Callable[[Tensor, Mapping[str, Any]], Tensor],
+    build_metric_inputs_fn: Callable[[Tensor, Mapping[str, Any]], Mapping[str, Tensor]],
     train_metrics: Sequence[MetricSpec],
     val_metrics: Sequence[MetricSpec],
     config: FitConfig,
@@ -45,9 +46,14 @@ def fit_classification(
     logger: Logger,
     run_config: Mapping[str, Any] | None = None, # TODO: no defaults
     run_config_filename: str = "run_config", # TODO: no defaults: these 2 parameters may or may not be necessary.
+    lr_scheduler_factory: Callable[[Optimizer], LRScheduler] | None = None,
 ) -> L.Trainer:
     if config.trainer.max_epochs < 1:
         raise FitError(f"max_epochs must be >= 1, got {config.trainer.max_epochs}")
+    if config.accumulate_grad_batches < 1:
+        raise FitError(
+            f"accumulate_grad_batches must be >= 1, got {config.accumulate_grad_batches}"
+        )
 
     lit_module = ClassificationLightningModule(
         net=model,
@@ -62,6 +68,7 @@ def fit_classification(
         monitor_key=config.monitor.key,
         run_config=dict(run_config or {}),
         run_config_filename=run_config_filename,
+        lr_scheduler_factory=lr_scheduler_factory,
     )
 
     callbacks: list[L.Callback] = [checkpointer.as_callback()]
@@ -82,6 +89,7 @@ def fit_classification(
         accelerator=config.trainer.accelerator,
         devices=config.trainer.devices,
         precision=config.trainer.precision,
+        accumulate_grad_batches=config.accumulate_grad_batches,
         callbacks=callbacks,
         enable_progress_bar=config.trainer.enable_progress_bar,
         logger=False,
@@ -92,3 +100,6 @@ def fit_classification(
     finally:
         logger.close()
     return trainer
+
+
+fit_classification = fit

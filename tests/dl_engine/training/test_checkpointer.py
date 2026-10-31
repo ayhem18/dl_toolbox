@@ -17,10 +17,17 @@ from dl_toolbox.dl_engine.training.config import MonitorConfig
 
 
 class _FakeTrainer:
-    def __init__(self, *, epoch: int, metrics: dict[str, float]) -> None:
+    def __init__(
+        self,
+        *,
+        epoch: int,
+        metrics: dict[str, float],
+        is_global_zero: bool = True,
+    ) -> None:
         self.current_epoch = epoch
         self.callback_metrics = metrics
         self.sanity_checking = False
+        self.is_global_zero = is_global_zero
 
     def save_checkpoint(self, path: Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -103,3 +110,23 @@ def test_mark_finished(tmp_path: Path) -> None:
     checkpointer.save(_FakeTrainer(epoch=0, metrics={"loss": 0.2}))
     checkpointer.mark_finished()
     assert checkpointer.fit_state().status == FIT_FINISHED
+
+
+def test_checkpoint_callback_skips_non_zero_rank(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpointer = _checkpointer(run_dir, save_top_k=-1, save_last=True)
+    trainer = _FakeTrainer(
+        epoch=1, metrics={"loss": 0.2}, is_global_zero=False
+    )
+    checkpointer.as_callback().on_validation_end(trainer, None)
+    assert not (run_dir / "checkpoints" / "catalog.json").exists()
+
+
+def test_checkpoint_callback_saves_on_global_zero(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpointer = _checkpointer(run_dir, save_top_k=-1, save_last=True)
+    trainer = _FakeTrainer(epoch=1, metrics={"loss": 0.2}, is_global_zero=True)
+    checkpointer.as_callback().on_validation_end(trainer, None)
+    assert (run_dir / "checkpoints" / "catalog.json").is_file()

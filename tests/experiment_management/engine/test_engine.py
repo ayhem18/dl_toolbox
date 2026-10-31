@@ -163,6 +163,46 @@ def test_fit_state_from_catalog(tmp_path: Path) -> None:
     assert engine.fit_state(session).status == FIT_FINISHED
 
 
+def test_session_copies_accumulate_and_scheduler(tmp_path: Path) -> None:
+    class _AccumExperiment(TinyExperimentConfigManager):
+        def build(self, experiment_config, *, project_root):
+            built = super().build(experiment_config, project_root=project_root)
+            built.accumulate_grad_batches = 3
+
+            def factory(optimizer):
+                del optimizer
+                return "scheduler"
+
+            built.lr_scheduler_factory = factory
+            return built
+
+    engine = ExpEngine(
+        identity_manager=HashManager(
+            prefix_len=12,
+            human_readable_dirname="human_readable",
+            hashes_dirname="hashes",
+        ),
+        logging_manager=PlaceholderManager(log_dir=tmp_path / "logs"),
+        checkpoint_manager=CheckpointManager(lock_timeout_seconds=5.0),
+        experiment_manager=_AccumExperiment(),
+        paths=EnginePaths(
+            project_root=tmp_path,
+            run_identities_root=tmp_path / "run_identities",
+            run_artifacts_root=tmp_path / "run_artifacts",
+        ),
+        compose_toolbox=DlToolboxConfigManager,
+        tracking_backend="placeholder",
+    )
+    (tmp_path / "run_identities").mkdir()
+    (tmp_path / "run_artifacts").mkdir()
+    session = engine.get_new_run_or_overwrite(
+        placeholder_recipe(name="run_sched", run_name="sched")
+    )
+    assert session.fit_config.accumulate_grad_batches == 3
+    assert session.experiment.lr_scheduler_factory is not None
+    assert session.experiment.lr_scheduler_factory(session.experiment.optimizer) == "scheduler"
+
+
 def test_train_writes_finished_catalog(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
     recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")

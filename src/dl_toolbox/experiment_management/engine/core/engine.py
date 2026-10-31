@@ -30,7 +30,7 @@ from dl_toolbox.dl_engine.training.checkpointer.types import (
     FitRunState,
 )
 from dl_toolbox.dl_engine.training.config import FitConfig
-from dl_toolbox.dl_engine.training.fit import fit_classification
+from dl_toolbox.dl_engine.training.fit import fit
 from dl_toolbox.experiment_management.engine.core.inspection import InspectFn
 from dl_toolbox.experiment_management.engine.core.paths import EnginePaths
 from dl_toolbox.experiment_management.engine.core.session import RunSession
@@ -215,7 +215,7 @@ class ExpEngine:
     ) -> L.Trainer:
         session = self.get_new_run_or_overwrite(recipe, force=force)
         try:
-            return _fit(session)
+            return self._fit(session)
         finally:
             session.checkpointer.mark_finished()
 
@@ -311,6 +311,7 @@ class ExpEngine:
                 run_artifacts=run_artifacts,
             )
 
+        self._prepare_experiment_manager(toolbox)
         experiment = self._experiment_manager.build(
             parsed_recipe.experiment_config,
             project_root=self._paths.project_root,
@@ -331,6 +332,7 @@ class ExpEngine:
             trainer=toolbox.trainer_config(),
             monitor=experiment.monitor,
             early_stopping=toolbox.early_stopping_config(),
+            accumulate_grad_batches=experiment.accumulate_grad_batches,
         )
 
         identity = RunIdentity(
@@ -350,23 +352,27 @@ class ExpEngine:
         )
 
 
-def _fit(session: RunSession) -> L.Trainer:
-    experiment = session.experiment
-    return fit_classification(
-        experiment.model,
-        experiment.train_loader,
-        experiment.val_loader,
-        experiment.optimizer,
-        prepare_tensors_fn=experiment.prepare_tensors_fn,
-        forward_fn=experiment.forward_fn,
-        loss_fn=experiment.loss_fn,
-        build_metric_inputs_fn=experiment.build_metric_inputs_fn,
-        train_metrics=experiment.train_metrics,
-        val_metrics=experiment.val_metrics,
-        config=session.fit_config,
-        checkpointer=session.checkpointer,
-        logger=session.logger,
-    )
+    def _prepare_experiment_manager(self, toolbox: object) -> None:
+        del toolbox
+
+    def _fit(self, session: RunSession) -> L.Trainer:
+        experiment = session.experiment
+        return fit(
+            experiment.model,
+            experiment.train_loader,
+            experiment.val_loader,
+            experiment.optimizer,
+            prepare_tensors_fn=experiment.prepare_tensors_fn,
+            forward_fn=experiment.forward_fn,
+            loss_fn=experiment.loss_fn,
+            build_metric_inputs_fn=experiment.build_metric_inputs_fn,
+            train_metrics=experiment.train_metrics,
+            val_metrics=experiment.val_metrics,
+            config=session.fit_config,
+            checkpointer=session.checkpointer,
+            logger=session.logger,
+            lr_scheduler_factory=experiment.lr_scheduler_factory,
+        )
 
 
 def _inspect_once(

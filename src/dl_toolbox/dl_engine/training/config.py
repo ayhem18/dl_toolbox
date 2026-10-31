@@ -44,3 +44,4 @@ class FitConfig:
     trainer: TrainerConfig
     monitor: MonitorConfig
     early_stopping: EarlyStoppingConfig
+    accumulate_grad_batches: int = 1
