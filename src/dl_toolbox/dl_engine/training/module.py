@@ -11,7 +11,11 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
 from dl_toolbox.dl_engine.metrics.accumulator import MetricAccumulator
-from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
+from dl_toolbox.dl_engine.metrics.metric_object import (
+    LEVEL_EPOCH,
+    MetricSpec,
+    metric_log_name,
+)
 from dl_toolbox.dl_engine.loggers.base_logger import Logger, flatten_mapping
 
 # Epoch-end self.log is the only distributed sync. MetricAccumulator is
@@ -100,6 +104,7 @@ class ClassificationLightningModule(L.LightningModule):
 
     ### 1. on_fit_start: log the configuration
     def on_fit_start(self) -> None:
+        self._progress("on_fit_start")
         if not self.trainer.is_global_zero:
             return
         self.epoch_logger.setup()
@@ -109,17 +114,22 @@ class ClassificationLightningModule(L.LightningModule):
             json.dumps(self._run_config, indent=2, ensure_ascii=True),
             step=0,
         )
+        self._progress("on_fit_start logger ready")
 
     ################################### Training Epoch functions ##################################
 
     def on_train_epoch_start(self) -> None:
+        self._progress("on_train_epoch_start")
         self._train_accumulator = MetricAccumulator(self.train_metrics, split="train")
 
     def training_step(self, raw_batch: Any, batch_idx: int) -> Tensor:
-        del batch_idx
+        if batch_idx == 0:
+            self._progress("training_step first batch start")
         batch = self._prepare(raw_batch)
         output = self.forward_fn(self.net, batch)
         loss = self.loss_fn(output, batch)
+        if batch_idx == 0:
+            self._progress(f"training_step first batch loss={float(loss.detach().cpu())}")
 
         # the question is why would self._train_accumulator be None?
         # if it is initialized in on_train_epoch_start, it should not be None here.
@@ -143,23 +153,30 @@ class ClassificationLightningModule(L.LightningModule):
             return
         if self._train_accumulator is None:
             raise ValueError("train accumulator is None in on_train_epoch_end")
+        self._progress("on_train_epoch_end")
         self._log_epoch_row(
             self._train_accumulator.epoch_scalars(),
             track=_TRACK_SILENT,
+            expected_keys=self._epoch_keys(self.train_metrics, "train"),
         )
+        self._progress("on_train_epoch_end logged")
 
     ################################### Validation Epoch functions ##################################
     def on_validation_epoch_start(self) -> None:
+        self._progress("on_validation_epoch_start")
         self._val_accumulator = MetricAccumulator(self.val_metrics, split="val")
 
     def validation_step(self, raw_batch: Any, batch_idx: int) -> None:
-        del batch_idx
+        if batch_idx == 0:
+            self._progress("validation_step first batch start")
         batch = self._prepare(raw_batch)
         with torch.inference_mode():
             output = self.forward_fn(self.net, batch)
         if self._val_accumulator is None:
             raise ValueError("val accumulator is None in validation_step")
         self._val_accumulator.update(self.build_metric_inputs_fn(output, batch))
+        if batch_idx == 0:
+            self._progress("validation_step first batch done")
 
     def on_validation_epoch_end(self) -> None:
         if self.trainer.sanity_checking:
@@ -167,18 +184,19 @@ class ClassificationLightningModule(L.LightningModule):
         if self._val_accumulator is None:
             raise ValueError("val accumulator is None in on_validation_epoch_end")
         val_row = self._val_accumulator.epoch_scalars()
-
-        # maybe this needs to be made configurable. I do not see the problem with logging
-        # multiple metrics instead of just the monitor key.
-        self._log_epoch_row(val_row, track=_TRACK_PROG_BAR)
-
-        if self.monitor_key not in val_row:
+        expected = self._epoch_keys(self.val_metrics, "val")
+        self._progress("on_validation_epoch_end")
+        self._log_epoch_row(val_row, track=_TRACK_PROG_BAR, expected_keys=expected)
+        self._progress("on_validation_epoch_end logged")
+        if self.monitor_key not in expected:
             raise ValueError(
-                f"monitor_key {self.monitor_key!r} missing from val epoch metrics: {sorted(val_row)}"
+                f"monitor_key {self.monitor_key!r} missing from val epoch metrics: "
+                f"{sorted(expected)}"
             )
 
     ################################### Fit End functions ##################################
     def on_fit_end(self) -> None:
+        self._progress("on_fit_end")
         if not self.trainer.is_global_zero:
             return
         self.epoch_logger.close()
@@ -199,23 +217,54 @@ class ClassificationLightningModule(L.LightningModule):
 
     ################################## helper functions ##################################
 
+    def _epoch_keys(self, specs: Sequence[MetricSpec], split: str) -> list[str]:
+        keys: list[str] = []
+        n_specs = len(specs)
+        for i in range(n_specs):
+            metric, _batch_reducers, epoch_reducers = specs[i]
+            n_reducers = len(epoch_reducers)
+            for j in range(n_reducers):
+                keys.append(
+                    metric_log_name(metric.name, split, LEVEL_EPOCH, epoch_reducers[j])
+                )
+        return keys
+
+    def _progress(self, message: str) -> None:
+        trainer = getattr(self, "_trainer", None)
+        if trainer is None:
+            print(f"fit: {message}", flush=True)
+            return
+        print(
+            f"fit: {message} epoch={int(self.current_epoch)} "
+            f"rank={trainer.global_rank}/{trainer.world_size}",
+            flush=True,
+        )
+
     def _log_epoch_row(
         self,
         row: Mapping[str, float],
         *,
         track: Mapping[str, Any],
+        expected_keys: Sequence[str] | None = None,
     ) -> None:
         epoch = int(self.current_epoch)
-        for key, value in row.items():
-            self.log(key, value, **track)
-        if not row or not self.trainer.is_global_zero:
+        keys = list(expected_keys) if expected_keys is not None else list(row)
+        n_keys = len(keys)
+        for i in range(n_keys):
+            key = keys[i]
+            value = row.get(key)
+            if value is None:
+                value = 0.0
+            self.log(key, float(value), **track)
+        if n_keys == 0 or not self.trainer.is_global_zero:
             return
         logged: dict[str, float] = {}
         metrics = self.trainer.callback_metrics
-        for key, value in row.items():
+        for i in range(n_keys):
+            key = keys[i]
             metric = metrics.get(key)
             if metric is None:
-                logged[key] = float(value)
+                logged[key] = float(row.get(key, 0.0))
             else:
                 logged[key] = float(metric.detach().cpu())
         self.epoch_logger.log_scalars(logged, step=epoch)

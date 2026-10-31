@@ -102,6 +102,11 @@ class CheckpointerBinding:
     def monitor_key(self) -> str:
         return self._monitor.key
 
+    def ddp_join_path(self) -> Path:
+        """Unused path so non-zero ranks can enter Trainer.save_checkpoint."""
+        self._live.mkdir(parents=True, exist_ok=True)
+        return self._live / ".ddp_join.ckpt"
+
     def save_new(self, *, epoch: int, score: float, write: Callable[[Path], None]) -> None:
         self._live.mkdir(parents=True, exist_ok=True)
         checkpoint_id = _new_id()

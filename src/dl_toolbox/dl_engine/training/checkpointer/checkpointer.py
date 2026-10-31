@@ -25,10 +25,25 @@ class Checkpointer:
     def save(self, trainer: L.Trainer) -> None:
         epoch = int(trainer.current_epoch)
         score = _monitor_score(trainer, self._binding.monitor_key)
-        self._binding.save_new(
-            epoch=epoch,
-            score=score,
-            write=trainer.save_checkpoint,
+        print(
+            f"fit: checkpoint save start epoch={epoch} "
+            f"global_zero={trainer.is_global_zero}",
+            flush=True,
+        )
+        if trainer.is_global_zero:
+            self._binding.save_new(
+                epoch=epoch,
+                score=score,
+                write=trainer.save_checkpoint,
+            )
+        else:
+            # Trainer.save_checkpoint ends in strategy.barrier. Every rank
+            # must enter it. Rank 0 is the only process that writes the catalog.
+            trainer.save_checkpoint(self._binding.ddp_join_path())
+        print(
+            f"fit: checkpoint save done epoch={epoch} "
+            f"global_zero={trainer.is_global_zero}",
+            flush=True,
         )
 
     def fetch(self, request: CheckpointRequest, *, dest: Path) -> CheckpointRecord:
@@ -49,8 +64,6 @@ class _OwnedCheckpoint(L.Callback):
     def on_validation_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         del pl_module
         if trainer.sanity_checking:
-            return
-        if not trainer.is_global_zero:
             return
         self._checkpointer.save(trainer)
 

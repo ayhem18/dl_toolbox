@@ -63,6 +63,8 @@ class _FakeTrainer:
         self.current_epoch = epoch
         self.callback_metrics = callback_metrics or {}
         self.sanity_checking = False
+        self.global_rank = 0 if is_global_zero else 1
+        self.world_size = 1 if is_global_zero else 4
 
 
 class _CpuModule(ClassificationLightningModule):
@@ -119,6 +121,25 @@ def test_epoch_track_flags_sync_dist_and_not_per_step() -> None:
         assert track["on_step"] is False
         assert track["on_epoch"] is True
         assert track["logger"] is False
+
+
+def test_log_epoch_row_logs_expected_keys_when_rank_has_no_items() -> None:
+    module = _module()
+    module._trainer = _FakeTrainer(is_global_zero=True, epoch=0)
+    logged: list[str] = []
+
+    def _log(name: str, value: float, **kwargs: Any) -> None:
+        del kwargs
+        logged.append(name)
+        assert value == 0.0
+
+    module.log = _log  # type: ignore[method-assign]
+    module._log_epoch_row(
+        {},
+        track=_TRACK_PROG_BAR,
+        expected_keys=["loss/val/epoch/mean"],
+    )
+    assert logged == ["loss/val/epoch/mean"]
 
 
 def test_epoch_end_self_log_uses_sync_dist() -> None:

@@ -112,7 +112,9 @@ def test_mark_finished(tmp_path: Path) -> None:
     assert checkpointer.fit_state().status == FIT_FINISHED
 
 
-def test_checkpoint_callback_skips_non_zero_rank(tmp_path: Path) -> None:
+def test_checkpoint_callback_skips_catalog_write_on_non_zero_rank(
+    tmp_path: Path,
+) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     checkpointer = _checkpointer(run_dir, save_top_k=-1, save_last=True)
