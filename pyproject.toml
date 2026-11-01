@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Battle-tested deep learning utilities shared across projects."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "tqdm>=4.66.0",
+]
 
 [project.optional-dependencies]
 dl = [

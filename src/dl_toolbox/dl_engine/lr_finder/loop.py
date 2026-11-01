@@ -17,11 +17,12 @@ from dl_toolbox.dl_engine.lr_finder.batches import (
 )
 from dl_toolbox.dl_engine.lr_finder.config import LrFinderConfig
 from dl_toolbox.dl_engine.lr_finder.errors import LrFinderError
-from dl_toolbox.dl_engine.lr_finder.precision import AmpSession
 from dl_toolbox.dl_engine.lr_finder.restore import restore_trainable, snapshot_trainable
 from dl_toolbox.dl_engine.lr_finder.runtime import resolve_device
 from dl_toolbox.dl_engine.lr_finder.spec import LrFinderSpec, validate_lr_finder_spec
 from dl_toolbox.dl_engine.lr_finder.step import LrFinderStep
+from dl_toolbox.dl_engine_utils.precision import AmpSession
+from dl_toolbox.dl_engine_utils.progress import range_progress
 
 
 @dataclass
@@ -39,7 +40,7 @@ def run_range_test(
     spec = inputs.config.spec
     validate_lr_finder_spec(spec)
     device = resolve_device(inputs.config.runtime)
-    amp = AmpSession.from_runtime(inputs.config.runtime, device)
+    amp = AmpSession.from_precision(inputs.config.runtime.precision, device)
     model = inputs.model
     optimizer = inputs.optimizer
     model.to(device)
@@ -54,6 +55,7 @@ def run_range_test(
             spec=spec,
             device=device,
             amp=amp,
+            enable_progress_bar=inputs.config.runtime.enable_progress_bar,
         )
     finally:
         restore_trainable(model, optimizer, snapshot, device)
@@ -71,6 +73,7 @@ def sweep_learning_rates(
     spec: LrFinderSpec,
     device: torch.device,
     amp: AmpSession,
+    enable_progress_bar: bool,
 ) -> tuple[list[float], list[float], int]:
     num_iter = spec.num_iter
     lrs: list[float] = [0.0] * num_iter
@@ -81,32 +84,44 @@ def sweep_learning_rates(
     gamma = spec.end_lr / spec.start_lr
     denom = float(num_iter - 1)
     batches = cycling_batches(train_loader, num_iter)
-    for i in range(num_iter):
-        try:
-            raw_batch = next(batches)
-        except StopIteration as exc:
-            raise LrFinderError("train loader is empty") from exc
-        lr = spec.start_lr * (gamma ** (float(i) / denom))
-        set_optimizer_lr(optimizer, lr)
-        prepared = prepare_on_device(step, raw_batch, device)
-        optimizer.zero_grad(set_to_none=True)
-        loss = amp.compute_loss(model, prepared, step)
-        raw = float(loss.detach().cpu())
-        if not math.isfinite(raw):
-            break
-        amp.optimizer_step(loss, optimizer)
-        smoothed = _smooth_loss(
-            raw, avg_loss=avg_loss, step_index=i, smooth_f=spec.smooth_f
-        )
-        if spec.smooth_f > 0.0:
-            avg_loss = spec.smooth_f * avg_loss + (1.0 - spec.smooth_f) * raw
-        if smoothed < best_loss:
-            best_loss = smoothed
-        if i > 0 and smoothed > spec.diverge_th * best_loss:
-            break
-        lrs[n_kept] = lr
-        losses[n_kept] = smoothed
-        n_kept += 1
+    steps = range_progress(
+        num_iter,
+        enabled=enable_progress_bar,
+        desc="lr_finder",
+        unit="step",
+    )
+    try:
+        for i in steps:
+            try:
+                raw_batch = next(batches)
+            except StopIteration as exc:
+                raise LrFinderError("train loader is empty") from exc
+            lr = spec.start_lr * (gamma ** (float(i) / denom))
+            set_optimizer_lr(optimizer, lr)
+            prepared = prepare_on_device(step, raw_batch, device)
+            optimizer.zero_grad(set_to_none=True)
+            with amp.autocast():
+                output = step.forward_fn(model, prepared)
+                loss = step.loss_fn(output, prepared)
+            raw = float(loss.detach().cpu())
+            if not math.isfinite(raw):
+                break
+            amp.optimizer_step(loss, optimizer)
+            smoothed = _smooth_loss(
+                raw, avg_loss=avg_loss, step_index=i, smooth_f=spec.smooth_f
+            )
+            if spec.smooth_f > 0.0:
+                avg_loss = spec.smooth_f * avg_loss + (1.0 - spec.smooth_f) * raw
+            if smoothed < best_loss:
+                best_loss = smoothed
+            if i > 0 and smoothed > spec.diverge_th * best_loss:
+                break
+            lrs[n_kept] = lr
+            losses[n_kept] = smoothed
+            n_kept += 1
+            steps.set_postfix(lr=f"{lr:.2e}", loss=f"{smoothed:.4f}")
+    finally:
+        steps.close()
     return lrs, losses, n_kept
 
 

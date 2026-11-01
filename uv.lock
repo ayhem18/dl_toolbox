@@ -680,6 +680,9 @@ wheels = [
 name = "dl-toolbox"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "tqdm" },
+]
 
 [package.optional-dependencies]
 dl = [
@@ -733,6 +736,7 @@ requires-dist = [
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'tensorboard'", specifier = ">=2.4.0" },
     { name = "torch", marker = "sys_platform == 'win32' and extra == 'dl'", specifier = ">=2.4.0", index = "https://download.pytorch.org/whl/cu118" },
     { name = "torch", marker = "sys_platform == 'win32' and extra == 'tensorboard'", specifier = ">=2.4.0", index = "https://download.pytorch.org/whl/cu118" },
+    { name = "tqdm", specifier = ">=4.66.0" },
     { name = "wandb", marker = "extra == 'wandb'" },
 ]
 provides-extras = ["dl", "geometry", "tensorboard", "wandb", "mlflow"]

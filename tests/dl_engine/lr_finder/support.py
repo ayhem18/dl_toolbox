@@ -86,6 +86,10 @@ def make_inputs(
         step=step,
         config=LrFinderConfig(
             spec=make_spec() if spec is None else spec,
-            runtime=LrFinderRuntime(accelerator="cpu", precision=32),
+            runtime=LrFinderRuntime(
+                accelerator="cpu",
+                precision=32,
+                enable_progress_bar=False,
+            ),
         ),
     )

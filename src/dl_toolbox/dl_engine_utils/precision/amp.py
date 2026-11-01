@@ -1,17 +1,13 @@
-"""Mixed-precision policy for one range-test session."""
+"""Mixed-precision policy and one training-step AMP session."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from typing import Any
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 from torch.optim import Optimizer
-
-from dl_toolbox.dl_engine.lr_finder.runtime import LrFinderRuntime
-from dl_toolbox.dl_engine.lr_finder.step import LrFinderStep
 
 _FP16 = frozenset({16, "16", "16-mixed"})
 _BF16 = frozenset({"bf16", "bf16-mixed"})
@@ -23,14 +19,14 @@ class AmpPolicy:
     use_scaler: bool
 
     @classmethod
-    def from_runtime(
-        cls, runtime: LrFinderRuntime, device: torch.device
+    def from_precision(
+        cls, precision: int | str, device: torch.device
     ) -> AmpPolicy:
         if device.type != "cuda":
             return cls(dtype=None, use_scaler=False)
-        if runtime.precision in _FP16:
+        if precision in _FP16:
             return cls(dtype=torch.float16, use_scaler=True)
-        if runtime.precision in _BF16:
+        if precision in _BF16:
             return cls(dtype=torch.bfloat16, use_scaler=False)
         return cls(dtype=None, use_scaler=False)
 
@@ -44,24 +40,16 @@ class AmpSession:
         )
 
     @classmethod
-    def from_runtime(
-        cls, runtime: LrFinderRuntime, device: torch.device
+    def from_precision(
+        cls, precision: int | str, device: torch.device
     ) -> AmpSession:
-        return cls(AmpPolicy.from_runtime(runtime, device), device)
+        return cls(AmpPolicy.from_precision(precision, device), device)
 
-    def compute_loss(
-        self,
-        model: nn.Module,
-        prepared: Mapping[str, Any],
-        step: LrFinderStep,
-    ) -> Tensor:
+    def autocast(self) -> AbstractContextManager[None]:
         dtype = self._policy.dtype
         if dtype is None:
-            output = step.forward_fn(model, prepared)
-            return step.loss_fn(output, prepared)
-        with torch.amp.autocast(device_type=self._device.type, dtype=dtype):
-            output = step.forward_fn(model, prepared)
-            return step.loss_fn(output, prepared)
+            return nullcontext()
+        return torch.amp.autocast(device_type=self._device.type, dtype=dtype)
 
     def optimizer_step(self, loss: Tensor, optimizer: Optimizer) -> None:
         scaler = self._scaler

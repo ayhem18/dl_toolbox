@@ -13,6 +13,7 @@ from tests.dl_engine.lr_finder.support import make_inputs, make_spec
 
 
 def test_find_lr_writes_curve_and_closes_logger(tmp_path: Path) -> None:
+    torch.manual_seed(3)
     logger = NullLogger()
     spec = make_spec()
     run_config = {"task": "tiny", "lr_finder": spec.to_dict()}

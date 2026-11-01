@@ -18,6 +18,7 @@ _ACCELERATORS = frozenset({_CPU, _GPU, _CUDA})
 class LrFinderRuntime:
     accelerator: str
     precision: int | str
+    enable_progress_bar: bool
 
 
 def validate_runtime(runtime: LrFinderRuntime) -> None:

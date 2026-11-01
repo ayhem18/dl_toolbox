@@ -77,6 +77,7 @@ def _request_from_session(session: RunSession) -> LrFinderRequest:
                 runtime=LrFinderRuntime(
                     accelerator=trainer.accelerator,
                     precision=trainer.precision,
+                    enable_progress_bar=trainer.enable_progress_bar,
                 ),
             ),
         ),
