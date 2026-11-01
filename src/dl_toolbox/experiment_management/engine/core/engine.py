@@ -216,7 +216,7 @@ class ExpEngine:
 
     def train(
         self, recipe: Path | Mapping[str, Any], *, force: bool = False
-    ) -> L.Trainer:
+    ) -> object:
         """Fit a recipe.
 
         The launching process (no rank env, or global rank 0) claims identity
@@ -369,7 +369,7 @@ class ExpEngine:
     def _prepare_experiment_manager(self, toolbox: object) -> None:
         del toolbox
 
-    def _fit(self, session: RunSession) -> L.Trainer:
+    def _fit(self, session: RunSession) -> object:
         experiment = session.experiment
         if not _is_distributed_worker():
             write_json(

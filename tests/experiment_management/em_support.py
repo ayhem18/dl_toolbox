@@ -76,6 +76,24 @@ class TinyExperimentConfigManager(ExperimentConfigManager):
         )
 
 
+class LrFinderTinyExperimentConfigManager(TinyExperimentConfigManager):
+    def build(
+        self,
+        experiment_config: Mapping[str, Any],
+        *,
+        project_root: Path,
+    ) -> ExperimentBuild:
+        built = super().build(experiment_config, project_root=project_root)
+        built.run_config["lr_finder"] = {
+            "start_lr": 1e-4,
+            "end_lr": 1e-1,
+            "num_iter": 4,
+            "smooth_f": 0.05,
+            "diverge_th": 4.0,
+        }
+        return built
+
+
 def tensorboard_toolbox_config(*, seed: int = 0, run_name: str = "tiny_run") -> dict:
     return {
         "logger_config": {"run_name": run_name},
