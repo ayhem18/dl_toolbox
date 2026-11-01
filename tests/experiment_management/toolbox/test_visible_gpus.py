@@ -33,7 +33,7 @@ def test_selects_top_n_by_free_memory() -> None:
     assert selected == (1, 3)
 
 
-def test_skips_gpus_below_eight_gib() -> None:
+def test_skips_gpus_below_min_free() -> None:
     with pytest.raises(ValueError, match="need 2 GPU"):
         select_freest_gpus(
             count=2,

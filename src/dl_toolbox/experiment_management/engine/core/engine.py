@@ -41,6 +41,7 @@ from dl_toolbox.experiment_management.recipe.run_recipe import RunRecipeParser
 
 INSPECTION_RUNS_DIRNAME = "inspection_runs"
 INSPECTION_STAGING_DIRNAME = "inspection_staging"
+RESOLVED_CONFIG_FILENAME = "resolved_config.json"
 _IDENTITY_LOCK_TIMEOUT = 30.0
 _INSPECTION_KEYS = ("selector",)
 
@@ -370,6 +371,11 @@ class ExpEngine:
 
     def _fit(self, session: RunSession) -> L.Trainer:
         experiment = session.experiment
+        if not _is_distributed_worker():
+            write_json(
+                session.run_dir / RESOLVED_CONFIG_FILENAME,
+                experiment.run_config,
+            )
         return fit(
             experiment.model,
             experiment.train_loader,
@@ -384,6 +390,7 @@ class ExpEngine:
             config=session.fit_config,
             checkpointer=session.checkpointer,
             logger=session.logger,
+            run_config=experiment.run_config,
             lr_scheduler_factory=experiment.lr_scheduler_factory,
         )
 

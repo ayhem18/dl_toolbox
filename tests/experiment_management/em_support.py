@@ -72,6 +72,7 @@ class TinyExperimentConfigManager(ExperimentConfigManager):
             train_metrics=specs,
             val_metrics=specs,
             monitor=MonitorConfig(key=monitor, mode="min"),
+            run_config={"task": "tiny"},
         )
 
 

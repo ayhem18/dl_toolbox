@@ -8,10 +8,7 @@ from torch import Tensor
 
 from dl_toolbox.dl_engine.metrics.contracts import ACCURACY_KEYS, KEY_OUTPUT, KEY_TARGET, LOSS_KEYS
 from dl_toolbox.dl_engine.metrics.metric_object import MetricObject, concat_dim0
-
-
-def mean_items(values: Tensor) -> Tensor:
-    return values.mean()
+from dl_toolbox.dl_engine.metrics.reducers import mean_items
 
 
 def micro_from_counts(counts: Tensor) -> Tensor:

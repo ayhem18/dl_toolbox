@@ -212,6 +212,9 @@ def test_train_writes_finished_catalog(tmp_path: Path) -> None:
     state = engine.fit_state(session)
     assert state.status == FIT_FINISHED
     assert state.latest_epoch is not None
+    resolved = read_json(session.run_dir / "resolved_config.json")
+    assert resolved == session.experiment.run_config
+    assert resolved["task"] == "tiny"
 
 
 def test_train_ddp_worker_attaches_and_does_not_mark_finished(

@@ -1,7 +1,7 @@
 """Interpret trainer ``devices`` as a count of GPUs and bind the freest ones.
 
 ``devices`` in the recipe stays an integer. This module queries nvidia-smi,
-keeps GPUs with at least 8 GiB free, takes the top-N, and writes
+keeps GPUs with at least 4 GiB free, takes the top-N, and writes
 ``CUDA_VISIBLE_DEVICES`` so Lightning sees that many devices.
 """
 
@@ -11,7 +11,7 @@ import os
 import subprocess
 
 CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
-MIN_FREE_GIB = 8
+MIN_FREE_GIB = 4
 MIN_FREE_MIB = MIN_FREE_GIB * 1024
 
 
