@@ -70,6 +70,7 @@ def make_inputs(
     loader: DataLoader | None = None,
     spec: LrFinderSpec | None = None,
     loss: object | None = None,
+    num_iterations_per_lr: int = 1,
 ) -> RangeTestInput:
     net = LinearBinary() if model is None else model
     step = make_step()
@@ -91,5 +92,6 @@ def make_inputs(
                 precision=32,
                 enable_progress_bar=False,
             ),
+            num_iterations_per_lr=num_iterations_per_lr,
         ),
     )

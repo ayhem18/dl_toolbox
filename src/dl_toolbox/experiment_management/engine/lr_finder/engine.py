@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.dl_engine.lr_finder import (
@@ -14,7 +15,9 @@ from dl_toolbox.dl_engine.lr_finder import (
     LrFinderStep,
     RangeTestInput,
     find_lr,
+    find_lr_full_ds,
     parse_lr_finder_spec,
+    parse_num_iterations_per_lr,
 )
 from dl_toolbox.experiment_management.engine.core.engine import (
     RESOLVED_CONFIG_FILENAME,
@@ -55,7 +58,17 @@ class LrFinderExpEngine(DefaultExpEngine):
                 session.run_dir / RESOLVED_CONFIG_FILENAME,
                 experiment.run_config,
             )
+        return self._run_finder(session)
+
+    def _run_finder(self, session: RunSession) -> object:
         return find_lr(_request_from_session(session))
+
+
+class LrFinderFullDsExpEngine(LrFinderExpEngine):
+    """Subset-mode finder: one loader pass per LR, weights reset between LRs."""
+
+    def _run_finder(self, session: RunSession) -> object:
+        return find_lr_full_ds(_request_from_session(session))
 
 
 def _request_from_session(session: RunSession) -> LrFinderRequest:
@@ -78,6 +91,9 @@ def _request_from_session(session: RunSession) -> LrFinderRequest:
                     accelerator=trainer.accelerator,
                     precision=trainer.precision,
                     enable_progress_bar=trainer.enable_progress_bar,
+                ),
+                num_iterations_per_lr=parse_num_iterations_per_lr(
+                    experiment.run_config
                 ),
             ),
         ),

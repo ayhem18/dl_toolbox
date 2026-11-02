@@ -8,6 +8,7 @@ These are documents. They are not installed with `dl-toolbox`. When a contract b
 |---|---|
 | [exp_mng_engine](exp_mng_engine/overview.md) | Experiment engine: core vs default, owned checkpoint protocol, fit/inspect via disk. |
 | [metrics](metrics/README.md) | Batch measurement, combiner, reducer. |
+| [representation_eval](representation_eval/README.md) | Frozen embeddings: kNN, linear probe, PCA/t-SNE. |
 | [data_contract](data_contract/README.md) | Entity, collection, process, lock. |
 
 ## Template

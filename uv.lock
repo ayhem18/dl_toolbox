@@ -714,9 +714,11 @@ wandb = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "matplotlib" },
     { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "pytest" },
+    { name = "scikit-learn" },
 ]
 
 [package.metadata]
@@ -743,9 +745,11 @@ provides-extras = ["dl", "geometry", "tensorboard", "wandb", "mlflow"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "opencv-python-headless", specifier = ">=4.8.0" },
     { name = "pytest", specifier = ">=8.3" },
+    { name = "scikit-learn", specifier = ">=1.4" },
 ]
 
 [[package]]

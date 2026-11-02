@@ -8,6 +8,30 @@ from collections.abc import Sequence
 from dl_toolbox.dl_engine.lr_finder.errors import LrFinderError
 
 
+def suggest_min_loss_lr(
+    lrs: Sequence[float],
+    losses: Sequence[float],
+) -> dict[str, float]:
+    """Best LR is the candidate with the lowest finite recorded loss."""
+    n = len(lrs)
+    if n != len(losses):
+        raise LrFinderError("lrs and losses must be the same length")
+    if n < 1:
+        raise LrFinderError("need at least 1 curve point to suggest an LR")
+    best_i = -1
+    best = float("inf")
+    for i in range(n):
+        value = float(losses[i])
+        if not math.isfinite(value):
+            continue
+        if best_i < 0 or value < best:
+            best = value
+            best_i = i
+    if best_i < 0:
+        raise LrFinderError("range test produced no finite losses")
+    return {"min_loss_lr": float(lrs[best_i])}
+
+
 def suggest_lrs(
     lrs: Sequence[float],
     losses: Sequence[float],

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from dl_toolbox.dl_engine.lr_finder import LrFinderError, suggest_lrs
+from dl_toolbox.dl_engine.lr_finder import (
+    LrFinderError,
+    suggest_lrs,
+    suggest_min_loss_lr,
+)
 
 
 def test_bowl_curve() -> None:
@@ -26,3 +30,16 @@ def test_minimum_at_the_first_point_fails() -> None:
 def test_length_mismatch_fails() -> None:
     with pytest.raises(LrFinderError, match="same length"):
         suggest_lrs((1e-4, 1e-3, 1e-2), (0.2, 0.1))
+
+
+def test_min_loss_lr_skips_non_finite_and_allows_first_point() -> None:
+    suggested = suggest_min_loss_lr(
+        (1e-4, 1e-3, 1e-2),
+        (0.1, float("inf"), 0.4),
+    )
+    assert suggested == {"min_loss_lr": 1e-4}
+
+
+def test_min_loss_lr_fails_when_all_non_finite() -> None:
+    with pytest.raises(LrFinderError, match="no finite losses"):
+        suggest_min_loss_lr((1e-4, 1e-3), (float("inf"), float("nan")))

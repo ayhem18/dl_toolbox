@@ -12,7 +12,10 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_PLACEHOLDER,
 )
 from dl_toolbox.experiment_management.default_layout.layout.scaffold import setup_project
-from dl_toolbox.experiment_management.engine.lr_finder.engine import LrFinderExpEngine
+from dl_toolbox.experiment_management.engine.lr_finder.engine import (
+    LrFinderExpEngine,
+    LrFinderFullDsExpEngine,
+)
 from tests.experiment_management.em_support import (
     LrFinderTinyExperimentConfigManager,
     placeholder_recipe,
@@ -69,6 +72,27 @@ def test_train_writes_curve_and_marks_finished(
     assert state.status == FIT_FINISHED
     resolved = read_json(session.run_dir / "resolved_config.json")
     assert "lr_finder" in resolved
+
+
+def test_full_ds_engine_writes_min_loss_lr(
+    tmp_path: Path, rng: random.Random, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    name, _root, start = _scaffold(tmp_path, rng)
+    engine = LrFinderFullDsExpEngine(
+        name,
+        start=start,
+        experiment=LrFinderTinyExperimentConfigManager(),
+    )
+    lrs, losses = _bowl_curve()
+    monkeypatch.setattr(
+        "dl_toolbox.dl_engine.lr_finder.find.run_full_ds_range_test",
+        lambda inputs: (lrs, losses),
+    )
+    recipe = placeholder_recipe(name="run_finder_full_ds", seed=0, run_name="finder_ds")
+    result = engine.train(recipe)
+    assert isinstance(result, LrFinderResult)
+    payload = read_json(result.curve_path)
+    assert payload["suggested"] == {"min_loss_lr": lrs[6]}
 
 
 def test_refuses_distributed_worker(

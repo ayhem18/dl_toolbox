@@ -12,3 +12,4 @@ from dl_toolbox.dl_engine.lr_finder.spec import LrFinderSpec
 class LrFinderConfig:
     spec: LrFinderSpec
     runtime: LrFinderRuntime
+    num_iterations_per_lr: int = 1
