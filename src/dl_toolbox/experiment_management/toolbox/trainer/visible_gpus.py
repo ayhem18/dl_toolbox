@@ -91,6 +91,51 @@ def select_freest_gpus(
 ) -> tuple[int, ...]:
     if count < 1:
         raise ValueError(f"devices must be >= 1, got {count}")
+    eligible, pool = _eligible_gpus(
+        gpus=gpus, candidates=candidates, min_free_mib=min_free_mib
+    )
+    if len(eligible) < count:
+        detail = ", ".join(
+            f"GPU {index}: {free_mib} MiB free" for index, free_mib in pool
+        )
+        raise ValueError(
+            f"need {count} GPU(s) with at least {min_free_mib} MiB free; "
+            f"eligible={len(eligible)} ({detail})"
+        )
+    selected = [eligible[i][0] for i in range(count)]
+    return tuple(selected)
+
+
+def free_gpu_indices(
+    *,
+    gpus: tuple[tuple[int, int], ...],
+    candidates: tuple[int, ...] | None,
+    min_free_mib: int = MIN_FREE_MIB,
+) -> tuple[int, ...]:
+    eligible, _pool = _eligible_gpus(
+        gpus=gpus, candidates=candidates, min_free_mib=min_free_mib
+    )
+    n = len(eligible)
+    indices: list[int] = [0] * n
+    for i in range(n):
+        indices[i] = eligible[i][0]
+    return tuple(indices)
+
+
+def query_free_gpu_indices(*, min_free_mib: int = MIN_FREE_MIB) -> tuple[int, ...]:
+    return free_gpu_indices(
+        gpus=query_gpu_free_mib(),
+        candidates=candidate_indices(os.environ.get(CUDA_VISIBLE_DEVICES)),
+        min_free_mib=min_free_mib,
+    )
+
+
+def _eligible_gpus(
+    *,
+    gpus: tuple[tuple[int, int], ...],
+    candidates: tuple[int, ...] | None,
+    min_free_mib: int,
+) -> tuple[list[tuple[int, int]], tuple[tuple[int, int], ...]]:
     if min_free_mib < 1:
         raise ValueError(f"min_free_mib must be >= 1, got {min_free_mib}")
     pool = gpus
@@ -114,16 +159,7 @@ def select_freest_gpus(
         if free_mib >= min_free_mib:
             eligible.append((index, free_mib))
     eligible.sort(key=lambda item: (-item[1], item[0]))
-    if len(eligible) < count:
-        detail = ", ".join(
-            f"GPU {index}: {free_mib} MiB free" for index, free_mib in pool
-        )
-        raise ValueError(
-            f"need {count} GPU(s) with at least {min_free_mib} MiB free; "
-            f"eligible={len(eligible)} ({detail})"
-        )
-    selected = [eligible[i][0] for i in range(count)]
-    return tuple(selected)
+    return eligible, pool
 
 
 def bind_visible_gpus(*, count: int) -> tuple[int, ...]:

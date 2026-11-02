@@ -10,6 +10,7 @@ from dl_toolbox.experiment_management.toolbox.trainer.visible_gpus import (
     MIN_FREE_MIB,
     bind_visible_gpus,
     candidate_indices,
+    free_gpu_indices,
     select_freest_gpus,
 )
 
@@ -31,6 +32,14 @@ def test_selects_top_n_by_free_memory() -> None:
         candidates=None,
     )
     assert selected == (1, 3)
+
+
+def test_free_gpu_indices_are_sorted_by_free_memory() -> None:
+    indices = free_gpu_indices(
+        gpus=((0, 1000), (1, 20000), (2, MIN_FREE_MIB), (3, 15000)),
+        candidates=None,
+    )
+    assert indices == (1, 3, 2)
 
 
 def test_skips_gpus_below_min_free() -> None:
