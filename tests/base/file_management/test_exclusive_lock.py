@@ -31,6 +31,11 @@ def test_exclusive_dir_lock_timeout(tmp_path: Path) -> None:
     waiter.release()
 
 
+def test_exclusive_dir_lock_rejects_relative_path() -> None:
+    with pytest.raises(ValueError, match="absolute"):
+        ExclusiveDirLock("catalog.lock", timeout_seconds=1.0)
+
+
 def test_exclusive_dir_lock_context_manager(tmp_path: Path) -> None:
     path = tmp_path / "catalog.lock"
     with ExclusiveDirLock(path, timeout_seconds=1.0):

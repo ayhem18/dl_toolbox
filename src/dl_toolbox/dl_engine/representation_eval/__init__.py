@@ -15,7 +15,9 @@ from dl_toolbox.dl_engine.representation_eval.common import (
     TSNE_DIRNAME,
     extract_features,
     loader_for_extract,
+    read_embeddings_npz,
     run_representation_probes,
+    write_embeddings_npz,
 )
 from dl_toolbox.dl_engine.representation_eval.knn import (
     CrowdingExtremes,
@@ -57,5 +59,7 @@ __all__ = [
     "loader_for_extract",
     "project_2d",
     "rank_crowding_extremes",
+    "read_embeddings_npz",
     "run_representation_probes",
+    "write_embeddings_npz",
 ]

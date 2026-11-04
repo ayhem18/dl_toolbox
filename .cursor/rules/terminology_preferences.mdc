@@ -1,0 +1,6 @@
+---
+description: A list of preferences for the terminology when working with the dl_toolbox custom package and Deep Learning in general
+alwaysApply: false
+---
+
+- Avoid the terms "width" and "height" when referring to the dimensions of an image / tensor / 2d array. Those terms are used differently in different context and different packages. use Y_dim and X_dim instead. Those are unambiguous. The comments, variable names, documentation, configurations, cursor rules ... MUST FOLLOW THIS CONVENTION. 

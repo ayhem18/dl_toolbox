@@ -65,7 +65,7 @@ class ExpEngine:
         3. checkpoint_manager: the abstraction that ensures the chechkpoint policy is implemented properly
         4. experiment_manager: the abstraction that extracts the project-specific configuration from the recipe: extracts the callables used in fit
         5. paths: A wrapper around the 3 type of paths an experiment touches / uses
-        6. compose_toolbox: the abstraction that ensures the toolbox is composed properly
+        6. compose_toolbox: a callable ?? TODO: think of a better way to implement this part
         7. tracking_backend: TODO: explain what this is: is the same as the logging backend ? 
         """
 

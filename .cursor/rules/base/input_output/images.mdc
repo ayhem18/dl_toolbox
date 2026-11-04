@@ -1,0 +1,21 @@
+---
+description: Photometric Image is ImageSpec plus array. File IO is ImageIO; OpenCVImageIO is the backend. Ndarray parse requires spec.
+alwaysApply: false
+---
+
+# Images
+
+Code: `base/input_output/images/` (`image.py`, `image_spec.py`, `io.py`).
+
+`Image` = `ImageSpec` + ndarray. Spec is `ColorMode` × `SampleType` × `Layout` (`YXC` / `CYX`).
+
+- Ndarray: `Image.from_array(array=..., spec=...)`.
+- File: `OpenCVImageIO().read(path=...)` / `.write(image=..., path=...)`. The backend assigns native spec (gray uint8 or BGR uint8 YXC). Caller does not pass spec on read.
+- Convert stays on `Image.convert(spec=..., strict=...)`.
+
+```python
+image = Image.from_array(array=array, spec=spec)
+io = OpenCVImageIO()
+image = io.read(path=absolute_path)
+io.write(image=image, path=absolute_png)
+```

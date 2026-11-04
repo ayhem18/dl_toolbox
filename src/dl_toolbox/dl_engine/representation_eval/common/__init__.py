@@ -4,6 +4,10 @@ from dl_toolbox.dl_engine.representation_eval.common.config import (
 from dl_toolbox.dl_engine.representation_eval.common.errors import (
     RepresentationEvalError,
 )
+from dl_toolbox.dl_engine.representation_eval.common.embeddings import (
+    read_embeddings_npz,
+    write_embeddings_npz,
+)
 from dl_toolbox.dl_engine.representation_eval.common.extract import (
     EncodeFn,
     IdsFrom,
@@ -37,5 +41,7 @@ __all__ = [
     "TSNE_DIRNAME",
     "extract_features",
     "loader_for_extract",
+    "read_embeddings_npz",
     "run_representation_probes",
+    "write_embeddings_npz",
 ]

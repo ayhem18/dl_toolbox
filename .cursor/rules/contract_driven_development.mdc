@@ -1,0 +1,15 @@
+---
+description: How toolbox contracts are written and found. Not a per-function spec.
+alwaysApply: true
+---
+
+# Contract-driven development
+
+A contract is a `.mdc` under `.cursor/rules/`, mirroring `src/dl_toolbox/`. Example: `base/input_output/image_io.py` → `.cursor/rules/base/input_output/image_io.mdc`.
+
+- Do not add `standards/**/philosophy.md` for a new contract. The `.mdc` is the contract. Older notes in `standards/` (data_contract, metrics, exp engine) stay until migrated.
+- Only files/folders that already have a clear contract get an `.mdc`. No empty stubs.
+- Contract bodies live only here. The workspace-root `DL_projects/.cursor/rules/dl_toolbox_structure.mdc` **points** at these files. Do not copy bodies to the project root.
+- The structure index is always on. Per-function `.mdc` files are not (`alwaysApply: false`). The agent Reads them when the index marks CONTRACT.
+- After adding or changing a contract, update **both** structure indexes (same rows): this package’s `dl_toolbox_structure.mdc` and `DL_projects/.cursor/rules/dl_toolbox_structure.mdc`.
+- If implementation cannot keep the contract without a default, a `None`, or a new slot, stop and revise the `.mdc`. Do not weaken the file to fit the code.

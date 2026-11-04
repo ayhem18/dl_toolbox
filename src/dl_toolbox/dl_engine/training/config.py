@@ -20,8 +20,6 @@ class MonitorConfig:
 
 @dataclass(frozen=True)
 class EarlyStoppingConfig:
-    # TODO: use proper sentinel values instead of checking none everywhere down the line.
-    # this is just frustrating.
     NONE = "none"
     PATIENCE = "patience"
 

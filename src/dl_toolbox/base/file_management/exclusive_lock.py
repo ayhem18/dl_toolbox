@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from dl_toolbox.base.file_management.paths import abs_path
+
 
 class ExclusiveLockTimeoutError(TimeoutError):
     """The lock directory could not be created before the timeout."""
@@ -19,7 +21,7 @@ class ExclusiveDirLock:
 
     def __init__(
         self,
-        path: Path,
+        path: Path | str,
         *,
         timeout_seconds: float,
         poll_seconds: float = 0.05,
@@ -28,7 +30,7 @@ class ExclusiveDirLock:
             raise ValueError(f"timeout_seconds must be > 0, got {timeout_seconds}")
         if poll_seconds <= 0:
             raise ValueError(f"poll_seconds must be > 0, got {poll_seconds}")
-        self._path = path
+        self._path = abs_path(path)
         self._timeout_seconds = float(timeout_seconds)
         self._poll_seconds = float(poll_seconds)
         self._held = False
