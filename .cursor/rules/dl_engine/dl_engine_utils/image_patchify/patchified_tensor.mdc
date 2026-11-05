@@ -1,0 +1,25 @@
+---
+description: PatchifiedTensor is layout × original_channels × patch_size plus a batched tensor. Sequence unflatten takes Y_patches and X_patches.
+alwaysApply: false
+---
+
+# PatchifiedTensor
+
+`PatchifiedTensor` = `PatchifiedTensorSpec` + batched `torch.Tensor`. Spec is `PatchLayout` × `original_channels` × `patch_size` (`P > 1`, square). Layout is a claim.
+
+| Layout | Payload |
+|---|---|
+| `SPATIAL` | `(B, C_org, Y_dim, X_dim)` |
+| `PATCH_GRID` | `(B, C_org·P·P, Y_patches, X_patches)` |
+| `SEQUENCE` | `(B, Y_patches·X_patches, C_org·P·P)` |
+
+- Tensor: `PatchifiedTensor.from_tensor(tensor=..., spec=...)`.
+- Convert: `convert(spec=...)` for `SPATIAL` ↔ `PATCH_GRID` and both → `SEQUENCE`. Same `C_org` and `P`.
+- `SEQUENCE` → grid: `unflatten(Y_patches=..., X_patches=...)` → `PATCH_GRID`. Then convert to `SPATIAL`.
+
+```python
+image = PatchifiedTensor.from_tensor(tensor=spatial, spec=spatial_spec)
+grid = image.convert(spec=grid_spec)
+sequence = image.convert(spec=sequence_spec)
+grid = sequence.unflatten(Y_patches=y_patches, X_patches=x_patches)
+```

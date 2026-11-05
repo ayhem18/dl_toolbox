@@ -16,7 +16,8 @@ Keep this index in sync with `DL_projects/.cursor/rules/dl_toolbox_structure.mdc
 
 - `.cursor/rules/python_preferences.mdc` — no parameter defaults; large signatures become config objects
 - `.cursor/rules/terminology_preferences.mdc` — spatial dims are `Y_dim` / `X_dim`, never height/width
-- `.cursor/rules/contract_driven_development.mdc` — how to add the next contract
+- `.cursor/rules/contract_driven_development.mdc` — gate: six objects in code
+- `.cursor/rules/work_on_contract.mdc` — apply intelligently: read philosophy, outline tensions
 
 ## Tree
 
@@ -29,7 +30,10 @@ src/dl_toolbox/
       json_io.py
     parsing/
     hashing/
-    file_management/       CONTRACT  .cursor/rules/base/file_management.mdc
+    file_management/
+      file.py              CONTRACT  .cursor/rules/base/file_management/file.mdc
+      directory.py         CONTRACT  .cursor/rules/base/file_management/directory.mdc
+      exclusive_lock.py    draft     standards/contract/proposals/file_management.md
     geometry/
     image_processing/
   data_contract/           design still in standards/data_contract/
@@ -39,9 +43,13 @@ src/dl_toolbox/
     loggers/
     lr_finder/
     representation_eval/   design still in standards/representation_eval/
+    dl_engine_utils/       DL-only
+      image_patchify/
+        patchified_tensor.py  CONTRACT  .cursor/rules/dl_engine/dl_engine_utils/image_patchify/patchified_tensor.mdc
+        patchified_mask.py    CONTRACT  .cursor/rules/dl_engine/dl_engine_utils/image_patchify/patchified_mask.mdc
   experiment_management/   design still in standards/exp_mng_engine/
-  dl_engine_utils/
+  dl_engine_utils/         unspecified leftover; not the DL home
   cli/
 ```
 
-A folder with no CONTRACT line has no `.mdc` yet. Do not invent one in passing. Do not add `standards/**/philosophy.md` for a new contract — the `.mdc` is the contract.
+A folder with no CONTRACT line has no `.mdc` yet. Do not invent one in passing. Drafts never modify `.mdc` files: write under `standards/contract/proposals/`. Do not add a per-feature `philosophy.md`. The definition of a contract is `standards/contract/philosophy.md`. Mark `CONTRACT` only when that definition is met in code.

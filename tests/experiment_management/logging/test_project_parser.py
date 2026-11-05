@@ -10,6 +10,7 @@ from dl_toolbox.experiment_management.default_layout.parsing.logging import (
     TensorBoardProjectLoggerConfigParser,
     WandbProjectLoggerConfigParser,
     parse_project_logger_config,
+    tensorboard_project_from_pydantic,
 )
 
 
@@ -19,6 +20,18 @@ def test_tensorboard_project_parser_resolves_under_root(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
     assert parsed.log_dir == tmp_path / "storage" / "tensorboard"
+
+
+def test_tensorboard_pydantic_matches_parser(tmp_path: Path) -> None:
+    payload = {"log_dir": "storage/tensorboard"}
+    parsed = tensorboard_project_from_pydantic(payload, project_root=tmp_path)
+    original = TensorBoardProjectLoggerConfigParser(payload, project_root=tmp_path)
+    assert parsed.log_dir == original.log_dir
+    with pytest.raises(ProjectLoggerParseError):
+        tensorboard_project_from_pydantic(
+            {"log_dir": "storage/tensorboard", "extra": 1},
+            project_root=tmp_path,
+        )
 
 
 def test_wandb_project_parser_rejects_extra_keys(tmp_path: Path) -> None:

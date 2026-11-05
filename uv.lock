@@ -708,6 +708,9 @@ tensorboard = [
     { name = "torch", version = "2.7.1+cu118", source = { registry = "https://download.pytorch.org/whl/cu118" }, marker = "sys_platform == 'win32'" },
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
 ]
+validation = [
+    { name = "pydantic" },
+]
 wandb = [
     { name = "wandb" },
 ]
@@ -717,6 +720,7 @@ dev = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "opencv-python-headless" },
+    { name = "pydantic" },
     { name = "pytest" },
     { name = "scikit-learn" },
 ]
@@ -731,6 +735,7 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'tensorboard'", specifier = ">=1.26.0" },
     { name = "opencv-python-headless", marker = "extra == 'geometry'", specifier = ">=4.8.0" },
     { name = "pandas", marker = "extra == 'tensorboard'", specifier = ">=2.0" },
+    { name = "pydantic", marker = "extra == 'validation'", specifier = ">=2.10" },
     { name = "tensorboard", marker = "extra == 'tensorboard'" },
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'dl'", specifier = ">=2.4.0", index = "https://download.pytorch.org/whl/cu124" },
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'tensorboard'", specifier = ">=2.4.0", index = "https://download.pytorch.org/whl/cu124" },
@@ -741,13 +746,14 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.66.0" },
     { name = "wandb", marker = "extra == 'wandb'" },
 ]
-provides-extras = ["dl", "geometry", "tensorboard", "wandb", "mlflow"]
+provides-extras = ["dl", "geometry", "tensorboard", "wandb", "mlflow", "validation"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "opencv-python-headless", specifier = ">=4.8.0" },
+    { name = "pydantic", specifier = ">=2.10" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "scikit-learn", specifier = ">=1.4" },
 ]

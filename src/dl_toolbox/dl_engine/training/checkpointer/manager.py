@@ -17,7 +17,7 @@ from dl_toolbox.dl_engine.training.checkpointer.types import (
     FIT_CLAIMED,
     FIT_FINISHED,
     FIT_RUNNING,
-    KIND_EPOCH,
+    KIND_EPOCH, 
     KIND_LAST,
     KIND_RANK,
     KIND_VALUE,

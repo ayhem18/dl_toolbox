@@ -31,6 +31,9 @@ mlflow = [
     "mlflow",
     "numpy>=1.26.0",
 ]
+validation = [
+    "pydantic>=2.10",
+]
 
 [project.scripts]
 dl-toolbox = "dl_toolbox.cli.main:main"
@@ -69,6 +72,7 @@ dev = [
     "opencv-python-headless>=4.8.0",
     "scikit-learn>=1.4",
     "matplotlib>=3.8",
+    "pydantic>=2.10",
 ]
 
 [tool.pytest.ini_options]

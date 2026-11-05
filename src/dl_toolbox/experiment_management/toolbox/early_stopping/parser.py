@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_numerical import parse_non_negative_number, parse_positive_int
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
@@ -41,3 +45,52 @@ class EarlyStoppingConfigParser:
     @property
     def early_stopping_config(self) -> EarlyStoppingConfig:
         return self._config
+
+
+# --- pydantic (optional extra: validation) ---
+# Discriminated union on name. Empty params vs patience params. Leftover: none.
+# min_delta is int | float because JSON 0 is int and JSON 0.0 is float.
+
+
+class _EmptyParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _PatienceParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    patience: Annotated[int, Field(gt=0)]
+    min_delta: Annotated[int | float, Field(ge=0)]
+
+
+class _EarlyStoppingNoneDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: Literal["none"]
+    params: _EmptyParams
+
+
+class _EarlyStoppingPatienceDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: Literal["patience"]
+    params: _PatienceParams
+
+
+_EARLY_STOPPING_DOCUMENT = TypeAdapter(
+    Annotated[
+        _EarlyStoppingNoneDocument | _EarlyStoppingPatienceDocument,
+        Field(discriminator="name"),
+    ]
+)
+
+
+def early_stopping_config_from_pydantic(payload: object) -> EarlyStoppingConfig:
+    document = _EARLY_STOPPING_DOCUMENT.validate_python(payload)
+    if document.name == EarlyStoppingConfig.NONE:
+        return EarlyStoppingConfig.none()
+    return EarlyStoppingConfig(
+        name=EarlyStoppingConfig.PATIENCE,
+        patience=document.params.patience,
+        min_delta=float(document.params.min_delta),
+    )

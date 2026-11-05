@@ -1,10 +1,70 @@
-"""Create the opinionated toolbox project tree. The CLI passes cwd as parent."""
+"""Create the opinionated toolbox project tree. The CLI passes cwd as parent.
+
+Replacement patterns (File / Directory). ``setup_project`` still returns
+``Path`` because the CLI and engine tests are outside this folder.
+
+1. parent must exist as a directory
+
+   Before::
+
+       if not parent.is_absolute():
+           raise ValueError(...)
+       if not parent.is_dir():
+           raise FileNotFoundError(...)
+
+   After::
+
+       parent_dir = Directory.from_absolute(
+           path=parent, policy=DirectoryParsePolicy.MUST_EXIST
+       )
+
+2. create ``parent / name`` only if missing
+
+   Before::
+
+       root = parent / name
+       if root.exists():
+           raise FileExistsError(...)
+       root.mkdir(exist_ok=False)
+
+   After::
+
+       proposed = Directory.from_under(
+           root=parent_dir,
+           relative_path=name,
+           policy=DirectoryParsePolicy.ALLOW_MISSING,
+       )
+       if proposed.spec == DirectorySpec.EXISTS:
+           raise FileExistsError(...)
+       root = Directory.from_absolute(
+           path=proposed.path, policy=DirectoryParsePolicy.CREATE
+       )
+
+3. nested storage / config directories
+
+   Before::
+
+       (root / Path(*relative.split("/"))).mkdir(parents=True, exist_ok=True)
+
+   After::
+
+       Directory.from_under(
+           root=root,
+           relative_path=relative,
+           policy=DirectoryParsePolicy.CREATE,
+       )
+"""
 
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
 
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
+    DirectorySpec,
+)
 from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.data_contract.names import assert_generating_process_name
 from dl_toolbox.dl_engine.loggers.mlflow.default_configurations import DEFAULT_SQLITE_TIMEOUT_SECONDS
@@ -100,19 +160,24 @@ def setup_project(
     """Create ``parent / project_name``. ``parent`` must be an existing absolute directory."""
     name = assert_generating_process_name(project_name)
     backend = parse_tracking_backend(tracking_backend, label="tracking_backend")
-    if not parent.is_absolute():
-        raise ValueError(f"parent must be an absolute path, got {parent}")
-    if not parent.is_dir():
-        raise FileNotFoundError(f"parent directory does not exist: {parent}")
+    parent_dir = Directory.from_absolute(
+        path=parent, policy=DirectoryParsePolicy.MUST_EXIST
+    )
     package_name = None if package is None else assert_package_name(package)
     if package_name is not None and package_name in RESERVED_CHILD_NAMES:
         raise ValueError(
             f"package {package_name!r} collides with a reserved project folder"
         )
-    root = parent / name
-    if root.exists():
-        raise FileExistsError(f"project directory already exists: {root}")
-    root.mkdir(exist_ok=False)
+    proposed = Directory.from_under(
+        root=parent_dir,
+        relative_path=name,
+        policy=DirectoryParsePolicy.ALLOW_MISSING,
+    )
+    if proposed.spec == DirectorySpec.EXISTS:
+        raise FileExistsError(f"project directory already exists: {proposed.path}")
+    root = Directory.from_absolute(
+        path=proposed.path, policy=DirectoryParsePolicy.CREATE
+    )
     try:
         _write_tree(
             root,
@@ -121,13 +186,13 @@ def setup_project(
             tracking_backend=backend,
         )
     except Exception:
-        shutil.rmtree(root)
+        shutil.rmtree(root.path)
         raise
-    return root
+    return root.path
 
 
 def _write_tree(
-    root: Path,
+    root: Directory,
     *,
     project_name: str,
     package_name: str | None,
@@ -136,30 +201,36 @@ def _write_tree(
     marker: dict[str, str] = {"name": project_name}
     if package_name is not None:
         marker["package"] = package_name
-    write_json(root / PROJECT_MARKER_FILENAME, marker)
-    (root / TRACKING_BACKEND_FILENAME).write_text(
+    write_json(root.path / PROJECT_MARKER_FILENAME, marker)
+    (root.path / TRACKING_BACKEND_FILENAME).write_text(
         tracking_backend + "\n", encoding="utf-8"
     )
 
+    configs = Directory.from_under(
+        root=root,
+        relative_path=PROJECT_LEVEL_CONFIGS_DIRNAME,
+        policy=DirectoryParsePolicy.CREATE,
+    )
     write_json(
-        root / PROJECT_LEVEL_CONFIGS_DIRNAME / IDENTITY_CONFIG_FILENAME,
+        configs.path / IDENTITY_CONFIG_FILENAME,
         dict(DEFAULT_IDENTITY_CONFIG),
     )
     write_json(
-        root / PROJECT_LEVEL_CONFIGS_DIRNAME / CHECKPOINT_CONFIG_FILENAME,
+        configs.path / CHECKPOINT_CONFIG_FILENAME,
         dict(DEFAULT_CHECKPOINT_CONFIG),
     )
 
-    logging_configs = (
-        root / PROJECT_LEVEL_CONFIGS_DIRNAME / LOGGING_CONFIGS_DIRNAME
+    logging_configs = Directory.from_under(
+        root=root,
+        relative_path=f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}",
+        policy=DirectoryParsePolicy.CREATE,
     )
-    logging_configs.mkdir(parents=True)
     backends = tuple(sorted(TRACKING_BACKENDS))
     n_backends = len(backends)
     for i in range(n_backends):
         backend = backends[i]
         write_json(
-            logging_configs / f"{backend}.json",
+            logging_configs.path / f"{backend}.json",
             _backend_config(backend),
         )
 
@@ -178,15 +249,17 @@ def _write_tree(
     )
     n_dirs = len(relative_dirs)
     for i in range(n_dirs):
-        (root / Path(*relative_dirs[i].split("/"))).mkdir(parents=True, exist_ok=True)
-
-    n_readmes = len(relative_dirs)
-    for i in range(n_readmes):
         relative = relative_dirs[i]
+        created = Directory.from_under(
+            root=root,
+            relative_path=relative,
+            policy=DirectoryParsePolicy.CREATE,
+        )
         if relative not in _README_BY_RELATIVE:
             continue
-        path = root / Path(*relative.split("/")) / "README.md"
-        path.write_text(_README_BY_RELATIVE[relative], encoding="utf-8")
+        (created.path / "README.md").write_text(
+            _README_BY_RELATIVE[relative], encoding="utf-8"
+        )
 
     if package_name is not None:
         _write_package(root, package_name=package_name)
@@ -230,12 +303,19 @@ def _backend_config(tracking_backend: str) -> dict:
     raise ValueError(f"unknown tracking backend {tracking_backend!r}")
 
 
-def _write_package(root: Path, *, package_name: str) -> None:
-    package_root = root / package_name
-    src_package = package_root / "src" / package_name
-    src_package.mkdir(parents=True)
-    (src_package / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "pyproject.toml").write_text(
+def _write_package(root: Directory, *, package_name: str) -> None:
+    package_root = Directory.from_under(
+        root=root,
+        relative_path=package_name,
+        policy=DirectoryParsePolicy.CREATE,
+    )
+    src_package = Directory.from_under(
+        root=root,
+        relative_path=f"{package_name}/src/{package_name}",
+        policy=DirectoryParsePolicy.CREATE,
+    )
+    (src_package.path / "__init__.py").write_text("", encoding="utf-8")
+    (package_root.path / "pyproject.toml").write_text(
         _package_pyproject(package_name),
         encoding="utf-8",
     )

@@ -6,6 +6,7 @@ These are documents. They are not installed with `dl-toolbox`. When a contract b
 
 | Folder | Job |
 |---|---|
+| [contract](contract/philosophy.md) | What a toolbox contract is: entity, spec, sources, parse, convert. Drafts under review: [proposals](contract/proposals/). |
 | [exp_mng_engine](exp_mng_engine/overview.md) | Experiment engine: core vs default, owned checkpoint protocol, fit/inspect via disk. |
 | [metrics](metrics/README.md) | Batch measurement, combiner, reducer. |
 | [representation_eval](representation_eval/README.md) | Frozen embeddings: kNN, linear probe, PCA/t-SNE. |

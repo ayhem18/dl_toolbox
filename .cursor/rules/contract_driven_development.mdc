@@ -1,15 +1,19 @@
 ---
-description: How toolbox contracts are written and found. Not a per-function spec.
+description: Definition of a toolbox contract. An .mdc that lists code is not a contract.
 alwaysApply: true
 ---
 
 # Contract-driven development
 
-A contract is a `.mdc` under `.cursor/rules/`, mirroring `src/dl_toolbox/`. Example: `base/input_output/image_io.py` → `.cursor/rules/base/input_output/image_io.mdc`.
+Definition: `dl_toolbox/standards/contract/philosophy.md`. Image is the reference.
 
-- Do not add `standards/**/philosophy.md` for a new contract. The `.mdc` is the contract. Older notes in `standards/` (data_contract, metrics, exp engine) stay until migrated.
-- Only files/folders that already have a clear contract get an `.mdc`. No empty stubs.
-- Contract bodies live only here. The workspace-root `DL_projects/.cursor/rules/dl_toolbox_structure.mdc` **points** at these files. Do not copy bodies to the project root.
-- The structure index is always on. Per-function `.mdc` files are not (`alwaysApply: false`). The agent Reads them when the index marks CONTRACT.
-- After adding or changing a contract, update **both** structure indexes (same rows): this package’s `dl_toolbox_structure.mdc` and `DL_projects/.cursor/rules/dl_toolbox_structure.mdc`.
-- If implementation cannot keep the contract without a default, a `None`, or a new slot, stop and revise the `.mdc`. Do not weaken the file to fit the code.
+A contract starts from an **entity**, not a functionality. Feature `.mdc` files live under `.cursor/rules/` mirroring `src/dl_toolbox/`. Do not add a per-feature `philosophy.md`. Drafts never modify `.mdc` files: a contract under review lives in `standards/contract/proposals/`. Do not mark `CONTRACT` in the structure index until the six objects exist in code:
+
+1. Entity = native payload + spec
+2. Spec = product of properties (illegal combinations rejected)
+3. Validation owned once (spec consistency + payload match)
+4. Named sources
+5. Owned parse APIs (required args = what that source cannot supply)
+6. Named convert maps (or an explicit error)
+
+If a later call site still re-checks those assumptions, the contract is not in use. If implementation needs a default, a `None`, or a new slot, stop and revise the `.mdc` and the philosophy note. Update **both** structure indexes when a real contract is added.

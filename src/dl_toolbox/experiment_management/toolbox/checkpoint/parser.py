@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
+
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_numerical import parse_bool, parse_int
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
@@ -26,3 +30,18 @@ class CheckpointConfigParser:
     @property
     def save_last(self) -> bool:
         return self._save_last
+
+
+# --- pydantic (optional extra: validation) ---
+# Covers this parser completely: exact keys, save_top_k >= -1, bool is not 0/1.
+
+
+class CheckpointConfigDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    save_top_k: Annotated[int, Field(ge=-1)]
+    save_last: StrictBool
+
+
+def checkpoint_config_from_pydantic(payload: object) -> CheckpointConfigDocument:
+    return CheckpointConfigDocument.model_validate(payload)

@@ -9,7 +9,6 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-import lightning as L
 
 from dl_toolbox.base.file_management.exclusive_lock import ExclusiveDirLock
 from dl_toolbox.base.hashing.hash_manager import (
@@ -55,8 +54,8 @@ class ExpEngine:
         checkpoint_manager: CheckpointManager,
         experiment_manager: ExperimentConfigManager,
         paths: EnginePaths,
-        compose_toolbox: Callable[..., Any], # the exact type must be specified here ... 
-        tracking_backend: str,
+        compose_toolbox: Callable[..., Any], # TODO: replace this  
+        tracking_backend: str,# isn't this piece of information already known given the logging_manager
     ) -> None:
 
         """
@@ -80,8 +79,7 @@ class ExpEngine:
     ################################## get_new_run_or_overwrite / get_existing_run ##################################
 
     def get_new_run_or_overwrite(
-        self, recipe: Path | Mapping[str, Any], *, force: bool = False
-    ) -> RunSession:
+        self, recipe: Path | Mapping[str, Any], *, force: bool = False) -> RunSession:
         """Create a run for this recipe, or overwrite this name if force=True.
 
         CONTRACT. Source of truth:
@@ -143,8 +141,7 @@ class ExpEngine:
         name: str,
         configuration_hash: str,
         run_artifacts: Path,
-        force: bool,
-    ) -> None:
+        force: bool,) -> None:
         # Implements get_new_run_or_overwrite's decision tree. Keep in lockstep
         # with that docstring.
         run_identities_root = self._paths.run_identities_root
@@ -190,8 +187,7 @@ class ExpEngine:
         *,
         name: str,
         configuration_hash: str,
-        run_artifacts: Path,
-    ) -> None:
+        run_artifacts: Path,) -> None:
         # Implements get_existing_run's contract. Keep in lockstep with that docstring.
         run_identities_root = self._paths.run_identities_root
         lookup = self._identity_manager.lookup(
@@ -215,8 +211,7 @@ class ExpEngine:
     ################################## train / inspect ##################################
 
     def train(
-        self, recipe: Path | Mapping[str, Any], *, force: bool = False
-    ) -> object:
+        self, recipe: Path | Mapping[str, Any], *, force: bool = False) -> object:
         """Fit a recipe.
 
         The launching process (no rank env, or global rank 0) claims identity
@@ -224,10 +219,19 @@ class ExpEngine:
         re-runs this script on other ranks; those processes attach with
         get_existing_run and must not write identity or the fit catalog.
         """
+
+        # the train is simple
+        # if this is a worker -> extract the existing run and start the fit function 
+        # otherwise create or overwrite the run and start the fit function
+
+        # 
+
         if _is_distributed_worker():
             session = self.get_existing_run(recipe)
             return self._fit(session)
+
         session = self.get_new_run_or_overwrite(recipe, force=force)
+
         try:
             return self._fit(session)
         finally:
@@ -238,8 +242,7 @@ class ExpEngine:
         experiment_recipe: Path | Mapping[str, Any],
         inspection_recipe: Path | Mapping[str, Any],
         *,
-        inspect_fn: InspectFn,
-    ) -> Path:
+        inspect_fn: InspectFn) -> Path:
 
         print(
             f"inspect: opening run and building experiment for {experiment_recipe}",
@@ -266,8 +269,7 @@ class ExpEngine:
         return parse_mapping(recipe, label="recipe")
 
     def _inspection_mapping(
-        self, inspection_recipe: Path | Mapping[str, Any]
-    ) -> dict:
+        self, inspection_recipe: Path | Mapping[str, Any]) -> dict:
         if isinstance(inspection_recipe, Path):
             return read_json(inspection_recipe)
         return parse_mapping(inspection_recipe, label="inspection_recipe")
@@ -277,8 +279,7 @@ class ExpEngine:
         recipe: Path | Mapping[str, Any],
         *,
         create: bool,
-        force: bool,
-    ) -> RunSession:
+        force: bool) -> RunSession:
         """
         1. parse the recipe configuration
         2. compose tool box: this should not be the case, the return type is unspecified ... this can very easily break 
@@ -399,8 +400,7 @@ def _inspect_once(
     session: RunSession,
     *,
     request: CheckpointRequest,
-    inspect_fn: InspectFn,
-) -> Path:
+    inspect_fn: InspectFn) -> Path:
 
     staging_root = session.run_dir / INSPECTION_STAGING_DIRNAME
     staging_root.mkdir(parents=True, exist_ok=True)

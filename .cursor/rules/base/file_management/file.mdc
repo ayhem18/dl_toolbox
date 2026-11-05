@@ -1,0 +1,23 @@
+---
+description: File is an existing absolute regular file. Parse from absolute, Directory+relative, or parent walk. parent() is the named convert.
+alwaysApply: false
+---
+
+# File
+
+Code: `base/file_management/file.py`.
+
+`File` is an existing absolute regular file. Existence is an invariant, not a spec field. Native payload is `pathlib.Path`. Never `Path.cwd()`.
+
+- Absolute: `File.from_absolute(path=...)`.
+- Root + relative: `File.from_under(root=directory, relative_path=...)`. `root` is a Directory that exists. No `..`.
+- Parent walk: `File.from_parent_walk(start=..., basename=...)`. `start` is File or Directory (exists).
+- Convert: `file.parent()` → Directory that exists.
+
+Write is not File parse. Bytes land under a Directory; the result after write is a File.
+
+```python
+file = File.from_absolute(path=absolute_file)
+file = File.from_under(root=directory, relative_path="payload/a.npy")
+directory = file.parent()
+```
