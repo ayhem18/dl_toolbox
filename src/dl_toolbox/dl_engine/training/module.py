@@ -104,6 +104,8 @@ class ClassificationLightningModule(L.LightningModule):
 
     ### 1. on_fit_start: log the configuration
     def on_fit_start(self) -> None:
+        # 1. displaying progress
+        # 2. logging the configuration
         self._progress("on_fit_start")
         if not self.trainer.is_global_zero:
             return
@@ -119,6 +121,8 @@ class ClassificationLightningModule(L.LightningModule):
     ################################### Training Epoch functions ##################################
 
     def on_train_epoch_start(self) -> None:
+        # 1. displaying progress
+        # 2. initialize the train accumulator
         self._progress("on_train_epoch_start")
         self._train_accumulator = MetricAccumulator(self.train_metrics, split="train")
 

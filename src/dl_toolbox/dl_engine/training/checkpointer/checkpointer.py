@@ -23,6 +23,10 @@ class Checkpointer:
         return _OwnedCheckpoint(self)
 
     def save(self, trainer: L.Trainer) -> None:
+        # the `trainer` object is passed to the callback. 
+        # that's the function called by the callback
+        # it takes into account DDP synchronization with this trainer.is_global_zero (need to verify what this flag means)
+
         epoch = int(trainer.current_epoch)
         score = _monitor_score(trainer, self._binding.monitor_key)
         print(
@@ -30,6 +34,22 @@ class Checkpointer:
             f"global_zero={trainer.is_global_zero}",
             flush=True,
         )
+
+        # this assumes that everything is ran on a single machine (reasonable assumption 
+        # but it shoud be made explicit in each run... raise an error if multi-node training is detected)
+
+        # so the solution is to have a single process save the checkpoint
+        # while the other processes are given a dummy path 
+        # since we are not just using the ModelCheckpoint callback provided by pytorch lightning
+        # which takes care of the policy + the writing operation + ddp
+
+        # although this dummary path hack can be avoided if we do not use the training.save_checkpoint
+        # although, this probably would still be necessary since we want the processes to hang until the writing operation is completed
+
+        # the interesting part that we are adding is that the global rank is now not only competing with the other fit processes 
+        # but also with the inspect process. 
+        # that's why the save operation has its own synchorization logic. 
+        
         if trainer.is_global_zero:
             self._binding.save_new(
                 epoch=epoch,
@@ -37,6 +57,7 @@ class Checkpointer:
                 write=trainer.save_checkpoint,
             )
         else:
+            # this needs to be elaborated on more. 
             # Trainer.save_checkpoint ends in strategy.barrier. Every rank
             # must enter it. Rank 0 is the only process that writes the catalog.
             trainer.save_checkpoint(self._binding.ddp_join_path())

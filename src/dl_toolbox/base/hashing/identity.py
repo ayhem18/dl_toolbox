@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 DEFAULT_ARTIFACT_PREFIX_LEN = 12
 SHA256_HEX_LENGTH = 64
@@ -29,6 +30,21 @@ def canonical_json(payload: object) -> str:
 
 def hash_text(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+_FILE_CHUNK = 1024 * 1024
+
+
+def hash_file(path: Path) -> str:
+    """Full SHA-256 of file bytes. Do not truncate this digest."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(_FILE_CHUNK)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def hash_payload(payload: object) -> str:

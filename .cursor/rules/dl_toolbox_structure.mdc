@@ -47,6 +47,7 @@ src/dl_toolbox/
       image_patchify/
         patchified_tensor.py  CONTRACT  .cursor/rules/dl_engine/dl_engine_utils/image_patchify/patchified_tensor.mdc
         patchified_mask.py    CONTRACT  .cursor/rules/dl_engine/dl_engine_utils/image_patchify/patchified_mask.mdc
+      checkpointing/
   experiment_management/   design still in standards/exp_mng_engine/
   dl_engine_utils/         unspecified leftover; not the DL home
   cli/

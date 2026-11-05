@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import random
+from pathlib import Path
 
 import pytest
 
 from dl_toolbox.base.hashing.identity import (
     DEFAULT_ARTIFACT_PREFIX_LEN,
     artifact_stem,
+    hash_file,
     hash_payload,
     is_full_sha256,
     is_hashed_artifact_stem,
@@ -49,3 +52,11 @@ def test_ordinary_names_are_not_hash_stems(rng: random.Random) -> None:
     for _ in range(N_TRIALS):
         name = "run_" + "".join(rng.choice("abcdefxyz012") for _ in range(8))
         assert not is_hashed_artifact_stem(name)
+
+
+def test_hash_file_matches_hashlib(tmp_path: Path) -> None:
+    path = tmp_path / "blob.bin"
+    path.write_bytes(b"abc" * 1000)
+    digest = hash_file(path)
+    assert digest == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert is_full_sha256(digest)

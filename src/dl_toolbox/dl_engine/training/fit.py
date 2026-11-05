@@ -71,6 +71,7 @@ def fit(
         lr_scheduler_factory=lr_scheduler_factory,
     )
 
+    
     callbacks: list[L.Callback] = [checkpointer.as_callback()]
     if config.early_stopping.name == EarlyStoppingConfig.PATIENCE:
         if config.early_stopping.patience is None:
