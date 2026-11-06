@@ -1,4 +1,4 @@
-"""Filesystem dump logger. Writes text/json under the run directory."""
+"""Filesystem dump logger for tests. Writes text/json under the run directory."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.dl_engine.loggers.base_logger import (
+from dl_toolbox.dl_engine._loggers.base_logger import (
     STREAM_FIT,
     Logger,
     LoggerError,
@@ -15,7 +15,7 @@ from dl_toolbox.dl_engine.loggers.base_logger import (
     require_logger_open,
     table_as_json,
 )
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
+from tests.dl_engine.loggers.placeholder_manager import PlaceholderManager
 
 
 class PlaceholderLogger(Logger):

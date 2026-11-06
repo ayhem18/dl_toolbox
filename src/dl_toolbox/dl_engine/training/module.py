@@ -16,7 +16,7 @@ from dl_toolbox.dl_engine.metrics.metric_object import (
     MetricSpec,
     metric_log_name,
 )
-from dl_toolbox.dl_engine.loggers.base_logger import Logger, flatten_mapping
+from dl_toolbox.dl_engine._loggers.base_logger import Logger, flatten_mapping
 
 # Epoch-end self.log is the only distributed sync. MetricAccumulator is
 # rank-local; sync_dist=True averages those rank-local epoch scalars

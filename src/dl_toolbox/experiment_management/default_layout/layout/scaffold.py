@@ -67,14 +67,13 @@ from dl_toolbox.base.file_management.directory import (
 )
 from dl_toolbox.base.input_output.json_io import write_json
 from dl_toolbox.data_contract.names import assert_generating_process_name
-from dl_toolbox.dl_engine.loggers.mlflow.default_configurations import DEFAULT_SQLITE_TIMEOUT_SECONDS
+from dl_toolbox.dl_engine._loggers.mlflow.default_configurations import DEFAULT_SQLITE_TIMEOUT_SECONDS
 from dl_toolbox.experiment_management.default_layout.layout.discover import (
     assert_package_name,
     parse_tracking_backend,
 )
 from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
-    BACKEND_PLACEHOLDER,
     BACKEND_TENSORBOARD,
     BACKEND_WANDB,
     CHECKPOINT_CONFIG_FILENAME,
@@ -86,7 +85,6 @@ from dl_toolbox.experiment_management.default_layout.layout.names import (
     LOGGING_CONFIGS_DIRNAME,
     MLFLOW_ARTIFACTS_DIRNAME,
     MLFLOW_DIRNAME,
-    PLACEHOLDER_DIRNAME,
     PROJECT_LEVEL_CONFIGS_DIRNAME,
     PROJECT_MARKER_FILENAME,
     RESERVED_CHILD_NAMES,
@@ -133,9 +131,6 @@ _README_BY_RELATIVE = {
     f"{STORAGE_DIRNAME}/{WANDB_DIRNAME}": (
         "Local W&B directory for this project. The cloud project name is the "
         "toolbox project name in dl_toolbox_project.json.\n"
-    ),
-    f"{STORAGE_DIRNAME}/{PLACEHOLDER_DIRNAME}": (
-        "Filesystem dump used by the placeholder logger. Each child folder is one run.\n"
     ),
     SCRIPTS_DIRNAME: (
         "Durable CLI entry points (train, inspect, vendor UI). "
@@ -268,8 +263,6 @@ def _write_tree(
 def _backend_storage_dirs(tracking_backend: str) -> tuple[str, ...]:
     if tracking_backend == BACKEND_TENSORBOARD:
         return (f"{STORAGE_DIRNAME}/{TENSORBOARD_DIRNAME}",)
-    if tracking_backend == BACKEND_PLACEHOLDER:
-        return (f"{STORAGE_DIRNAME}/{PLACEHOLDER_DIRNAME}",)
     if tracking_backend == BACKEND_WANDB:
         return (f"{STORAGE_DIRNAME}/{WANDB_DIRNAME}",)
     if tracking_backend == BACKEND_MLFLOW:
@@ -283,8 +276,6 @@ def _backend_storage_dirs(tracking_backend: str) -> tuple[str, ...]:
 def _backend_config(tracking_backend: str) -> dict:
     if tracking_backend == BACKEND_TENSORBOARD:
         return {"log_dir": f"{STORAGE_DIRNAME}/{TENSORBOARD_DIRNAME}"}
-    if tracking_backend == BACKEND_PLACEHOLDER:
-        return {"log_dir": f"{STORAGE_DIRNAME}/{PLACEHOLDER_DIRNAME}"}
     if tracking_backend == BACKEND_WANDB:
         return {"dir": f"{STORAGE_DIRNAME}/{WANDB_DIRNAME}"}
     if tracking_backend == BACKEND_MLFLOW:

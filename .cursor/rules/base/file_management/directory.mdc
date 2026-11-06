@@ -1,5 +1,6 @@
 ---
 description: Directory is an absolute path plus missing|exists. Parse policy must_exist|create|allow_missing is not stored.
+globs: "**/base/file_management/directory.py,**/tests/base/file_management/test_directory.py"
 alwaysApply: false
 ---
 

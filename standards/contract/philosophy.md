@@ -6,13 +6,30 @@ Image is the reference. File-management helpers listed in a table are not.
 
 If an entity can be built without going through parse, or a spec can hold an illegal combination, this note is not implemented. Revise the code or this note. Do not mark the folder `CONTRACT` in the structure index.
 
-## Start from the entity
+## Two starting points
+
+A contract is the reference you read instead of the implementation. After it exists, “does this work?” splits into: is the contract right, and does the code follow it.
+
+### Python-object entity (Image)
 
 The itch is often a **functionality**: `cv2.imread` in every dataset, `abs_path` on every argument, `process_path` as a general helper.
 
-The contract is the **entity** that functionality keeps reconstructing. Photometric IO became `Image`. Path processing becomes a path entity, not a more clever `process_path`.
+That functionality is reconstructing an **entity** the code can hold. Photometric IO became `Image`. Path processing becomes a path entity, not a more clever `process_path`. Reconstructing a Python object from helpers, then re-checking it at every call site, is a smell. Start from the entity. The six objects below apply here.
 
-A functionality is a smell. It is not the starting object.
+### External-state functionality (TensorBoard logger)
+
+Some state is not a Python object: a directory of event files, an MLflow run. There is nothing to wrap. The contract is the **algorithm of each behavior**: assumed state of the entity, what the operation does, state afterward. The class and methods are a translation of that algorithm, not the source of it.
+
+The logger is not the entity; it is the operations. A UI is a byproduct. Specify the entity first.
+
+The six objects below are for Python-object entities. A functionality contract is marked `CONTRACT` when:
+
+- The entity (external state) is named.
+- Each behavior is an algorithm: assumed state, the operation, state afterward.
+- The class in code is a translation of those algorithms. If the code does something that is not a line in the algorithm, the code is wrong or the note is wrong.
+- Downstream call sites use the interface. They do not re-derive vendor state.
+
+The feature `.mdc` states the entity, the algorithms, and the translation table. It does not list modules. A draft still lives under `standards/contract/proposals/` until that gate is met in code.
 
 ## Scope
 
@@ -74,11 +91,18 @@ The inverse belongs here too: entity → source (`ImageIO.write`). Per-source co
 
 ## When it is a contract
 
-All of these are true:
+**Python-object entity.** All of these are true:
 
 - You can name the entity, the spec properties, the sources, the parse APIs, and the convert maps.
 - A payload that skipped parse is a bug, not an alternative API.
 - Later code does not re-validate the spec.
 - The feature `.mdc` states those objects. It does not list modules.
 
-Image meets this. Path work is not one folder-contract. File and Directory are separate contracts. ExclusiveDirLock is still a draft (`standards/contract/proposals/file_management.md`). A feature `.mdc` is written only when the six objects exist in code.
+**External-state functionality.** All of these are true:
+
+- You can name the entity (filesystem tree, vendor run, …).
+- Each behavior has assumed state, the operation, and state afterward.
+- The class is a translation of those algorithms.
+- Later code uses the interface; it does not re-scan vendor state to decide what a call means.
+
+Image meets the Python-object gate. Loggers under `dl_engine/loggers/` meet the functionality gate. Path work is not one folder-contract. File and Directory are separate contracts. ExclusiveDirLock is still a draft (`standards/contract/proposals/file_management.md`). A Python-object feature `.mdc` is written only when the six objects exist in code. A functionality feature `.mdc` is written only when the algorithms exist in the `.mdc` and the class in code is a translation.

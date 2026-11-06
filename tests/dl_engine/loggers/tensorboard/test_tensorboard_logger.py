@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.dl_engine.loggers.base_logger import STREAM_INSPECT, LoggerError
-from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_logger import TensorBoardLogger
-from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
+from dl_toolbox.dl_engine._loggers.base_logger import STREAM_INSPECT, LoggerError
+from dl_toolbox.dl_engine._loggers.tensorboard.tensorboard_logger import TensorBoardLogger
+from dl_toolbox.dl_engine._loggers.tensorboard.tensorboard_manager import TensorBoardManager
 
 
 def _logger(tmp_path: Path) -> TensorBoardLogger:

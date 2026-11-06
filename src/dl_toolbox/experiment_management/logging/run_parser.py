@@ -74,17 +74,6 @@ class TensorBoardRunLoggerConfigParser:
         return self._run_name
 
 
-class PlaceholderRunLoggerConfigParser:
-    def __init__(self, payload: dict) -> None:
-        obj = parse_mapping(payload, label="placeholder logger_config")
-        require_exact_keys(obj, ("run_name",), label="placeholder logger_config")
-        self._run_name = parse_non_empty_str(obj["run_name"], label="run_name")
-
-    @property
-    def run_name(self) -> str:
-        return self._run_name
-
-
 def parse_run_logger_config(backend: str, payload: Mapping[str, object]):
     obj = parse_mapping(payload, label="logger_config")
     if backend == "mlflow":
@@ -93,6 +82,4 @@ def parse_run_logger_config(backend: str, payload: Mapping[str, object]):
         return WandbRunLoggerConfigParser(obj)
     if backend == "tensorboard":
         return TensorBoardRunLoggerConfigParser(obj)
-    if backend == "placeholder":
-        return PlaceholderRunLoggerConfigParser(obj)
     raise ValueError(f"unknown tracking backend {backend!r}")

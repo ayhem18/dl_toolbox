@@ -22,8 +22,8 @@ from dl_toolbox.dl_engine.training.config import (
     TrainerConfig,
 )
 from dl_toolbox.dl_engine.training.fit import build_metric_inputs, fit_classification
-from dl_toolbox.dl_engine.loggers.factory import get_logger
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
+from tests.dl_engine.loggers.placeholder_logger import PlaceholderLogger
+from tests.dl_engine.loggers.placeholder_manager import PlaceholderManager
 
 
 class _LinearBinary(nn.Module):
@@ -62,8 +62,7 @@ def test_fit_classification_lightning(tmp_path) -> None:
 
     log_dir = tmp_path / "logs"
     run_dir = tmp_path / "run"
-    logger = get_logger(
-        "placeholder",
+    logger = PlaceholderLogger(
         manager=PlaceholderManager(log_dir=log_dir),
         run_name="test",
     )
@@ -125,8 +124,7 @@ def test_fit_accumulate_grad_batches_and_scheduler(tmp_path) -> None:
     monitor_config = MonitorConfig(key=monitor, mode="min")
     log_dir = tmp_path / "logs"
     run_dir = tmp_path / "run"
-    logger = get_logger(
-        "placeholder",
+    logger = PlaceholderLogger(
         manager=PlaceholderManager(log_dir=log_dir),
         run_name="accum",
     )

@@ -60,49 +60,31 @@ dependencies = [
 
 ## Logging
 
-`dl_toolbox` owns the logger contract and the persistence mechanics. A project owns directories and run identity.
-
-```
-dictionary  ->  parser  ->  manager  ->  logger
-   (setup)     (validate)  (store)     (training API)
-```
-
-- **Toolbox:** `Logger` ABC, `{backend}_parser`, `{backend}_manager`, `{backend}_logger`, and `default_configurations.py` (dicts only).
-- **Project:** store paths. W&B `project` / MLflow `experiment` live on the Logger, not on the toolbox project name. Run names stay on the logger.
+`dl_toolbox` owns the logger contract. A project owns store URIs and run identity. Fit and inspect call `Logger.setup` / `log_*` / `close`. They do not pass URIs into those methods.
 
 ```python
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_logger import MlflowLogger
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
-from dl_toolbox.dl_engine.loggers.base_logger import flatten_mapping
+from dl_toolbox.dl_engine.loggers.logger import (
+    EXISTENCE_CREATE,
+    STREAM_FIT,
+    flatten_mapping,
+)
+from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
 
 mlflow_dir = storage_dir / "mlflow"
-manager = MlflowManager(
-    db_path=mlflow_dir / "mlflow.sqlite",
-    artifact_root=mlflow_dir / "artifacts",
-    timeout_seconds=30,
-)
 logger = MlflowLogger(
-    manager=manager,
-    experiment="pretrain_mim",
+    backend_store_uri=f"sqlite:///{(mlflow_dir / 'mlflow.sqlite').as_posix()}",
+    artifact_store_uri=(mlflow_dir / "artifacts").as_posix(),
+    experiment_name="pretrain_mim",
     run_name="local_swin_tiny_mim",
     tags={"task": "pretrain_mim"},
 )
-logger.setup()
+logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
 logger.log_params(flatten_mapping(run_config))
 logger.log_scalars({"loss/train": 0.12}, step=0)
 logger.close()
 ```
 
-TensorBoard and placeholder follow the same split: the project passes `log_dir`, the manager writes there.
-
-```python
-from dl_toolbox.dl_engine.loggers.factory import get_logger
-from dl_toolbox.dl_engine.loggers.tensorboard.default_configurations import default_tensorboard_setup
-from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
-
-manager = TensorBoardManager(default_tensorboard_setup(log_dir=artifacts_dir / "tensorboard"))
-logger = get_logger("tensorboard", manager=manager)
-```
+TensorBoard takes `log_dir` and `run_name`. Inspect uses `setup(stream=inspect, existence=require)` on the same `run_name`. W&B is not in this package yet.
 
 Logging backends are separate extras. Install only the one you use:
 

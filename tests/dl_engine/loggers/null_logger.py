@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from dl_toolbox.dl_engine.loggers.base_logger import STREAM_FIT, Logger, parse_log_stream
+from dl_toolbox.dl_engine._loggers.base_logger import STREAM_FIT, Logger, parse_log_stream
 
 
 class NullLogger(Logger):

@@ -1,5 +1,6 @@
 ---
 description: PatchifiedMask is layout × patch_size × polarity plus a patch-constant binary tensor. Sequence unflatten takes Y_patches and X_patches.
+globs: "**/image_patchify/patchified_mask.py,**/image_patchify/spec.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_patchified_mask.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_spec.py"
 alwaysApply: false
 ---
 

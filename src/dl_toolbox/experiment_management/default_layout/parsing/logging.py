@@ -164,24 +164,6 @@ def tensorboard_project_from_pydantic(
         raise ProjectLoggerParseError(str(exc)) from exc
 
 
-class PlaceholderProjectLoggerConfigParser:
-    def __init__(self, payload: dict, *, project_root: Path) -> None:
-        obj = _mapping(payload, "placeholder project config")
-        try:
-            require_exact_keys(obj, ("log_dir",), label="placeholder project config")
-            relative = parse_non_empty_str(obj["log_dir"], label="log_dir")
-            project = _project(project_root)
-            self._log_dir = _allow_missing_under(
-                project=project, relative_path=relative
-            )
-        except (ValueError, TypeError, FileNotFoundError) as exc:
-            raise ProjectLoggerParseError(str(exc)) from exc
-
-    @property
-    def log_dir(self) -> Path:
-        return self._log_dir.path
-
-
 class WandbProjectLoggerConfigParser:
     def __init__(self, payload: dict, *, project_root: Path) -> None:
         obj = _mapping(payload, "wandb project config")
@@ -283,8 +265,6 @@ def _parse_artifact_store(payload: Any, *, project: Directory) -> Directory:
 def parse_project_logger_config(backend: str, payload: dict, *, project_root: Path):
     if backend == "tensorboard":
         return TensorBoardProjectLoggerConfigParser(payload, project_root=project_root)
-    if backend == "placeholder":
-        return PlaceholderProjectLoggerConfigParser(payload, project_root=project_root)
     if backend == "wandb":
         return WandbProjectLoggerConfigParser(payload, project_root=project_root)
     if backend == "mlflow":

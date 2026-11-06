@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.dl_engine.loggers.base_logger import (
+from dl_toolbox.dl_engine._loggers.base_logger import (
     STREAM_INSPECT,
     LoggerError,
     flatten_mapping,
 )
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_logger import MlflowLogger
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
+from dl_toolbox.dl_engine._loggers.mlflow.mlflow_logger import MlflowLogger
+from dl_toolbox.dl_engine._loggers.mlflow.mlflow_manager import MlflowManager
 
 
 def _manager(tmp_path: Path) -> MlflowManager:

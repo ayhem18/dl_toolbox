@@ -8,7 +8,6 @@ import pytest
 from dl_toolbox.base.input_output.json_io import read_json
 from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
-    BACKEND_PLACEHOLDER,
     BACKEND_WANDB,
     CHECKPOINT_CONFIG_FILENAME,
     DEFAULT_CHECKPOINT_CONFIG,
@@ -30,7 +29,7 @@ from dl_toolbox.experiment_management.default_layout.layout.scaffold import setu
 
 from tests.experiment_management.names import N_TRIALS, random_package_name, random_project_name
 
-_UNUSED_BACKENDS = (BACKEND_MLFLOW, BACKEND_WANDB, BACKEND_PLACEHOLDER)
+_UNUSED_BACKENDS = (BACKEND_MLFLOW, BACKEND_WANDB)
 
 
 def test_setup_project_writes_all_logging_configs_and_selected_storage(

@@ -1,5 +1,6 @@
 ---
 description: File is an existing absolute regular file. Parse from absolute, Directory+relative, or parent walk. parent() is the named convert.
+globs: "**/base/file_management/file.py,**/tests/base/file_management/test_file.py"
 alwaysApply: false
 ---
 

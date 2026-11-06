@@ -1,6 +1,6 @@
 import pytest
 
-from dl_toolbox.dl_engine.loggers.wandb.wandb_manager import WandbManager
+from dl_toolbox.dl_engine._loggers.wandb.wandb_manager import WandbManager
 
 
 def test_missing_wandb_explains_extra() -> None:

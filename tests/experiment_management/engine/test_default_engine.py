@@ -7,16 +7,16 @@ import pytest
 
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.dl_engine.training.checkpointer.types import FIT_FINISHED
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import (
-    PlaceholderManager,
+from dl_toolbox.dl_engine._loggers.mlflow.mlflow_manager import MlflowManager
+from dl_toolbox.dl_engine._loggers.tensorboard.tensorboard_manager import (
+    TensorBoardManager,
 )
 from dl_toolbox.experiment_management.default_layout.layout.discover import (
     read_tracking_backend,
 )
 from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
-    BACKEND_PLACEHOLDER,
+    BACKEND_TENSORBOARD,
     CHECKPOINT_CONFIG_FILENAME,
     DEFAULT_CHECKPOINT_CONFIG,
     PROJECT_LEVEL_CONFIGS_DIRNAME,
@@ -26,7 +26,7 @@ from dl_toolbox.experiment_management.engine.core.session import RunSession
 from dl_toolbox.experiment_management.engine.default.engine import DefaultExpEngine
 from tests.experiment_management.em_support import (
     TinyExperimentConfigManager,
-    placeholder_recipe,
+    tiny_recipe,
 )
 from tests.experiment_management.names import random_project_name
 
@@ -48,7 +48,7 @@ def _scaffold(
     parent = tmp_path / "parent"
     parent.mkdir()
     name = random_project_name(rng)
-    root = setup_project(name, parent=parent, tracking_backend=BACKEND_PLACEHOLDER)
+    root = setup_project(name, parent=parent, tracking_backend=BACKEND_TENSORBOARD)
     start = root / "scripts" / "train.py"
     start.write_text("x = 1\n", encoding="utf-8")
     return name, root, start
@@ -77,7 +77,7 @@ def test_default_engine_discovers_project_and_default_checkpoint_json(
     engine = _engine(name, start)
     assert engine.project_name == name
     assert engine.project_root == root
-    assert engine.tracking_backend == BACKEND_PLACEHOLDER
+    assert engine.tracking_backend == BACKEND_TENSORBOARD
     checkpoint = read_json(
         root / PROJECT_LEVEL_CONFIGS_DIRNAME / CHECKPOINT_CONFIG_FILENAME
     )
@@ -104,10 +104,10 @@ def test_default_engine_cli_backend_overrides_file_without_rewriting_it(
     engine = _engine(name, start, tracking_backend=BACKEND_MLFLOW)
     assert engine.tracking_backend == BACKEND_MLFLOW
     assert isinstance(engine._logging_manager, MlflowManager)
-    assert read_tracking_backend(root) == BACKEND_PLACEHOLDER
+    assert read_tracking_backend(root) == BACKEND_TENSORBOARD
     file_engine = _engine(name, start)
-    assert file_engine.tracking_backend == BACKEND_PLACEHOLDER
-    assert isinstance(file_engine._logging_manager, PlaceholderManager)
+    assert file_engine.tracking_backend == BACKEND_TENSORBOARD
+    assert isinstance(file_engine._logging_manager, TensorBoardManager)
 
 
 def test_default_engine_rejects_unknown_backend_override(
@@ -144,7 +144,7 @@ def test_default_engine_create_existing_and_inspect(
 ) -> None:
     name, root, start = _scaffold(tmp_path, rng)
     engine = _engine(name, start)
-    recipe = placeholder_recipe(name="run_alpha", seed=7, run_name="alpha")
+    recipe = tiny_recipe(name="run_alpha", seed=7, run_name="alpha")
     session = engine.get_new_run_or_overwrite(recipe)
     assert session.human_readable_name == "run_alpha"
     assert session.run_dir == root / "storage" / "run_artifacts" / "run_alpha"
@@ -166,10 +166,9 @@ def test_default_engine_create_existing_and_inspect(
     dest = engine.inspect(recipe, {"selector": "rank=1"}, inspect_fn=_note)
     assert dest == session.run_dir / "inspection_runs" / "epoch=3"
     assert (dest / "note.txt").read_text(encoding="utf-8") == "ok"
-    logged = (
-        root / "storage" / "placeholder" / "alpha" / "inspection" / "note_step3.txt"
-    )
-    assert logged.read_text(encoding="utf-8") == "ok"
+    tb_run = root / "storage" / "tensorboard" / "alpha"
+    assert tb_run.is_dir()
+    assert any(tb_run.iterdir())
 
 
 def test_default_engine_force_overwrites_name_and_artifacts(
@@ -177,8 +176,8 @@ def test_default_engine_force_overwrites_name_and_artifacts(
 ) -> None:
     name, _root, start = _scaffold(tmp_path, rng)
     engine = _engine(name, start)
-    first = placeholder_recipe(name="run_alpha", seed=1, run_name="alpha")
-    second = placeholder_recipe(name="run_alpha", seed=2, run_name="alpha")
+    first = tiny_recipe(name="run_alpha", seed=1, run_name="alpha")
+    second = tiny_recipe(name="run_alpha", seed=2, run_name="alpha")
     first_session = engine.get_new_run_or_overwrite(first)
     marker = first_session.run_dir / "marker.txt"
     marker.write_text("old", encoding="utf-8")
@@ -199,7 +198,7 @@ def test_default_engine_train_writes_finished_catalog(
 ) -> None:
     name, _root, start = _scaffold(tmp_path, rng)
     engine = _engine(name, start)
-    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    recipe = tiny_recipe(name="run_fit", seed=0, run_name="fit_run")
     trainer = engine.train(recipe)
     assert trainer.current_epoch >= 0
     session = engine.get_existing_run(recipe)

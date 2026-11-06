@@ -1,0 +1,102 @@
+---
+description: Downstream Logger is setup/log_*/close. Fit and inspect never pass store URIs. log_artifact and log_model are not on this interface.
+globs: "**/dl_engine/loggers/logger.py,**/tests/dl_engine/loggers/test_logger.py"
+alwaysApply: false
+---
+
+# Logger interface (downstream)
+
+External-state functionality. This is what fit, inspect, and lr_finder call. Backend constructors and vendor objects are not here.
+
+A `Logger` is already built. Downstream never passes `log_dir`, URIs, or tags into these methods.
+
+Named constants, no defaults.
+
+```
+LogStream     = fit | inspect
+LogExistence  = create | require
+```
+
+W&B is not in this folder.
+
+---
+
+## What the caller is allowed to do
+
+```
+logger.setup(*, stream, existence)
+logger.log_params(params)                          # Mapping[str, str]
+logger.log_tags(tags)                              # Mapping[str, str]
+logger.log_scalars(values, *, step)                # Mapping[str, float], step required
+logger.log_image(tag, image, *, step)
+logger.log_text(tag, text, *, step)
+logger.log_table(tag, rows, *, step)
+logger.close()
+```
+
+`log_scalar(tag, value, *, step)` is `log_scalars({tag: value}, step=step)`. Not a second algorithm.
+
+`flatten_mapping` is a helper for the caller (nested config → `Mapping[str, str]`). It is not a logger method.
+
+---
+
+## `setup(*, stream, existence)`
+
+Binds **this process** so `log_*` is legal. Both arguments required.
+
+| Caller | Call |
+|---|---|
+| fit, rank 0 | `setup(stream=fit, existence=create)` |
+| inspect | `setup(stream=inspect, existence=require)` |
+
+DDP ranks other than 0 do not call `setup`. That is the caller, not the logger.
+
+Illegal if already open. Backend algorithms: TensorBoard `tensorboard.mdc`, MLflow `mlflow.mdc`. Downstream does not branch on backend.
+
+---
+
+## `log_*`
+
+Illegal if not open. Downstream does not re-check vendor state.
+
+Fit: `log_params` once, `log_text` of the run config at `step=0`, `log_scalars` each epoch.
+
+Inspect: `log_image` / `log_table` / `log_text` at `step=epoch`. Tag namespace `inspection/...` vs fit metrics is the caller’s.
+
+No `log_artifact` / `log_model` on this interface.
+
+Those two calls are MLflow artifact-store operations (and the input to Model Registry). They live on `MlflowLogger`. An engine that chose MLflow may call them because it already knows the backend. Fit, inspect, and lr_finder do not.
+
+Inspect files that every backend must show in the UI go through `log_image` / `log_text` / `log_table`. Files that stay on disk under `inspection_runs/` are not logging.
+
+---
+
+## `close()`
+
+Process-local. Idempotent. Does not finish, delete, or lock the vendor run. Other processes that `require` still can log.
+
+Fit and inspect each `close` their own logger object.
+
+---
+
+## Not on this interface
+
+- `__init__` — backend-specific (TB: `log_dir`, `run_name`; MLflow: URIs, `experiment_name`, `run_name`, tags).
+- `run_id` / `tracking_uri` — MLflow internals. Engine does not read them from `Logger`.
+- Manager objects.
+- Locks, “one live fit / one live inspect” — engine.
+
+---
+
+## Translation (ABC)
+
+```
+setup(*, stream, existence)
+log_params(params)
+log_tags(tags)
+log_scalars(values, *, step)
+log_image(tag, image, *, step)
+log_text(tag, text, *, step)
+log_table(tag, rows, *, step)
+close()
+```

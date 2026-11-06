@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.dl_engine.loggers.base_logger import (
+from dl_toolbox.dl_engine._loggers.base_logger import (
     STREAM_FIT,
     STREAM_INSPECT,
     Logger,
@@ -16,7 +16,7 @@ from dl_toolbox.dl_engine.loggers.base_logger import (
     require_logger_open,
     table_as_json,
 )
-from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
+from dl_toolbox.dl_engine._loggers.tensorboard.tensorboard_manager import TensorBoardManager
 
 
 class TensorBoardLogger(Logger):

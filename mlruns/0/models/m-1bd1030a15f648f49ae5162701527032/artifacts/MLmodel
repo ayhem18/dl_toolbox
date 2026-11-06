@@ -1,0 +1,23 @@
+artifact_path: file:///C:/Users/bouab/ayhem-personal/DEV/ML/DL_projects/dl_toolbox/mlruns/0/models/m-1bd1030a15f648f49ae5162701527032/artifacts
+flavors:
+  python_function:
+    config:
+      device: null
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pytorch
+    pickle_module_name: mlflow.pytorch.pickle_module
+    python_version: 3.12.4
+  pytorch:
+    code: null
+    model_data: data
+    pytorch_version: 2.7.1+cu118
+mlflow_version: 3.17.0
+model_id: m-1bd1030a15f648f49ae5162701527032
+model_size_bytes: 2545
+model_uuid: m-1bd1030a15f648f49ae5162701527032
+prompts: null
+run_id: 61e7959a60f64c8cad703ae2453a5e0a
+utc_time_created: '2026-11-06 14:06:13.794504'

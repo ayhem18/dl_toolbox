@@ -21,8 +21,8 @@ from dl_toolbox.base.hashing.identity_manager import IdentityManager
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
-from dl_toolbox.dl_engine.loggers.base_logger import STREAM_INSPECT
-from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
+from dl_toolbox.dl_engine._loggers.base_logger import STREAM_INSPECT
+from dl_toolbox.dl_engine._loggers.base_manager import LoggingManager
 from dl_toolbox.dl_engine.training.checkpointer.checkpointer import Checkpointer
 from dl_toolbox.dl_engine.training.checkpointer.manager import CheckpointManager
 from dl_toolbox.dl_engine.training.checkpointer.types import (

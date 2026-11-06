@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from lightning.pytorch.callbacks import EarlyStopping
 
-from dl_toolbox.dl_engine.loggers.base_logger import Logger
+from dl_toolbox.dl_engine._loggers.base_logger import Logger
 from dl_toolbox.dl_engine.metrics.contracts import KEY_OUTPUT
 from dl_toolbox.dl_engine.metrics.metric_object import MetricSpec
 from dl_toolbox.dl_engine.training.checkpointer.checkpointer import Checkpointer

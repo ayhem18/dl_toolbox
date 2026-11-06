@@ -8,11 +8,10 @@ from dl_toolbox.base.hashing.hash_manager import HashManager
 from dl_toolbox.base.input_output.json_io import read_json
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.data_contract.names import assert_generating_process_name
-from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_manager import MlflowManager
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
-from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_manager import TensorBoardManager
-from dl_toolbox.dl_engine.loggers.wandb.wandb_manager import WandbManager
+from dl_toolbox.dl_engine._loggers.base_manager import LoggingManager
+from dl_toolbox.dl_engine._loggers.mlflow.mlflow_manager import MlflowManager
+from dl_toolbox.dl_engine._loggers.tensorboard.tensorboard_manager import TensorBoardManager
+from dl_toolbox.dl_engine._loggers.wandb.wandb_manager import WandbManager
 from dl_toolbox.dl_engine.training.checkpointer.manager import CheckpointManager
 from dl_toolbox.experiment_management.default_layout.layout.discover import (
     find_project_root,
@@ -22,7 +21,6 @@ from dl_toolbox.experiment_management.default_layout.layout.discover import (
 )
 from dl_toolbox.experiment_management.default_layout.layout.names import (
     BACKEND_MLFLOW,
-    BACKEND_PLACEHOLDER,
     BACKEND_TENSORBOARD,
     BACKEND_WANDB,
     CHECKPOINT_CONFIG_FILENAME,
@@ -133,8 +131,6 @@ def _make_logging_manager(project_root: Path, *, backend: str) -> LoggingManager
     )
     if backend == BACKEND_TENSORBOARD:
         return TensorBoardManager(log_dir=parsed.log_dir)
-    if backend == BACKEND_PLACEHOLDER:
-        return PlaceholderManager(log_dir=parsed.log_dir)
     if backend == BACKEND_WANDB:
         return WandbManager(dir=parsed.dir)
     if backend == BACKEND_MLFLOW:

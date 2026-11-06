@@ -1,5 +1,6 @@
 ---
 description: PatchifiedTensor is layout × original_channels × patch_size plus a batched tensor. Sequence unflatten takes Y_patches and X_patches.
+globs: "**/image_patchify/patchified_tensor.py,**/image_patchify/spec.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_patchified_tensor.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_spec.py"
 alwaysApply: false
 ---
 

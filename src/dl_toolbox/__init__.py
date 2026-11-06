@@ -7,8 +7,9 @@ Heavy imports live in submodules so `import dl_toolbox` does not pull torch
 or opencv:
 
 - `dl_toolbox.dl_engine.seed.seed_everything`
-- `dl_toolbox.dl_engine.loggers.base_logger.Logger`
-- `dl_toolbox.dl_engine.loggers.factory.get_logger`
+- `dl_toolbox.dl_engine.loggers.logger.Logger`
+- `dl_toolbox.dl_engine.loggers.tensorboard.TensorBoardLogger`
+- `dl_toolbox.dl_engine.loggers.mlflow.MlflowLogger`
 - `dl_toolbox.experiment_management.engine.default.engine.DefaultExpEngine`
 - `dl_toolbox.base.hashing.identity.hash_payload`
 - `dl_toolbox.base.parsing.parse_numerical.parse_int`

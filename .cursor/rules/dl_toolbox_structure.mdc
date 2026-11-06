@@ -41,6 +41,10 @@ src/dl_toolbox/
     metrics/               design still in standards/metrics/
     training/
     loggers/
+      logger.py            CONTRACT  .cursor/rules/dl_engine/loggers/logger.mdc
+      tensorboard.py       CONTRACT  .cursor/rules/dl_engine/loggers/tensorboard.mdc
+      mlflow.py            CONTRACT  .cursor/rules/dl_engine/loggers/mlflow.mdc
+    _loggers/              parked manager backends; W&B still here
     lr_finder/
     representation_eval/   design still in standards/representation_eval/
     dl_engine_utils/       DL-only

@@ -7,7 +7,7 @@ alwaysApply: true
 
 Definition: `dl_toolbox/standards/contract/philosophy.md`. Image is the reference.
 
-A contract starts from an **entity**, not a functionality. Feature `.mdc` files live under `.cursor/rules/` mirroring `src/dl_toolbox/`. Do not add a per-feature `philosophy.md`. Drafts never modify `.mdc` files: a contract under review lives in `standards/contract/proposals/`. Do not mark `CONTRACT` in the structure index until the six objects exist in code:
+Two starting points (see the philosophy note): a **Python-object entity** (Image; six objects below) or an **external-state functionality** (operations on a filesystem / vendor UI; algorithm of each function). Feature `.mdc` files live under `.cursor/rules/` mirroring `src/dl_toolbox/`. Do not add a per-feature `philosophy.md`. Drafts never modify `.mdc` files: a contract under review lives in `standards/contract/proposals/`. Do not mark a Python-object folder `CONTRACT` in the structure index until the six objects exist in code:
 
 1. Entity = native payload + spec
 2. Spec = product of properties (illegal combinations rejected)
@@ -15,5 +15,7 @@ A contract starts from an **entity**, not a functionality. Feature `.mdc` files 
 4. Named sources
 5. Owned parse APIs (required args = what that source cannot supply)
 6. Named convert maps (or an explicit error)
+
+Do not mark a functionality folder `CONTRACT` until the entity is named, each behavior is an algorithm, and the class in code is a translation of those algorithms.
 
 If a later call site still re-checks those assumptions, the contract is not in use. If implementation needs a default, a `None`, or a new slot, stop and revise the `.mdc` and the philosophy note. Update **both** structure indexes when a real contract is added.

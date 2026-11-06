@@ -7,8 +7,8 @@ from pathlib import Path
 
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.dl_engine.loggers.base_logger import import_extra
-from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
+from dl_toolbox.dl_engine._loggers.base_logger import import_extra
+from dl_toolbox.dl_engine._loggers.base_manager import LoggingManager
 
 _EXTRA = "tensorboard"
 

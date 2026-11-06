@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
-from dl_toolbox.dl_engine.loggers.base_logger import Logger
-from dl_toolbox.dl_engine.loggers.factory import get_logger
+from dl_toolbox.dl_engine._loggers.base_logger import Logger
+from dl_toolbox.dl_engine._loggers.factory import get_logger
 from dl_toolbox.dl_engine.seed import seed_everything
 from dl_toolbox.dl_engine.training.checkpointer.types import CheckpointPolicy
 from dl_toolbox.dl_engine.training.config import (

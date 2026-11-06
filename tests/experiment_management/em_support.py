@@ -16,10 +16,13 @@ from dl_toolbox.dl_engine.metrics.classification.classification import (
 )
 from dl_toolbox.dl_engine.metrics.contracts import KEY_TARGET
 from dl_toolbox.dl_engine.metrics.metric_object import LEVEL_EPOCH, metric_log_name
+from dl_toolbox.dl_engine._loggers.base_logger import Logger
 from dl_toolbox.dl_engine.training.config import MonitorConfig
 from dl_toolbox.dl_engine.training.fit import build_metric_inputs
 from dl_toolbox.experiment_management.experiment.build import ExperimentBuild
 from dl_toolbox.experiment_management.experiment.manager import ExperimentConfigManager
+from dl_toolbox.experiment_management.toolbox.manager import DlToolboxConfigManager
+from tests.dl_engine.loggers.placeholder_logger import PlaceholderLogger
 
 
 class _LinearBinary(nn.Module):
@@ -110,9 +113,20 @@ def tensorboard_toolbox_config(*, seed: int = 0, run_name: str = "tiny_run") -> 
     }
 
 
-def placeholder_recipe(*, name: str, seed: int = 0, run_name: str = "tiny_run") -> dict:
+def tiny_recipe(*, name: str, seed: int = 0, run_name: str = "tiny_run") -> dict:
     return {
         "human_readable_name": name,
         "dl_toolbox_config": tensorboard_toolbox_config(seed=seed, run_name=run_name),
         "experiment_config": {"task": "tiny"},
     }
+
+
+class PlaceholderToolboxConfigManager(DlToolboxConfigManager):
+    """Compose toolbox config, then attach the test-only filesystem logger."""
+
+    def build_logger(self) -> Logger:
+        parsed = self._logger_parser
+        return PlaceholderLogger(
+            manager=self._logging_manager,
+            run_name=parsed.run_name,
+        )

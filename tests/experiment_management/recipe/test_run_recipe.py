@@ -4,7 +4,7 @@ import pytest
 
 from dl_toolbox.base.hashing.hash_manager import HashManager
 from dl_toolbox.experiment_management.recipe.run_recipe import RunRecipeParser
-from tests.experiment_management.em_support import placeholder_recipe
+from tests.experiment_management.em_support import tiny_recipe
 
 
 def _hash_manager() -> HashManager:
@@ -16,7 +16,7 @@ def _hash_manager() -> HashManager:
 
 
 def test_recipe_parser_does_not_parse_nested_configs() -> None:
-    payload = placeholder_recipe(name="run_alpha")
+    payload = tiny_recipe(name="run_alpha")
     parsed = RunRecipeParser(payload, hash_manager=_hash_manager())
     assert parsed.human_readable_name == "run_alpha"
     assert parsed.dl_toolbox_config is payload["dl_toolbox_config"]
@@ -26,6 +26,6 @@ def test_recipe_parser_does_not_parse_nested_configs() -> None:
 def test_recipe_parser_rejects_hash_stem_name() -> None:
     manager = _hash_manager()
     digest = manager.hash_payload({"k": 1})
-    payload = placeholder_recipe(name=manager.stem(digest))
+    payload = tiny_recipe(name=manager.stem(digest))
     with pytest.raises(ValueError, match="hash stem"):
         RunRecipeParser(payload, hash_manager=manager)

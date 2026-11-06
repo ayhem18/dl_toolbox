@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dl_toolbox.dl_engine.loggers.base_logger import Logger
-from dl_toolbox.dl_engine.loggers.base_manager import LoggingManager
+from dl_toolbox.dl_engine._loggers.base_logger import Logger
+from dl_toolbox.dl_engine._loggers.base_manager import LoggingManager
 from dl_toolbox.dl_engine.training.checkpointer.checkpointer import Checkpointer
 from dl_toolbox.dl_engine.training.config import FitConfig, SeedConfig
 from dl_toolbox.experiment_management.experiment.build import ExperimentBuild

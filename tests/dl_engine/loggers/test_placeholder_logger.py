@@ -2,14 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.dl_engine.loggers.base_logger import LoggerError, flatten_mapping
-from dl_toolbox.dl_engine.loggers.factory import get_logger
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
+from dl_toolbox.dl_engine._loggers.base_logger import LoggerError, flatten_mapping
+from tests.dl_engine.loggers.placeholder_logger import PlaceholderLogger
+from tests.dl_engine.loggers.placeholder_manager import PlaceholderManager
 
 
-def _placeholder_logger(log_dir: Path):
+def _placeholder_logger(log_dir: Path) -> PlaceholderLogger:
     manager = PlaceholderManager(log_dir=log_dir)
-    return get_logger("placeholder", manager=manager, run_name="test")
+    return PlaceholderLogger(manager=manager, run_name="test")
 
 
 def test_placeholder_logger_writes_text_and_table(tmp_path: Path) -> None:

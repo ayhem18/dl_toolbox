@@ -7,7 +7,7 @@ import torch
 from torch import Tensor, nn
 from torch.optim.lr_scheduler import LambdaLR
 
-from dl_toolbox.dl_engine.loggers.base_logger import STREAM_FIT, Logger
+from dl_toolbox.dl_engine._loggers.base_logger import STREAM_FIT, Logger
 from dl_toolbox.dl_engine.training.module import (
     ClassificationLightningModule,
     _TRACK_PROG_BAR,

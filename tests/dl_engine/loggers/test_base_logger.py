@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import inspect
 
-from dl_toolbox.dl_engine.loggers.base_logger import (
+from dl_toolbox.dl_engine._loggers.base_logger import (
     STREAM_FIT,
     STREAM_INSPECT,
     Logger,
     flatten_mapping,
 )
-from dl_toolbox.dl_engine.loggers.mlflow.mlflow_logger import MlflowLogger
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_logger import PlaceholderLogger
-from dl_toolbox.dl_engine.loggers.tensorboard.tensorboard_logger import TensorBoardLogger
-from dl_toolbox.dl_engine.loggers.wandb.wandb_logger import WandbLogger
+from dl_toolbox.dl_engine._loggers.mlflow.mlflow_logger import MlflowLogger
+from dl_toolbox.dl_engine._loggers.tensorboard.tensorboard_logger import TensorBoardLogger
+from dl_toolbox.dl_engine._loggers.wandb.wandb_logger import WandbLogger
 
 from .null_logger import NullLogger
 
@@ -98,7 +97,7 @@ def test_setup_stream_default_is_fit() -> None:
 
 
 def test_backends_implement_logger_methods() -> None:
-    for cls in (PlaceholderLogger, TensorBoardLogger, WandbLogger, MlflowLogger):
+    for cls in (TensorBoardLogger, WandbLogger, MlflowLogger):
         for name in _METHODS:
             assert callable(getattr(cls, name))
             base = inspect.signature(getattr(Logger, name))

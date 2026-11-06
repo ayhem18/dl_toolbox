@@ -6,16 +6,16 @@ import pytest
 
 from dl_toolbox.base.hashing.hash_manager import HashManager
 from dl_toolbox.base.input_output.json_io import read_json
-from dl_toolbox.dl_engine.loggers.placeholder.placeholder_manager import PlaceholderManager
+from tests.dl_engine.loggers.placeholder_manager import PlaceholderManager
 from dl_toolbox.dl_engine.training.checkpointer.manager import CheckpointManager
 from dl_toolbox.dl_engine.training.checkpointer.types import FIT_FINISHED, FIT_RUNNING
 from dl_toolbox.experiment_management.engine.core.engine import ExpEngine
 from dl_toolbox.experiment_management.engine.core.paths import EnginePaths
 from dl_toolbox.experiment_management.engine.core.session import RunSession
-from dl_toolbox.experiment_management.toolbox.manager import DlToolboxConfigManager
 from tests.experiment_management.em_support import (
+    PlaceholderToolboxConfigManager,
     TinyExperimentConfigManager,
-    placeholder_recipe,
+    tiny_recipe,
 )
 
 
@@ -49,8 +49,8 @@ def _engine(tmp_path: Path) -> ExpEngine:
             run_identities_root=run_identities_root,
             run_artifacts_root=run_artifacts_root,
         ),
-        compose_toolbox=DlToolboxConfigManager,
-        tracking_backend="placeholder",
+        compose_toolbox=PlaceholderToolboxConfigManager,
+        tracking_backend="tensorboard",
     )
 
 
@@ -61,7 +61,7 @@ def _note(session: RunSession, record, staging: Path) -> None:
 
 def test_get_new_run_and_get_existing_run_match(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_alpha", seed=7, run_name="alpha")
+    recipe = tiny_recipe(name="run_alpha", seed=7, run_name="alpha")
     session = engine.get_new_run_or_overwrite(recipe)
     assert session.human_readable_name == "run_alpha"
     assert session.run_dir == tmp_path / "run_artifacts" / "run_alpha"
@@ -82,8 +82,8 @@ def test_get_new_run_and_get_existing_run_match(tmp_path: Path) -> None:
 
 def test_hash_taken_refuses_even_with_force(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    first = placeholder_recipe(name="run_alpha", seed=1, run_name="shared")
-    second = placeholder_recipe(name="run_beta", seed=1, run_name="shared")
+    first = tiny_recipe(name="run_alpha", seed=1, run_name="shared")
+    second = tiny_recipe(name="run_beta", seed=1, run_name="shared")
     engine.get_new_run_or_overwrite(first)
     with pytest.raises(FileExistsError, match="already saved as name"):
         engine.get_new_run_or_overwrite(second)
@@ -95,8 +95,8 @@ def test_hash_taken_refuses_even_with_force(tmp_path: Path) -> None:
 
 def test_name_taken_without_force_errors(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    first = placeholder_recipe(name="run_alpha", seed=1)
-    second = placeholder_recipe(name="run_alpha", seed=2)
+    first = tiny_recipe(name="run_alpha", seed=1)
+    second = tiny_recipe(name="run_alpha", seed=2)
     first_session = engine.get_new_run_or_overwrite(first)
     marker = first_session.run_dir / "marker.txt"
     marker.write_text("keep", encoding="utf-8")
@@ -107,7 +107,7 @@ def test_name_taken_without_force_errors(tmp_path: Path) -> None:
 
 def test_orphan_artifacts_dir_blocks_both_free(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_alpha")
+    recipe = tiny_recipe(name="run_alpha")
     orphan = tmp_path / "run_artifacts" / "run_alpha"
     orphan.mkdir()
     (orphan / "leftover.txt").write_text("x", encoding="utf-8")
@@ -120,14 +120,14 @@ def test_orphan_artifacts_dir_blocks_both_free(tmp_path: Path) -> None:
 
 def test_get_existing_run_before_create_fails(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_alpha")
+    recipe = tiny_recipe(name="run_alpha")
     with pytest.raises(FileNotFoundError, match="does not exist"):
         engine.get_existing_run(recipe)
 
 
 def test_inspect_rank_one_exclusive_epoch_folder(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_a", run_name="tiny_run")
+    recipe = tiny_recipe(name="run_a", run_name="tiny_run")
     session = engine.get_new_run_or_overwrite(recipe)
     key = session.fit_config.monitor.key
     session.checkpointer.save(_FakeTrainer(epoch=3, metrics={key: 0.2}))
@@ -148,7 +148,7 @@ def test_inspect_rank_one_exclusive_epoch_folder(tmp_path: Path) -> None:
 
 def test_fit_state_from_catalog(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_a")
+    recipe = tiny_recipe(name="run_a")
     session = engine.get_new_run_or_overwrite(recipe)
     claimed = engine.fit_state(session)
     assert claimed.status == "claimed"
@@ -190,13 +190,13 @@ def test_session_copies_accumulate_and_scheduler(tmp_path: Path) -> None:
             run_identities_root=tmp_path / "run_identities",
             run_artifacts_root=tmp_path / "run_artifacts",
         ),
-        compose_toolbox=DlToolboxConfigManager,
-        tracking_backend="placeholder",
+        compose_toolbox=PlaceholderToolboxConfigManager,
+        tracking_backend="tensorboard",
     )
     (tmp_path / "run_identities").mkdir()
     (tmp_path / "run_artifacts").mkdir()
     session = engine.get_new_run_or_overwrite(
-        placeholder_recipe(name="run_sched", run_name="sched")
+        tiny_recipe(name="run_sched", run_name="sched")
     )
     assert session.fit_config.accumulate_grad_batches == 3
     assert session.experiment.lr_scheduler_factory is not None
@@ -205,7 +205,7 @@ def test_session_copies_accumulate_and_scheduler(tmp_path: Path) -> None:
 
 def test_train_writes_finished_catalog(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    recipe = tiny_recipe(name="run_fit", seed=0, run_name="fit_run")
     trainer = engine.train(recipe)
     assert trainer.current_epoch >= 0
     session = engine.get_existing_run(recipe)
@@ -221,7 +221,7 @@ def test_train_ddp_worker_attaches_and_does_not_mark_finished(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    recipe = tiny_recipe(name="run_fit", seed=0, run_name="fit_run")
     session = engine.get_new_run_or_overwrite(recipe)
     assert engine.fit_state(session).status == "claimed"
     monkeypatch.setenv("LOCAL_RANK", "1")
@@ -234,17 +234,17 @@ def test_train_ddp_worker_refuses_name_taken(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = _engine(tmp_path)
-    engine.get_new_run_or_overwrite(placeholder_recipe(name="run_alpha", seed=1))
+    engine.get_new_run_or_overwrite(tiny_recipe(name="run_alpha", seed=1))
     monkeypatch.setenv("LOCAL_RANK", "2")
     with pytest.raises(FileExistsError, match="different configuration hash"):
-        engine.train(placeholder_recipe(name="run_alpha", seed=2))
+        engine.train(tiny_recipe(name="run_alpha", seed=2))
 
 
 def test_train_global_rank_worker_attaches_when_local_rank_is_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    recipe = tiny_recipe(name="run_fit", seed=0, run_name="fit_run")
     session = engine.get_new_run_or_overwrite(recipe)
     monkeypatch.setenv("RANK", "4")
     monkeypatch.setenv("LOCAL_RANK", "0")
@@ -257,7 +257,7 @@ def test_train_rank_zero_still_refuses_both_match(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = _engine(tmp_path)
-    recipe = placeholder_recipe(name="run_fit", seed=0, run_name="fit_run")
+    recipe = tiny_recipe(name="run_fit", seed=0, run_name="fit_run")
     engine.get_new_run_or_overwrite(recipe)
     monkeypatch.setenv("LOCAL_RANK", "0")
     with pytest.raises(FileExistsError, match="already exists with this configuration hash"):
