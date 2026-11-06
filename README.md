@@ -63,10 +63,10 @@ dependencies = [
 `dl_toolbox` owns the logger contract. A project owns store URIs and run identity. Fit and inspect call `Logger.setup` / `log_*` / `close`. They do not pass URIs into those methods.
 
 ```python
+from dl_toolbox.base.input_output.json_io import flatten
 from dl_toolbox.dl_engine.loggers.logger import (
     EXISTENCE_CREATE,
     STREAM_FIT,
-    flatten_mapping,
 )
 from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
 
@@ -79,7 +79,7 @@ logger = MlflowLogger(
     tags={"task": "pretrain_mim"},
 )
 logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
-logger.log_params(flatten_mapping(run_config))
+logger.log_params(flatten(run_config))
 logger.log_scalars({"loss/train": 0.12}, step=0)
 logger.close()
 ```

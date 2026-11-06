@@ -65,7 +65,7 @@ from dl_toolbox.base.file_management.directory import (
     DirectoryParsePolicy,
     DirectorySpec,
 )
-from dl_toolbox.base.input_output.json_io import write_json
+from dl_toolbox.base.input_output.json_io import JsonTextForm, write
 from dl_toolbox.data_contract.names import assert_generating_process_name
 from dl_toolbox.dl_engine._loggers.mlflow.default_configurations import DEFAULT_SQLITE_TIMEOUT_SECONDS
 from dl_toolbox.experiment_management.default_layout.layout.discover import (
@@ -196,7 +196,12 @@ def _write_tree(
     marker: dict[str, str] = {"name": project_name}
     if package_name is not None:
         marker["package"] = package_name
-    write_json(root.path / PROJECT_MARKER_FILENAME, marker)
+    write(
+        directory=root,
+        name=PROJECT_MARKER_FILENAME,
+        payload=marker,
+        form=JsonTextForm.DOCUMENT,
+    )
     (root.path / TRACKING_BACKEND_FILENAME).write_text(
         tracking_backend + "\n", encoding="utf-8"
     )
@@ -206,13 +211,17 @@ def _write_tree(
         relative_path=PROJECT_LEVEL_CONFIGS_DIRNAME,
         policy=DirectoryParsePolicy.CREATE,
     )
-    write_json(
-        configs.path / IDENTITY_CONFIG_FILENAME,
-        dict(DEFAULT_IDENTITY_CONFIG),
+    write(
+        directory=configs,
+        name=IDENTITY_CONFIG_FILENAME,
+        payload=dict(DEFAULT_IDENTITY_CONFIG),
+        form=JsonTextForm.DOCUMENT,
     )
-    write_json(
-        configs.path / CHECKPOINT_CONFIG_FILENAME,
-        dict(DEFAULT_CHECKPOINT_CONFIG),
+    write(
+        directory=configs,
+        name=CHECKPOINT_CONFIG_FILENAME,
+        payload=dict(DEFAULT_CHECKPOINT_CONFIG),
+        form=JsonTextForm.DOCUMENT,
     )
 
     logging_configs = Directory.from_under(
@@ -224,9 +233,11 @@ def _write_tree(
     n_backends = len(backends)
     for i in range(n_backends):
         backend = backends[i]
-        write_json(
-            logging_configs.path / f"{backend}.json",
-            _backend_config(backend),
+        write(
+            directory=logging_configs,
+            name=f"{backend}.json",
+            payload=_backend_config(backend),
+            form=JsonTextForm.DOCUMENT,
         )
 
     identity = DEFAULT_IDENTITY_CONFIG

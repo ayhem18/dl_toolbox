@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dl_toolbox.base.input_output.json_io import write_json
-from dl_toolbox.dl_engine._loggers.base_logger import Logger, flatten_mapping
+from dl_toolbox.base.input_output.json_io import flatten, write_json
+from dl_toolbox.dl_engine._loggers.base_logger import Logger
 from dl_toolbox.dl_engine.lr_finder.errors import LrFinderError
 from dl_toolbox.dl_engine.lr_finder.loop import RangeTestInput, run_range_test
 from dl_toolbox.dl_engine.lr_finder.lr_finder_loop_full_ds import run_full_ds_range_test
@@ -68,7 +68,7 @@ def _find(
     logger = request.logger
     logger.setup()
     try:
-        logger.log_params(flatten_mapping(dict(request.run_config)))
+        logger.log_params(flatten(dict(request.run_config)))
         lrs, losses = run_fn(request.inputs)
         curve_lrs = tuple(lrs)
         curve_losses = tuple(losses)

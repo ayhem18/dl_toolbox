@@ -17,7 +17,7 @@ from dl_toolbox.dl_engine_utils.classification.pred_metrics import (
     classification_pred_metrics,
     pred_metrics_as_scalars,
 )
-from dl_toolbox.dl_engine_utils.extras import require_sklearn
+from dl_toolbox.base.packaging import require
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ def linear_probe(
         raise RepresentationEvalError("train and val class_names must match")
     train.require_all_classes(split="train")
     val.require_all_classes(split="val")
-    require_sklearn()
+    require(package="sklearn")
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import log_loss, roc_auc_score
 

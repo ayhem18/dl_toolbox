@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from dl_toolbox.base.input_output.json_io import flatten
 from dl_toolbox.dl_engine.loggers.logger import (
     EXISTENCE_CREATE,
     EXISTENCE_REQUIRE,
     STREAM_FIT,
     STREAM_INSPECT,
     LoggerError,
-    flatten_mapping,
 )
 from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
 
@@ -40,7 +40,7 @@ def test_create_logs_and_close_leaves_running(tmp_path: Path) -> None:
     logger = _logger(tmp_path)
     logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
     run_id = logger.run_id
-    logger.log_params(flatten_mapping({"name": "dummy_conv", "model": {"name": "unet"}}))
+    logger.log_params(flatten({"name": "dummy_conv", "model": {"name": "unet"}}))
     logger.log_tags({"stage": "train"})
     logger.log_scalars({"lr_finder/lr": 1e-3, "lr_finder/loss": 1.25}, step=0)
     logger.log_text("note", "curve", step=0)

@@ -1,0 +1,242 @@
+---
+description: TrainValRun is one train/val Trainer.fit. Both loaders required. Monitor is a val epoch metric. The run constructs InspectableCheckpointCallback(checkpointer).
+globs: **/dl_engine/runs/train_val_run/**,**/tests/dl_engine/runs/train_val_run/**
+alwaysApply: false
+---
+
+# TrainValRun
+
+External-state functionality. One train/val `Trainer.fit` in this process. It writes the **fit** logger stream and whatever the checkpointer writes.
+
+Not this entity: train-only (`train_only_run.mdc`), LR finder, inspect. Passing the train loader as `val` is still this entity, and it is the wrong entity for overfit.
+
+This is not the engine. Identity, recipe hash, `force`, DDP worker attach, `inspect()`, GPU picking, strategy choice are the caller. `fit` receives the already resolved accelerator, GPU index tuple, and strategy.
+
+The checkpointer has no Lightning hook. This run constructs `InspectableCheckpointCallback(checkpointer=…)`.
+
+Named constants, no defaults. `None` is not “no scheduler” and not “CPU devices”.
+
+The class and procedures in code are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+
+Lightning calls **callbacks first, then the module**, for the same hook name. `InspectableCheckpointCallback` is `on_validation_end`. It runs after `module.on_validation_epoch_end`.
+
+---
+
+## Given
+
+```
+fit(
+  *,
+  net,
+  loaders,        # TrainValLoaders.train and .val, both required
+  steps,          # FitSteps: the four callables
+  metrics,        # TrainValMetrics: train_metrics, val_metrics, monitor
+  optimization,   # optimizer, scheduler = ABSENT | live LRScheduler
+  trainer,        # TrainerConfig
+  checkpointer,   # InspectableCheckpointer
+  logger,         # built, not open
+  run_log,        # payload JSON object, filename
+)
+```
+
+Keyword-only. Every argument required.
+
+`monitor.key` is a **val** epoch metric name (`…/val/epoch/…`).
+
+`TrainerConfig.early_stopping` is `NONE` or `PATIENCE` with required `patience` and `min_delta`.
+
+`devices` is a tuple of GPU indices. Empty iff CPU. Never a count, never `"auto"`, never `None`.
+
+Legal compute rows: `gpu` + length 1 + `single_device`; `gpu` + length ≥ 2 unique + `ddp`; `cpu` + `()` + `single_device`.
+
+`fit` does not write `CUDA_VISIBLE_DEVICES` and does not call `nvidia-smi`.
+
+Shared types with TrainOnlyRun: `FitSteps`, `OptimizationConfig`, `TrainerConfig`, `RunLogConfig`, `EarlyStoppingConfig`, `MonitorConfig`.
+
+---
+
+## `fit` — check inputs
+
+**Assume:** the nine arguments, all present.
+
+```
+if trainer combination is not a legal row: error
+if max_epochs < 1 or accumulate_grad_batches < 1: error
+if early_stopping is PATIENCE: patience and min_delta are already on that object
+monitor.key must be among val epoch metric names
+  (checked again at first real val end)
+```
+
+**After:** inputs are legal. No Trainer yet.
+
+---
+
+## `fit` — construct and run
+
+**Assume:** inputs legal. Logger closed.
+
+Build the module from `net`, `optimization`, `logger`, `steps`, `metrics`, `run_log`.
+
+Callbacks: `InspectableCheckpointCallback(checkpointer=checkpointer)`, then EarlyStopping if `PATIENCE`. Not `TrainEpochCheckpointCallback`.
+
+```
+Trainer(
+  max_epochs, accelerator, devices, strategy, precision,
+  accumulate_grad_batches,
+  callbacks,
+  enable_progress_bar,
+  logger=False,
+  enable_checkpointing=False,
+  check_val_every_n_epoch=1,
+  num_nodes=1,
+)
+```
+
+Lightning names (constructor only):
+
+| Ours | Lightning |
+|---|---|
+| `cpu` + `devices=()` | `accelerator="cpu"`, `devices=1` |
+| `gpu` + index tuple | `accelerator="gpu"`, `devices=list(indices)` |
+| `single_device` | `strategy="auto"` |
+| `ddp` | `strategy="ddp"` |
+
+After Trainer exists:
+
+```
+if trainer.num_nodes > 1: error
+if strategy is ddp and world_size != len(devices): error
+if strategy is single_device and world_size != 1: error
+```
+
+**After:** module + Trainer ready. Logger still closed.
+
+`trainer.fit(module, loaders.train, loaders.val)`. `finally`: `logger.close()` (idempotent).
+
+`check_val_every_n_epoch=1` is part of this run. Validating every N is a different run.
+
+---
+
+## Loop
+
+Lightning may run a sanity val before epoch 0. Same val methods; `on_train_epoch_end` / `on_validation_epoch_end` return immediately when `sanity_checking`. The checkpointer also skips sanity.
+
+Only global zero calls Logger.
+
+`self.log` is Lightning `callback_metrics` (`sync_dist=True`). Rank 0 also `logger.log_scalars`. Two writes.
+
+`configure_optimizers`:
+
+```
+if scheduler is ABSENT: return optimizer
+return {optimizer, lr_scheduler: {scheduler, interval=epoch}}
+```
+
+---
+
+### `on_fit_start`
+
+**Assume:** Trainer exists. Rank is known. Logger closed.
+
+```
+if not is_global_zero: return
+logger.setup(stream=fit, existence=create)
+logger.log_params(flatten(run_log.payload))
+logger.log_text(run_log.filename, dump(run_log.payload, form=ascii_pretty), step=0)
+```
+
+**After:** rank 0 may `log_*`.
+
+---
+
+### `on_train_epoch_start`
+
+```
+train_accumulator = MetricAccumulator(train_metrics, split=train)
+```
+
+All ranks.
+
+---
+
+### `training_step(raw_batch, batch_idx)`
+
+```
+batch = prepare_tensors_fn(raw_batch)
+output = forward_fn(net, batch)
+loss = loss_fn(output, batch)
+if train_accumulator is None: error
+update train_accumulator from build_metric_inputs_fn(output, batch)   # no grad
+return loss
+```
+
+---
+
+### `on_train_epoch_end`
+
+```
+if sanity_checking: return
+if train_accumulator is None: error
+self.log(train epoch scalars, sync_dist=True, logger=False, prog_bar=False)
+if is_global_zero:
+    logger.log_scalars(those scalars, step=epoch)
+```
+
+MetricAccumulator is rank-local. `sync_dist=True` is mean-of-means.
+
+---
+
+### `on_validation_epoch_start`
+
+```
+val_accumulator = MetricAccumulator(val_metrics, split=val)
+```
+
+---
+
+### `validation_step(raw_batch, batch_idx)`
+
+```
+batch = prepare_tensors_fn(raw_batch)
+output = forward_fn(net, batch)           # inference_mode
+if val_accumulator is None: error
+update val_accumulator from build_metric_inputs_fn(output, batch)
+```
+
+No loss backward.
+
+---
+
+### `on_validation_epoch_end`
+
+```
+if sanity_checking: return
+if val_accumulator is None: error
+self.log(val epoch scalars, sync_dist=True, logger=False, prog_bar=True)
+if is_global_zero:
+    logger.log_scalars(those scalars, step=epoch)
+if monitor.key not in val epoch keys: error
+```
+
+Checkpoint has not run yet. Next Lightning hook is `on_validation_end` on callbacks: `InspectableCheckpointCallback`.
+
+---
+
+### `on_fit_end`
+
+```
+if not is_global_zero: return
+logger.close()
+```
+
+`fit`’s `finally` may `close` again.
+
+---
+
+## Translation
+
+| Behavior | Translation |
+|---|---|
+| check, construct, `Trainer.fit(train, val)`, `finally` close | `fit` |
+| loop methods | `TrainValLightningModule` |
+| `on_validation_end` save | `InspectableCheckpointCallback(checkpointer=…)` |

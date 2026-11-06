@@ -47,7 +47,7 @@ class EarlyStoppingConfigParser:
         return self._config
 
 
-# --- pydantic (optional extra: validation) ---
+# --- pydantic document ---
 # Discriminated union on name. Empty params vs patience params. Leftover: none.
 # min_delta is int | float because JSON 0 is int and JSON 0.0 is float.
 

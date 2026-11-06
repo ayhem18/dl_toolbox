@@ -1,6 +1,6 @@
 # What a contract is
 
-This note is the definition. A feature `.mdc` is not a contract because it sits under `.cursor/rules/`. It is a contract when the objects below exist in code, and later call sites use them instead of re-checking assumptions.
+This note is the definition. A feature `.mdc` is not a contract because it sits under `.cursor/rules/dl_toolbox_structure/`. It is a contract when the objects below exist in code, and later call sites use them instead of re-checking assumptions.
 
 Image is the reference. File-management helpers listed in a table are not.
 
@@ -18,16 +18,16 @@ That functionality is reconstructing an **entity** the code can hold. Photometri
 
 ### External-state functionality (TensorBoard logger)
 
-Some state is not a Python object: a directory of event files, an MLflow run. There is nothing to wrap. The contract is the **algorithm of each behavior**: assumed state of the entity, what the operation does, state afterward. The class and methods are a translation of that algorithm, not the source of it.
+Some state is not a Python object: a directory of event files, an MLflow run, JSON text, an optional extra. There is nothing to wrap. The contract is the **algorithm of each behavior**: assumed state of the entity, what the operation does, state afterward. The translation is a **class** (MLflow logger) or **procedures** in a module (JSON, extras) — not the source of the algorithm.
 
 The logger is not the entity; it is the operations. A UI is a byproduct. Specify the entity first.
 
 The six objects below are for Python-object entities. A functionality contract is marked `CONTRACT` when:
 
 - The entity (external state) is named.
-- Each behavior is an algorithm: assumed state, the operation, state afterward.
-- The class in code is a translation of those algorithms. If the code does something that is not a line in the algorithm, the code is wrong or the note is wrong.
-- Downstream call sites use the interface. They do not re-derive vendor state.
+- Official behaviors are named. Each is an algorithm: assumed state, the operation, state afterward.
+- The class or the procedures in code are a translation of those algorithms. If the code does something that is not a line in the algorithm, the code is wrong or the note is wrong.
+- Downstream call sites use those operations. They do not re-derive vendor state.
 
 The feature `.mdc` states the entity, the algorithms, and the translation table. It does not list modules. A draft still lives under `standards/contract/proposals/` until that gate is met in code.
 

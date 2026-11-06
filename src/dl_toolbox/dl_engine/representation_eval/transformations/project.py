@@ -11,7 +11,7 @@ from dl_toolbox.dl_engine.representation_eval.common.feature_bank import (
     FeatureBank,
     l2_normalize,
 )
-from dl_toolbox.dl_engine_utils.extras import require_sklearn
+from dl_toolbox.base.packaging import require
 from dl_toolbox.dl_engine_utils.images.scatter import SPLIT_TRAIN, SPLIT_VAL
 
 METHOD_PCA = "pca"
@@ -62,7 +62,7 @@ def project_2d(
         )
         array = array[keep]
         n = int(array.shape[0])
-    require_sklearn()
+    require(package="sklearn")
     if method == METHOD_PCA:
         from sklearn.decomposition import PCA
 

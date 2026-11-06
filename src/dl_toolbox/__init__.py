@@ -11,7 +11,7 @@ or opencv:
 - `dl_toolbox.dl_engine.loggers.tensorboard.TensorBoardLogger`
 - `dl_toolbox.dl_engine.loggers.mlflow.MlflowLogger`
 - `dl_toolbox.experiment_management.engine.default.engine.DefaultExpEngine`
-- `dl_toolbox.base.hashing.identity.hash_payload`
+- `dl_toolbox.base.hashing.hash_manager.HashManager`
 - `dl_toolbox.base.parsing.parse_numerical.parse_int`
 - `dl_toolbox.base.geometry.contours.contours_bbox`
 - `dl_toolbox.base.geometry.masks.rasterize_contours`

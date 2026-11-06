@@ -36,7 +36,7 @@ because the engine is outside this folder.
        marker = File.from_under(
            root=root, relative_path=PROJECT_MARKER_FILENAME
        )
-       read_json(marker.path)
+       read(file=marker)
 
 3. ``read_tracking_backend`` — same join as (2) for ``.tracking-backend``.
 """
@@ -52,7 +52,7 @@ from dl_toolbox.base.file_management.directory import (
     DirectoryParsePolicy,
 )
 from dl_toolbox.base.file_management.file import File
-from dl_toolbox.base.input_output.json_io import read_json
+from dl_toolbox.base.input_output.json_io import read
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys, require_key
@@ -86,7 +86,7 @@ def load_project_document(project_root: Path) -> dict[str, Any]:
         path=project_root, policy=DirectoryParsePolicy.MUST_EXIST
     )
     marker = File.from_under(root=root, relative_path=PROJECT_MARKER_FILENAME)
-    document = parse_mapping(read_json(marker.path), label=PROJECT_MARKER_FILENAME)
+    document = parse_mapping(read(file=marker), label=PROJECT_MARKER_FILENAME)
     if "package" in document:
         require_exact_keys(document, ("name", "package"), label=PROJECT_MARKER_FILENAME)
         assert_package_name(document["package"])

@@ -16,16 +16,13 @@ digest primitives that object uses. They are not a second public identity API.
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
+
+from dl_toolbox.base.input_output.json_io import JsonTextForm, dump
 
 DEFAULT_ARTIFACT_PREFIX_LEN = 12
 SHA256_HEX_LENGTH = 64
 _HEX_CHARS = frozenset("0123456789abcdef")
-
-
-def canonical_json(payload: object) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def hash_text(content: str) -> str:
@@ -49,7 +46,7 @@ def hash_file(path: Path) -> str:
 
 def hash_payload(payload: object) -> str:
     """Full SHA-256 of the canonical JSON. Do not truncate this digest."""
-    return hash_text(canonical_json(payload))
+    return hash_text(dump(payload, form=JsonTextForm.CANONICAL))
 
 
 def is_full_sha256(text: str) -> bool:

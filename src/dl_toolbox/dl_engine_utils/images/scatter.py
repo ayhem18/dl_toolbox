@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dl_toolbox.dl_engine_utils.extras import require_matplotlib
+from dl_toolbox.base.packaging import require
 
 SPLIT_TRAIN = 0
 SPLIT_VAL = 1
@@ -32,7 +32,7 @@ def plot_labeled_scatter(
             f"labels length {y.shape[0]} != xy rows {points.shape[0]}"
         )
     try:
-        require_matplotlib()
+        require(package="matplotlib")
     except ImportError:
         return None
     from matplotlib.figure import Figure

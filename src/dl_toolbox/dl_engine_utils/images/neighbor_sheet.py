@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dl_toolbox.dl_engine_utils.extras import require_matplotlib
+from dl_toolbox.base.packaging import require
 from dl_toolbox.dl_engine_utils.images.gray import as_gray2d
 
 
@@ -25,7 +25,7 @@ def neighbor_sheet(
             f"neighbors {n_neighbors} != neighbor_titles {len(neighbor_titles)}"
         )
     try:
-        require_matplotlib()
+        require(package="matplotlib")
     except ImportError:
         return None
     from matplotlib.figure import Figure

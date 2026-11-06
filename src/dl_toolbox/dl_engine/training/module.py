@@ -16,7 +16,8 @@ from dl_toolbox.dl_engine.metrics.metric_object import (
     MetricSpec,
     metric_log_name,
 )
-from dl_toolbox.dl_engine._loggers.base_logger import Logger, flatten_mapping
+from dl_toolbox.base.input_output.json_io import flatten
+from dl_toolbox.dl_engine._loggers.base_logger import Logger
 
 # Epoch-end self.log is the only distributed sync. MetricAccumulator is
 # rank-local; sync_dist=True averages those rank-local epoch scalars
@@ -110,7 +111,7 @@ class ClassificationLightningModule(L.LightningModule):
         if not self.trainer.is_global_zero:
             return
         self.epoch_logger.setup()
-        self.epoch_logger.log_params(flatten_mapping(self._run_config))
+        self.epoch_logger.log_params(flatten(self._run_config))
         self.epoch_logger.log_text(
             self._run_config_filename,
             json.dumps(self._run_config, indent=2, ensure_ascii=True),

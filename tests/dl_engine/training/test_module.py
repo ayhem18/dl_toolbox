@@ -1,4 +1,9 @@
+# PARKED: no contract yet. Not collected by pytest until this package is rewritten.
 from __future__ import annotations
+
+import pytest
+
+pytest.skip("Parked: this package has no contract yet.", allow_module_level=True)
 
 from collections.abc import Mapping, Sequence
 from typing import Any

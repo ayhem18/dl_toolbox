@@ -4,8 +4,8 @@ globs: **/*.py
 description: A list of preferences for coding in Python. These are not rules but they MUST be followed whenever possible
 ---
 
-
-
-- Avoid default values for parameters. Default values in ML codebases can easily lead to silent bugs and inexplicit assumptions that go back to bite you later. 
+- Avoid default values for parameters. Default values in ML codebases can easily lead to silent bugs and inexplicit assumptions that go back to bite you later.
 
 - if a function has a large number of parameters, then it is a sign to refactor the function in configuration objects that group these parameters into logical groups. The exact threshold for "large" will be specified and better formulated as We make more progress on the dl_toolbox custom package.
+
+- Pydantic is a hard dependency. Use it for documents, configs, and structured payloads. Do not grow hand-written `parse_*` / `require_exact_keys` for a job a model can own. If a check is domain-specific, pydantic owns the common shape and a named layer on top owns the extra rule (`model_validator`, or a function that takes the validated model). Do not keep a parallel hand parser.

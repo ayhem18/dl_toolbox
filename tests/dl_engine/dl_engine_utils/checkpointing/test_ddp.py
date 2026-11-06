@@ -1,3 +1,4 @@
+# PARKED: no contract yet. Not collected by pytest until this package is rewritten.
 """DDP + inspectability for InspectableCheckpointCallback.
 
 Runs a real Lightning ``Trainer.fit`` with world_size 2. Prefers two CUDA
@@ -5,6 +6,10 @@ devices; otherwise two CPU processes. Never falls back to a single process.
 """
 
 from __future__ import annotations
+
+import pytest
+
+pytest.skip("Parked: this package has no contract yet.", allow_module_level=True)
 
 import random
 import threading

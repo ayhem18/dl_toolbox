@@ -134,7 +134,7 @@ class TensorBoardProjectLoggerConfigParser:
         return self._log_dir.path
 
 
-# --- pydantic (optional extra: validation) ---
+# --- pydantic document ---
 # JSON shape of log_dir. Leftover: Directory.from_under (relative, no ..,
 # ALLOW_MISSING). ValidationError is wrapped as ProjectLoggerParseError.
 

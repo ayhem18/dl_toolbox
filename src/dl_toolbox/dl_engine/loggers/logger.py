@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
@@ -30,58 +29,6 @@ _LOG_EXISTENCES = frozenset({LogExistence.CREATE, LogExistence.REQUIRE})
 
 class LoggerError(ValueError):
     """Logger is used before setup, after close, or with an illegal argument."""
-
-
-def flatten_mapping(payload: dict) -> dict[str, str]:
-    """Flatten nested dicts to dotted string params for any backend."""
-    if not isinstance(payload, dict):
-        raise TypeError("payload must be a dict")
-    return _flatten_mapping(payload, prefix="")
-
-
-def _flatten_mapping(payload: dict, *, prefix: str) -> dict[str, str]:
-    keys = list(payload)
-    n = len(keys)
-    params: dict[str, str] = {}
-    for i in range(n):
-        key = keys[i]
-        if not isinstance(key, str) or not key:
-            raise ValueError(f"mapping key must be a non-empty str, got {key!r}")
-        name = f"{prefix}{key}" if prefix else key
-        value = payload[key]
-        if isinstance(value, dict):
-            nested = _flatten_mapping(value, prefix=f"{name}.")
-            nested_keys = list(nested)
-            n_nested = len(nested_keys)
-            for j in range(n_nested):
-                nested_key = nested_keys[j]
-                params[nested_key] = nested[nested_key]
-            continue
-        if isinstance(value, (list, tuple)):
-            params[name] = json.dumps(list(value), ensure_ascii=True)
-            continue
-        if isinstance(value, bool):
-            params[name] = "true" if value else "false"
-            continue
-        if value is None:
-            params[name] = "null"
-            continue
-        params[name] = str(value)
-    return params
-
-
-def import_extra(package: str, extra: str):
-    """Import an optional backend and explain which extra installs it."""
-    try:
-        return importlib.import_module(package)
-    except ImportError as exc:
-        raise ImportError(
-            f"{package} is required for this logger and is not installed. "
-            "dl_toolbox keeps logging backends as separate extras so you "
-            "only install the one you use:\n"
-            f"  uv add 'dl-toolbox[{extra}]'\n"
-            f"  pip install 'dl-toolbox[{extra}]'"
-        ) from exc
 
 
 def require_logger_open(is_open: bool) -> None:

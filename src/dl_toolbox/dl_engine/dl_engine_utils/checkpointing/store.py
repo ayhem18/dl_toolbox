@@ -86,7 +86,7 @@ from dl_toolbox.base.file_management.directory import (
 )
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.hashing.identity import hash_file
-from dl_toolbox.base.input_output.json_io import read_json, write_json
+from dl_toolbox.base.input_output.json_io import JsonTextForm, read, write
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.policy import (
     RankedCheckpoint,
     ScoredCheckpoint,
@@ -177,11 +177,15 @@ class CheckpointStore:
             raise CheckpointLookupError(
                 f"catalog does not exist: {self._catalog_path}"
             )
-        return CatalogDocument.model_validate(read_json(self._catalog_path))
+        return CatalogDocument.model_validate(
+            read(file=File.from_absolute(path=self._catalog_path))
+        )
 
     def read_or_empty(self) -> CatalogDocument:
         if self._catalog_path.is_file():
-            return CatalogDocument.model_validate(read_json(self._catalog_path))
+            return CatalogDocument.model_validate(
+                read(file=File.from_absolute(path=self._catalog_path))
+            )
         return self.empty_catalog()
 
     def empty_catalog(self) -> CatalogDocument:
@@ -198,7 +202,15 @@ class CheckpointStore:
         )
 
     def write_catalog(self, catalog: CatalogDocument) -> None:
-        write_json(self._catalog_path, catalog.model_dump(mode="json"))
+        parent = Directory.from_absolute(
+            path=self._root, policy=DirectoryParsePolicy.CREATE
+        )
+        write(
+            directory=parent,
+            name=CATALOG_FILENAME,
+            payload=catalog.model_dump(mode="json"),
+            form=JsonTextForm.DOCUMENT,
+        )
 
     def stamp_fit(self, catalog: CatalogDocument, *, epoch: int) -> CatalogDocument:
         return catalog.model_copy(

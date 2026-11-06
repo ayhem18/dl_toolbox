@@ -10,14 +10,12 @@ from pathlib import Path
 from typing import Any
 
 
-from dl_toolbox.base.file_management.exclusive_lock import ExclusiveDirLock
-from dl_toolbox.base.hashing.hash_manager import (
-    BOTH_FREE,
-    BOTH_MATCH,
-    HASH_TAKEN,
-    NAME_TAKEN,
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
 )
-from dl_toolbox.base.hashing.identity_manager import IdentityManager
+from dl_toolbox.base.file_management.exclusive_lock import ExclusiveDirLock
+from dl_toolbox.base.hashing.hash_manager import HashManager
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
@@ -49,7 +47,7 @@ class ExpEngine:
     def __init__(
         self,
         *,
-        identity_manager: IdentityManager,
+        identity_manager: HashManager,
         logging_manager: LoggingManager,
         checkpoint_manager: CheckpointManager,
         experiment_manager: ExperimentConfigManager,
@@ -121,12 +119,12 @@ class ExpEngine:
     def reclaim_name(self, name: str) -> dict[str, Any] | None:
         """Overwrite helper: drop this name's identity pair and its artifacts folder.
 
-        IdentityManager.release_name deletes the JSON pair under run_identities_root.
+        HashManager.release_name deletes the JSON pair under run_identities_root.
         Then rmtree run_artifacts/{name} if it exists. Logger stores are not touched.
         Missing name returns None. Used only by name_taken + force=True.
         """
         released = self._identity_manager.release_name(
-            self._paths.run_identities_root, name=name
+            self._identity_index(), name=name
         )
         run_artifacts = self._paths.run_artifacts_dir(
             self._identity_manager.assert_name(name)
@@ -134,6 +132,12 @@ class ExpEngine:
         if run_artifacts.exists():
             shutil.rmtree(run_artifacts)
         return released
+
+    def _identity_index(self) -> Directory:
+        return Directory.from_absolute(
+            path=self._paths.run_identities_root,
+            policy=DirectoryParsePolicy.MUST_EXIST,
+        )
 
     def _create_or_overwrite_run(
         self,
@@ -150,24 +154,27 @@ class ExpEngine:
             timeout_seconds=_IDENTITY_LOCK_TIMEOUT,
         )
         with lock:
+            index = self._identity_index()
             lookup = self._identity_manager.lookup(
-                run_identities_root, name=name, configuration_hash=configuration_hash
+                index, name=name, configuration_hash=configuration_hash
             )
-            if lookup.state == HASH_TAKEN:
-                occupant = read_json(lookup.hash_path)
+            if lookup.state == HashManager.HASH_TAKEN:
+                occupant = lookup.document
+                if occupant is None:
+                    raise ValueError("HASH_TAKEN lookup requires a document")
                 raise FileExistsError(
-                    f"configuration hash already saved as name {occupant.get('name')!r}"
+                    f"configuration hash already saved as name {occupant['name']!r}"
                 )
-            if lookup.state == BOTH_MATCH:
+            if lookup.state == HashManager.BOTH_MATCH:
                 raise FileExistsError(
                     f"run {name!r} already exists with this configuration hash"
                 )
-            if lookup.state == BOTH_FREE:
+            if lookup.state == HashManager.BOTH_FREE:
                 if run_artifacts.exists():
                     raise FileExistsError(
                         f"run artifacts directory already exists: {run_artifacts}"
                     )
-            elif lookup.state == NAME_TAKEN:
+            elif lookup.state == HashManager.NAME_TAKEN:
                 if not force:
                     raise FileExistsError(
                         f"name {name!r} exists with a different configuration hash"
@@ -178,7 +185,10 @@ class ExpEngine:
                     f"unexpected identity lookup state {lookup.state!r}"
                 )
             self._identity_manager.claim(
-                run_identities_root, name=name, configuration_hash=configuration_hash
+                index,
+                name=name,
+                configuration_hash=configuration_hash,
+                extra={},
             )
             run_artifacts.mkdir(parents=True, exist_ok=False)
 
@@ -189,14 +199,18 @@ class ExpEngine:
         configuration_hash: str,
         run_artifacts: Path,) -> None:
         # Implements get_existing_run's contract. Keep in lockstep with that docstring.
-        run_identities_root = self._paths.run_identities_root
-        lookup = self._identity_manager.lookup(
-            run_identities_root, name=name, configuration_hash=configuration_hash
-        )
-        if lookup.state == BOTH_FREE:
+        root = self._paths.run_identities_root
+        if not root.is_dir():
             raise FileNotFoundError(f"run {name!r} does not exist")
-        if lookup.state != BOTH_MATCH:
-            if lookup.state == NAME_TAKEN:
+        lookup = self._identity_manager.lookup(
+            self._identity_index(),
+            name=name,
+            configuration_hash=configuration_hash,
+        )
+        if lookup.state == HashManager.BOTH_FREE:
+            raise FileNotFoundError(f"run {name!r} does not exist")
+        if lookup.state != HashManager.BOTH_MATCH:
+            if lookup.state == HashManager.NAME_TAKEN:
                 raise FileExistsError(
                     f"name {name!r} exists with a different configuration hash"
                 )

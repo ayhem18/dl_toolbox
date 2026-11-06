@@ -1,13 +1,19 @@
 ---
-description: Definition of a toolbox contract. An .mdc that lists code is not a contract.
+description: Definition of a toolbox contract. Three proposal shapes: entity (Image), functionality class (MLflow), functionality procedural. An .mdc that lists code is not a contract.
 alwaysApply: true
 ---
 
 # Contract-driven development
 
-Definition: `dl_toolbox/standards/contract/philosophy.md`. Image is the reference.
+Definition: `standards/contract/philosophy.md`. Drafts live in `standards/contract/proposals/`. Feature `.mdc` files live under `.cursor/rules/dl_toolbox_structure/` mirroring `src/dl_toolbox/`. Do not add a per-feature `philosophy.md`. Drafts never modify `.mdc` files.
 
-Two starting points (see the philosophy note): a **Python-object entity** (Image; six objects below) or an **external-state functionality** (operations on a filesystem / vendor UI; algorithm of each function). Feature `.mdc` files live under `.cursor/rules/` mirroring `src/dl_toolbox/`. Do not add a per-feature `philosophy.md`. Drafts never modify `.mdc` files: a contract under review lives in `standards/contract/proposals/`. Do not mark a Python-object folder `CONTRACT` in the structure index until the six objects exist in code:
+A proposal is one of the three shapes below. Do not mix them. If a later call site still re-checks the contract's assumptions, the contract is not in use. If implementation needs a default, a `None`, or a new slot, stop and revise the `.mdc` and the philosophy note. When a real contract is added, update the tree in `.cursor/rules/dl_toolbox_structure/index.mdc` and the keyword `description` on `DL_projects/.cursor/rules/dl_toolbox_structure.mdc`.
+
+## 1. Entity (Python object)
+
+Reference: Image — `.cursor/rules/dl_toolbox_structure/base/input_output/images.mdc`
+
+The itch is a helper (`cv2.imread`, `process_path`). The contract is the object the code can hold. Mark `CONTRACT` when these six exist in code:
 
 1. Entity = native payload + spec
 2. Spec = product of properties (illegal combinations rejected)
@@ -16,6 +22,11 @@ Two starting points (see the philosophy note): a **Python-object entity** (Image
 5. Owned parse APIs (required args = what that source cannot supply)
 6. Named convert maps (or an explicit error)
 
-Do not mark a functionality folder `CONTRACT` until the entity is named, each behavior is an algorithm, and the class in code is a translation of those algorithms.
+## 2. Functionality (class)
 
-If a later call site still re-checks those assumptions, the contract is not in use. If implementation needs a default, a `None`, or a new slot, stop and revise the `.mdc` and the philosophy note. Update **both** structure indexes when a real contract is added.
+Reference: MLflow logger — `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/mlflow.mdc`
+
+The entity is external state (a store, a run). There is nothing to wrap. Specify the official behaviors, the algorithm of each (assumed state, the operation, state afterward), then translate into a class. Mark `CONTRACT` when the class in code is that translation.
+
+## 3. Functionality (procedural)
+

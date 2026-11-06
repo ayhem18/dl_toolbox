@@ -7,20 +7,18 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from dl_toolbox.base.packaging import require
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.dl_engine.loggers.logger import (
     EXISTENCE_CREATE,
     Logger,
     LoggerError,
-    import_extra,
     parse_log_existence,
     parse_log_stream,
     require_logger_open,
     table_as_json,
 )
-
-_EXTRA = "mlflow"
 _PARAM_KEY_MAX = 250
 _PARAM_VALUE_MAX = 6000
 _TAG_KEY_MAX = 250
@@ -164,7 +162,7 @@ class MlflowLogger(Logger):
         require_logger_open(self._open)
         run_id = self.run_id
         name = parse_non_empty_str(artifact_path, label="artifact_path")
-        mlflow = import_extra("mlflow", extra=_EXTRA)
+        mlflow = require(package="mlflow")
         mlflow.set_tracking_uri(self._backend_store_uri)
         mlflow.pytorch.log_model(
             model,
@@ -255,7 +253,7 @@ class MlflowLogger(Logger):
         return runs[0]
 
     def _client(self):
-        mlflow = import_extra("mlflow", extra=_EXTRA)
+        mlflow = require(package="mlflow")
         from mlflow.tracking import MlflowClient
 
         self._prepare_local_stores()

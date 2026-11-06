@@ -2,26 +2,23 @@
 
 from __future__ import annotations
 
-import importlib
-import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from dl_toolbox.base.input_output.json_io import JsonTextForm, dump
+from dl_toolbox.base.packaging import require
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.dl_engine.loggers.logger import (
     EXISTENCE_REQUIRE,
     Logger,
     LoggerError,
-    import_extra,
     parse_log_existence,
     parse_log_stream,
     require_logger_open,
     table_as_json,
 )
-
-_EXTRA = "tensorboard"
 _STREAM_SUFFIX = {
     "fit": ".fit",
     "inspect": ".inspect",
@@ -55,12 +52,14 @@ class TensorBoardLogger(Logger):
 
     def log_params(self, params: Mapping[str, str]) -> None:
         writer = self._require_writer()
-        writer.add_text("params", json.dumps(dict(params), indent=2, ensure_ascii=True))
+        writer.add_text(
+            "params", dump(dict(params), form=JsonTextForm.ASCII_PRETTY)
+        )
         writer.flush()
 
     def log_tags(self, tags: Mapping[str, str]) -> None:
         writer = self._require_writer()
-        writer.add_text("tags", json.dumps(dict(tags), indent=2, ensure_ascii=True))
+        writer.add_text("tags", dump(dict(tags), form=JsonTextForm.ASCII_PRETTY))
         writer.flush()
 
     def log_scalars(self, values: Mapping[str, float], *, step: int) -> None:
@@ -119,17 +118,16 @@ def _parse_run_name(run_name: str) -> str:
 
 
 def _import_summary_writer():
-    import_extra("tensorboard", extra=_EXTRA)
-    import_extra("torch", extra=_EXTRA)
+    require(package="tensorboard")
     try:
-        module = importlib.import_module("torch.utils.tensorboard")
+        module = require(package="torch.utils.tensorboard")
         return module.SummaryWriter
-    except (ImportError, AttributeError) as exc:
+    except AttributeError as exc:
         raise ImportError(
             "torch.utils.tensorboard.SummaryWriter could not be imported. "
             "Install the tensorboard extra:\n"
-            f"  uv add 'dl-toolbox[{_EXTRA}]'\n"
-            f"  pip install 'dl-toolbox[{_EXTRA}]'"
+            "  uv add 'dl-toolbox[tensorboard]'\n"
+            "  pip install 'dl-toolbox[tensorboard]'"
         ) from exc
 
 

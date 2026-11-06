@@ -1,0 +1,103 @@
+---
+description: Optional extras. require(*, package) looks up the extra or dist from the import map. Call sites do not pass extra and do not read pyproject.toml.
+globs: **/base/packaging/**/*.py,**/tests/base/packaging/**/*.py
+alwaysApply: false
+---
+
+# Optional extras
+
+External-state functionality (procedural). The entity is **this process's imports** against the extras declared for `dl-toolbox`.
+
+We talk to `importlib.import_module`. We do not install packages. A missing import is an error with an install hint, not `None`.
+
+Downstream does not `try: importlib.import_module`. Logger is not a package manager. Call sites do not read `pyproject.toml`.
+
+The functions are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+
+Named constants, no defaults.
+
+---
+
+## Input specification
+
+`require` takes one argument:
+
+- `package` — import name (`mlflow`, `torch.utils.tensorboard`, `sklearn`)
+
+The extra (or pip dist) is not an input. This contract owns the map from import name to hint. Call sites name the import they need.
+
+```
+Extra = dl | geometry | tensorboard | wandb | mlflow
+```
+
+`Extra` matches `[project.optional-dependencies]`. Hard dependencies (pydantic, tqdm) are not extras and are not in the map. Do not `require` them.
+
+A **hint** is either an `Extra` (`dl-toolbox[{extra}]`) or a **dist** (`uv add {dist}`) when there is no extra.
+
+---
+
+## Import map
+
+Each optional import name appears once. If a dist sits in several extras, the map names the extra whose **job** is that package (`torch` → `dl`, not `tensorboard`).
+
+```
+cv2                     → extra geometry
+lightning               → extra dl
+matplotlib              → dist matplotlib
+mlflow                  → extra mlflow
+sklearn                 → dist scikit-learn
+tensorboard             → extra tensorboard
+torch                   → extra dl
+torch.utils.tensorboard → extra tensorboard
+wandb                   → extra wandb
+```
+
+Do not parse `pyproject.toml` at runtime. The map is code. Adding an optional import means adding a row here first.
+
+---
+
+## `require(*, package)`
+
+**Assume:** `package` is a non-empty import name.
+
+```
+if package not in map: error
+
+hint = map[package]
+
+try:
+    return importlib.import_module(package)
+except ImportError:
+    if hint is Extra:
+        raise ImportError
+            "{package} is required and is not installed.
+             uv add 'dl-toolbox[{extra}]'
+             pip install 'dl-toolbox[{extra}]'"
+    if hint is dist:
+        raise ImportError
+            "{package} is required and is not installed.
+             uv add {dist}"
+```
+
+**After:** that module is importable in this process. Disk / venv unchanged.
+
+Do not say “this logger”. Do not catch `AttributeError` here. A missing `SummaryWriter` on an imported module is a broken extra, not this algorithm.
+
+Do not add `require_sklearn` / `require_matplotlib` as new algorithms. They are `require(package="sklearn")` / `require(package="matplotlib")`.
+
+---
+
+## Translation (functions)
+
+| Algorithm | Function |
+|---|---|
+| import map | `IMPORT_HINTS` |
+| missing optional → hint from the map | `require(*, package)` |
+
+---
+
+## Tensions
+
+- TensorBoard today catches `AttributeError` on `SummaryWriter`. That stays at the TensorBoard translation, after `require` succeeded, or it becomes a TensorBoard error — not a third packaging function.
+- Whether matplotlib / sklearn become extras (map rows change from dist to extra) is a pyproject decision, not a third algorithm.
+- The map can drift from `pyproject.toml` (a dist listed in an extra but missing from the map, or the reverse). Runtime-reading pyproject would make the hint follow the file and would make call sites still not think about extras; it would also couple import names to pip names (`cv2` vs `opencv-python-headless`, `sklearn` vs `scikit-learn`). The map above is the chosen side: import names, one hint, owned here.

@@ -1,0 +1,231 @@
+---
+description: HashManager is exclusive (name, hash) JSON under a Directory. Occupancy is BOTH_FREE|BOTH_MATCH|NAME_TAKEN|HASH_TAKEN. No lock, no artifacts, no IdentityManager.
+globs: **/hashing/hash_manager.py,**/tests/base/hashing/test_hash_manager.py
+alwaysApply: false
+---
+
+# HashManager
+
+External-state functionality. The entity is an **identity index**: two sibling folders of JSON under a Directory the caller names. Each claimed pair is one document stored twice:
+
+```
+{directory}/{human_readable_dirname}/{name}.json
+{directory}/{hashes_dirname}/{hash-prefix}.json
+```
+
+The two files of a healthy pair are equal JSON objects. Identity is `(name, hash)`. `name` is a label. It is not hashed. `hash` is the full 64-char lowercase SHA-256. The filename stem is a prefix of that digest. The document stores the full digest.
+
+The class is constructed with the **layout** (`prefix_len`, the two folder names). It is not bound to one Directory.
+
+The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+
+Not this entity: digest primitives, run artifacts, payload directories, logger stores, `ExclusiveDirLock`, what object was hashed, `identity.json` parsing, `force` / orphan folders / resume.
+
+Named constants, no defaults. There is no `IdentityManager`.
+
+---
+
+## Given
+
+A `HashManager` is already constructed:
+
+```
+prefix_len              integer in [8, 64]
+human_readable_dirname  basename, not `.` / `..`, not a hash stem
+hashes_dirname          same rules, and distinct from human_readable_dirname
+```
+
+A hash stem is a lowercase hex string whose length is `prefix_len` or 64.
+
+Every lookup / claim / release takes a **Directory that exists**. HashManager does not mkdir that root. Missing index subfolders are created on **claim** only.
+
+JSON read / write are the JSON contract. File existence is probed, then `File` parse, then `read`. A missing file is not a `File`.
+
+Occupancy. The only legal lookup states. Class-level on `HashManager`:
+
+```
+HashManager.BOTH_FREE
+HashManager.BOTH_MATCH
+HashManager.NAME_TAKEN
+HashManager.HASH_TAKEN
+```
+
+| State | Meaning for this query `(name, hash)` |
+|---|---|
+| `BOTH_FREE` | Neither this name nor this hash is stored. |
+| `BOTH_MATCH` | This exact pair is stored. Both files exist and agree. |
+| `NAME_TAKEN` | This **name** is stored with a **different** hash. |
+| `HASH_TAKEN` | This **hash** is stored under a **different** name. |
+
+A prefix collision (hash file stem matches, stored full digest does not) is not a fifth state. It is an error.
+
+Stored document. Required keys, read with `[]`: `name` (the basename), `hash` (the full SHA-256). Other keys are `extra` from claim. Missing `name` or `hash` on an existing file is corrupt index, not occupancy.
+
+---
+
+## `hash_payload(payload)`
+
+**Assume:** `payload` is a JSON object.
+
+```
+return SHA-256 hex of dump(payload, form=canonical)
+```
+
+**After:** a 64-char lowercase digest. Disk unchanged. Key order in `payload` does not change the digest.
+
+The caller chooses the object. Hashing a recipe file that includes the name is an engine bug, not this algorithm.
+
+---
+
+## `assert_name(name)`
+
+**Assume:** `name` is the raw label.
+
+```
+text = strip name
+if text ends with .json (case-insensitive): strip that suffix
+text must be a non-empty basename: no `/`, not `.`, not `..`
+text must not be a hash stem
+return text
+```
+
+**After:** a legal name. Disk unchanged.
+
+---
+
+## `lookup(directory, *, name, configuration_hash)`
+
+**Assume:** `directory` exists. `configuration_hash` is a full SHA-256.
+
+```
+checked = assert_name(name)
+name_path = directory / human_readable_dirname / {checked}.json
+hash_path = directory / hashes_dirname / {stem(configuration_hash)}.json
+name_exists = name_path is a file
+hash_exists = hash_path is a file
+```
+
+Both files present:
+
+```
+name_document = JSON.read(name_path)
+hash_document = JSON.read(hash_path)
+if name_document != hash_document: disagreeing pair (below)
+else if name_document[name]==checked and name_document[hash]==configuration_hash:
+    BOTH_MATCH, document = name_document
+else if name_document[hash] != configuration_hash:
+    error: prefix already used by name_document[hash]
+else:
+    error: stored pair for checked does not match configuration_hash
+```
+
+Disagreeing pair:
+
+```
+stored_hash = hash_document[hash]
+if stored_hash != configuration_hash:
+    error: prefix already used by stored_hash
+name_is_this_pair = name_document is this (name, hash)
+hash_is_this_pair = hash_document is this (name, hash)
+if name_is_this_pair or hash_is_this_pair:
+    error: name/hash JSON disagree for this pair
+HASH_TAKEN, document = hash_document
+```
+
+Only the name file: `NAME_TAKEN`, document = JSON.read(name_path).
+
+Only the hash file:
+
+```
+hash_document = JSON.read(hash_path)
+if hash_document[hash] != configuration_hash:
+    error: prefix already used by hash_document[hash]
+HASH_TAKEN, document = hash_document
+```
+
+Neither file: `BOTH_FREE`, no document.
+
+**After:** disk unchanged. Result: `state`, `name_path`, `hash_path` (locations of this query; they may not exist), `document` (occupant JSON when state is not `BOTH_FREE`). Callers do not `read` those paths.
+
+---
+
+## `claim(directory, *, name, configuration_hash, extra)`
+
+**Assume:** `directory` exists. `extra` is a JSON object. Required. Empty object means the document is only `name` and `hash`. `extra` must not contain `name` or `hash`.
+
+```
+checked = assert_name(name)
+if extra contains name or hash: error
+lookup(...)
+if state is not BOTH_FREE:
+    BOTH_MATCH → FileExistsError: already claimed this pair
+    NAME_TAKEN → FileExistsError: name exists with occupant hash
+    HASH_TAKEN → FileExistsError: hash already saved as occupant name
+document = {name: checked, hash: configuration_hash, **extra}
+CREATE hashes_dirname under directory if missing
+write hash file first (JSON, form=document)
+CREATE human_readable_dirname under directory if missing
+write name file second (same document)
+return name_path, hash_path
+```
+
+**Entity after:** this pair is stored. Later lookup of the same `(name, hash)` is `BOTH_MATCH`.
+
+Write order is hash file, then name file. A crash between the two writes leaves `HASH_TAKEN` for this hash. Claim is not atomic. Two processes that both saw `BOTH_FREE` can both write. HashManager does not lock.
+
+`claim` does not mkdir the index root, artifacts, or logger stores. Overwrite is the caller: `release_name`, then `claim`.
+
+---
+
+## `release_name(directory, *, name)`
+
+**Assume:** `directory` exists. Identity only.
+
+```
+checked = assert_name(name)
+name_path = directory / human_readable_dirname / {checked}.json
+if name_path is not a file: return None
+document = JSON.read(name_path)
+if document[name] != checked: error
+stored_hash = document[hash]   # must be a full SHA-256
+hash_path = directory / hashes_dirname / {stem(stored_hash)}.json
+if hash_path is a file:
+    if JSON.read(hash_path) != document: error: disagree
+    delete hash_path
+delete name_path
+return document
+```
+
+**Entity after:** this name is free. Missing name is `None`. Does not steal a hash held by a different name (disagree → error, files stay).
+
+---
+
+## Translation (class)
+
+| Algorithm | Method |
+|---|---|
+| layout | `__init__(*, prefix_len, human_readable_dirname, hashes_dirname)` |
+| occupancy | `HashManager.BOTH_FREE` / `BOTH_MATCH` / `NAME_TAKEN` / `HASH_TAKEN` |
+| digest | `hash_payload(payload)` |
+| legal name | `assert_name(name)` |
+| four-way occupancy | `lookup(directory, *, name, configuration_hash)` |
+| write pair | `claim(directory, *, name, configuration_hash, extra)` |
+| drop this name | `release_name(directory, *, name)` |
+
+`directory` is a Directory that exists. Not a raw `Path`. No ABC. Occupancy before write is `lookup`. `claim` is the unique-write.
+
+---
+
+## What this implies for the engine
+
+The engine holds one `HashManager` (layout) and one index Directory. Identity of a run is `(human_readable_name, hash({dl_toolbox_config, experiment_config}))`. The name is not in that object.
+
+Lookup returns a state. `force`, orphan artifacts, and resume are engine branches. The engine holds `ExclusiveDirLock` around lookup + optional `release_name` + `claim` + mkdir artifacts. HashManager does not.
+
+---
+
+## Tensions
+
+- Data-contract process records still re-implement this pair with `generating_process_name` instead of `name`. Adopting HashManager later uses `name` plus `extra` for the signature. Do not add a configurable name-key.
+- No lock here. ExclusiveDirLock is its own draft.
+- Digest primitives (`hash_file`, stem helpers) are not HashManager. Product call sites hash through `hash_payload` so `prefix_len` cannot drift per call.

@@ -1,0 +1,26 @@
+---
+description: PatchifiedMask is layout × patch_size × polarity plus a patch-constant binary tensor. Sequence unflatten takes Y_patches and X_patches.
+globs: **/image_patchify/patchified_mask.py,**/image_patchify/spec.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_patchified_mask.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_spec.py
+alwaysApply: false
+---
+
+# PatchifiedMask
+
+`PatchifiedMask` = `PatchifiedMaskSpec` + batched `torch.Tensor`. Spec is `PatchLayout` × `patch_size` × `MaskPolarity`. No `original_channels`. Binary, floating `{0, 1}`, constant on non-overlapping `P×P` patches. Polarity is a claim.
+
+| Layout | Payload |
+|---|---|
+| `SPATIAL` | `(B, Y_dim, X_dim)` |
+| `PATCH_GRID` | `(B, Y_patches, X_patches)` |
+| `SEQUENCE` | `(B, Y_patches·X_patches)` |
+
+- Tensor: `PatchifiedMask.from_tensor(tensor=..., spec=...)`. Spatial `(B, 1, Y_dim, X_dim)` squeezes. Not a fourth layout.
+- Convert: layout maps as PatchifiedTensor; polarity flip is `1 - mask`. Same `P`.
+- `SEQUENCE` → grid: `unflatten(Y_patches=..., X_patches=...)` → `PATCH_GRID`.
+
+```python
+mask = PatchifiedMask.from_tensor(tensor=spatial, spec=spatial_spec)
+tokens = mask.convert(spec=sequence_spec)
+grid = tokens.unflatten(Y_patches=y_patches, X_patches=x_patches)
+visible = mask.convert(spec=visible_spec)
+```

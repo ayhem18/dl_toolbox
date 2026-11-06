@@ -1,0 +1,25 @@
+---
+description: Directory is an absolute path plus missing|exists. Parse policy must_exist|create|allow_missing is not stored.
+globs: **/base/file_management/directory.py,**/tests/base/file_management/test_directory.py
+alwaysApply: false
+---
+
+# Directory
+
+Code: `base/file_management/directory.py`.
+
+`Directory` = `DirectorySpec` (`missing` | `exists`) + absolute `pathlib.Path`. Role is directory. Never `Path.cwd()`.
+
+Parse policy is not spec: `DirectoryParsePolicy` is `must_exist` | `create` | `allow_missing`. After `create`, spec is `exists`.
+
+- Absolute: `Directory.from_absolute(path=..., policy=...)`.
+- Root + relative: `Directory.from_under(root=..., relative_path=..., policy=...)`. `root` is a Directory that exists. No `..`.
+- Parent walk: `Directory.from_parent_walk(start=..., basename=...)`. Result exists. `start` is File or Directory (exists).
+- Convert into Directory: `File.parent()`.
+
+```python
+dest = Directory.from_absolute(path=absolute_dir, policy=DirectoryParsePolicy.CREATE)
+cache = Directory.from_under(
+    root=project, relative_path="cache/run", policy=DirectoryParsePolicy.ALLOW_MISSING
+)
+```

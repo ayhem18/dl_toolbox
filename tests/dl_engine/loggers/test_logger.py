@@ -1,4 +1,4 @@
-"""Logger ABC: named constants, no setup defaults, flatten_mapping."""
+"""Logger ABC: named constants, no setup defaults."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from dl_toolbox.dl_engine.loggers.logger import (
     STREAM_FIT,
     STREAM_INSPECT,
     Logger,
-    flatten_mapping,
 )
 from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
 from dl_toolbox.dl_engine.loggers.tensorboard import TensorBoardLogger
@@ -25,23 +24,6 @@ _METHODS = (
     "log_text",
     "close",
 )
-
-
-def test_flattens_nested_bools_lists_and_none() -> None:
-    params = flatten_mapping(
-        {
-            "name": "dummy_conv",
-            "model": {"name": "unet_resnet34", "params": {"pretrained": False}},
-            "runtime": {"devices": 1, "workers": None},
-            "tags": ["a", "b"],
-        }
-    )
-    assert params["name"] == "dummy_conv"
-    assert params["model.name"] == "unet_resnet34"
-    assert params["model.params.pretrained"] == "false"
-    assert params["runtime.devices"] == "1"
-    assert params["runtime.workers"] == "null"
-    assert params["tags"] == '["a", "b"]'
 
 
 def test_setup_has_no_defaults() -> None:

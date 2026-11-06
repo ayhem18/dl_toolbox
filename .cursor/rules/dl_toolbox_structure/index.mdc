@@ -1,0 +1,67 @@
+---
+description: Map of this package. Always-on index only; resolved contracts live under this folder mirroring src/dl_toolbox, not always on.
+alwaysApply: true
+---
+
+# dl_toolbox structure
+
+Package: `src/dl_toolbox/`
+Contracts: `.cursor/rules/dl_toolbox_structure/` — same relative path as `src/dl_toolbox/`, `.mdc` instead of `.py`. Prefs stay in `.cursor/rules/`.
+
+This file is the **tree**. Before using a row marked CONTRACT, Read that `.mdc`. Do not rely on memory.
+
+Working on a contract (three proposal shapes, keywords, procedure): `DL_projects/.cursor/rules/dl_toolbox_structure.mdc`. Do not keep a second copy of this tree there.
+
+## Prefs
+
+- `.cursor/rules/python_preferences.mdc` — no parameter defaults; large signatures become config objects
+- `.cursor/rules/terminology_preferences.mdc` — spatial dims are `Y_dim` / `X_dim`, never height/width
+- `.cursor/rules/contract_driven_development.mdc` — three proposal shapes (entity, functionality class, functionality procedural)
+
+## Tree
+
+```
+src/dl_toolbox/
+  base/
+    input_output/
+      images/              CONTRACT  .cursor/rules/dl_toolbox_structure/base/input_output/images.mdc
+      image_io.py
+      json_io.py           CONTRACT  .cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc
+    parsing/
+    hashing/
+      hash_manager.py    CONTRACT  .cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc
+      identity.py        digest primitives; not a second identity API
+    packaging/
+      require.py           CONTRACT  .cursor/rules/dl_toolbox_structure/base/packaging/require.mdc
+    file_management/
+      file.py              CONTRACT  .cursor/rules/dl_toolbox_structure/base/file_management/file.mdc
+      directory.py         CONTRACT  .cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc
+      exclusive_lock.py    draft     standards/contract/proposals/file_management.md
+    geometry/
+    image_processing/
+  data_contract/           design still in standards/data_contract/
+  dl_engine/
+    metrics/               design still in standards/metrics/
+    training/
+    runs/
+      common/
+      train_val_run/       CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/runs/train_val_run.mdc
+      train_only_run/      CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/runs/train_only_run.mdc
+    loggers/
+      logger.py            CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc
+      tensorboard.py       CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/loggers/tensorboard.mdc
+      mlflow.py            CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/loggers/mlflow.mdc
+    _loggers/              parked manager backends; W&B still here
+    lr_finder/
+    representation_eval/   design still in standards/representation_eval/
+    dl_engine_utils/       DL-only
+      image_patchify/
+        patchified_tensor.py  CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/dl_engine_utils/image_patchify/patchified_tensor.mdc
+        patchified_mask.py    CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/dl_engine_utils/image_patchify/patchified_mask.mdc
+      checkpointing/
+  experiment_management/   design still in standards/exp_mng_engine/
+  dl_engine_utils/         unspecified leftover; not the DL home
+  cli/
+```
+
+A folder with no CONTRACT line has no `.mdc` yet. Do not invent one in passing. Drafts never modify `.mdc` files: write under `standards/contract/proposals/`. Do not add a per-feature `philosophy.md`. The definition of a contract is `standards/contract/philosophy.md`. Mark `CONTRACT` only when that definition is met in code. When you mark it, add that entity or functionality's names to the workspace rule description (`DL_projects/.cursor/rules/dl_toolbox_structure.mdc`).

@@ -30,7 +30,7 @@ class EnginePaths:
 
         run_identities_root:
             Directory that stores claimed experiment configurations as
-            (name, hash) pairs. IdentityManager uses it to decide whether a
+            (name, hash) pairs. HashManager uses it to decide whether a
             pair already exists; claim writes a new pair here. Default layout:
             storage/runs/, with human_readable/{name}.json and
             hashes/{stem}.json. The identity lock (identity.lock) is also under

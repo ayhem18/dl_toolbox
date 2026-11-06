@@ -32,7 +32,7 @@ class CheckpointConfigParser:
         return self._save_last
 
 
-# --- pydantic (optional extra: validation) ---
+# --- pydantic document ---
 # Covers this parser completely: exact keys, save_top_k >= -1, bool is not 0/1.
 
 

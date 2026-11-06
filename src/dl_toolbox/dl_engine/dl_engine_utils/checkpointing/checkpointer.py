@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from dl_toolbox.base.file_management.directory import (
     Directory,
@@ -28,11 +27,6 @@ from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.types import (
     FitRunState,
 )
 
-if TYPE_CHECKING:
-    from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.callback import (
-        InspectableCheckpointCallback,
-    )
-
 _ID_LEN = 12
 
 
@@ -40,8 +34,7 @@ class InspectableCheckpointer:
     """Locked accessor for the Checkpoint Directory.
 
     Rank-0 of a DDP fit and an inspect process take ``ExclusiveDirLock``.
-    ``Trainer.save_checkpoint`` / DDP barriers live in
-    ``InspectableCheckpointCallback``.
+    Lightning hooks live on callback classes that take this object, not here.
     """
 
     def __init__(
@@ -79,13 +72,6 @@ class InspectableCheckpointer:
     @property
     def monitor_key(self) -> str:
         return self._monitor.key
-
-    def as_callback(self) -> InspectableCheckpointCallback:
-        from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.callback import (
-            InspectableCheckpointCallback,
-        )
-
-        return InspectableCheckpointCallback(checkpointer=self)
 
     def ddp_join_path(self) -> Path:
         """Path non-zero ranks pass to ``Trainer.save_checkpoint`` for the barrier."""

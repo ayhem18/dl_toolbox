@@ -72,7 +72,7 @@ class TrainerConfigParser:
         return self._config
 
 
-# --- pydantic (optional extra: validation) ---
+# --- pydantic document ---
 # JSON shape, exact keys, types, gpu→devices-int. Leftover: bind_visible_gpus
 # (process, not parse).
 

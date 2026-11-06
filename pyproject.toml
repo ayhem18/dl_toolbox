@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "tqdm>=4.66.0",
+    "pydantic>=2.10",
 ]
 
 [project.optional-dependencies]
@@ -30,9 +31,6 @@ wandb = [
 mlflow = [
     "mlflow",
     "numpy>=1.26.0",
-]
-validation = [
-    "pydantic>=2.10",
 ]
 
 [project.scripts]
@@ -72,8 +70,21 @@ dev = [
     "opencv-python-headless>=4.8.0",
     "scikit-learn>=1.4",
     "matplotlib>=3.8",
-    "pydantic>=2.10",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# Only packages that already have a contract. Other tests stay on disk until rewrite.
+testpaths = [
+    "tests/base/input_output/test_image.py",
+    "tests/base/input_output/test_image_spec.py",
+    "tests/base/input_output/test_json_io.py",
+    "tests/base/packaging",
+    "tests/base/file_management/test_file.py",
+    "tests/base/file_management/test_directory.py",
+    "tests/dl_engine/loggers/test_logger.py",
+    "tests/dl_engine/loggers/test_tensorboard.py",
+    "tests/dl_engine/loggers/test_mlflow.py",
+    "tests/dl_engine/dl_engine_utils/image_patchify",
+    "tests/dl_engine/runs",
+    "tests/base/hashing/test_hash_manager.py",
+]

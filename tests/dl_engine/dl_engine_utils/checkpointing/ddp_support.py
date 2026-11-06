@@ -14,6 +14,9 @@ from lightning.pytorch.strategies import DDPStrategy
 from torch import Tensor, nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.callback import (
+    InspectableCheckpointCallback,
+)
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.checkpointer import (
     InspectableCheckpointer,
 )
@@ -147,7 +150,7 @@ def run_ddp_fit(config: DdpFitConfig) -> InspectableCheckpointer:
         enable_progress_bar=False,
         enable_model_summary=False,
         num_sanity_val_steps=0,
-        callbacks=[checkpointer.as_callback()],
+        callbacks=[InspectableCheckpointCallback(checkpointer=checkpointer)],
     )
     trainer.fit(
         module, train_dataloaders=train_loader, val_dataloaders=val_loader

@@ -27,7 +27,7 @@ class SeedConfigParser:
         return self._config
 
 
-# --- pydantic (optional extra: validation) ---
+# --- pydantic document ---
 # Covers this parser completely: exact keys, int (not bool), seed >= 0.
 
 
