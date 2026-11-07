@@ -1,0 +1,347 @@
+---
+description: TrainValEngine is fit identity then TrainValRun.fit / EvalRun.evaluate. Purpose fit|inspect. Force off|overwrite_name. DDP workers attach. No inspect HashManager pair. load_net lives on TrainValLightningModule.
+globs: **/dl_engine/exp_engine/train_val_engine/**,**/tests/dl_engine/exp_engine/**
+alwaysApply: false
+---
+
+# TrainValEngine
+
+External-state functionality. Home: `src/dl_toolbox/dl_engine/exp_engine/train_val_engine/`. Train/val runs only.
+
+The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+
+This is not TrainValRun and not EvalRun. Those receive already-resolved objects. This class is the experiment-management flow: fit identity, getters, then `fit` / `evaluate`.
+
+There is no run-agnostic engine. TrainOnly / LR-finder / Eval engines copy this *shape* if they need it. They do not share this class.
+
+Named constants, no defaults. `train()` and `inspect()` take **no arguments**. Everything they need was bound at construction. Scripts parse CLI into the constructor, then call a zero-arg method.
+
+---
+
+## Entity
+
+This **process** managing one train/val **run** on disk: the HashManager `(name, hash)` pair, the run artifacts Directory, the logger store row, the checkpoint catalog.
+
+Not this entity:
+
+- `TrainValRun.fit` / EvalRun `evaluate` (call them; do not re-specify their loops).
+- HashManager, InspectableCheckpointer, Logger internals.
+- The project tree (`project_layout`). DefaultLayoutTrainValEngine holds a ProjectLayout and fills getters.
+- Periodic inspect loops. `inspect()` is one shot. A script that polls constructs a new purpose=`inspect` instance per attempt.
+
+---
+
+## Given
+
+A `TrainValEngine` is already constructed. Purpose is required:
+
+```
+Purpose = fit | inspect
+```
+
+| Purpose | Legal method | Illegal |
+|---|---|---|
+| `fit` | `train()` | `inspect()` |
+| `inspect` | `inspect()` | `train()` |
+
+Construction binds the **fit recipe** in both purposes (that recipe *is* the run). Purpose `inspect` additionally binds inspect extras (selector, evaluate_fn, eval device). Those are constructor fields, not method arguments. Purpose is how zero-arg methods stay compatible with “no defaults”: a fit CLI does not pass inspect fields as `None`.
+
+```
+Force = off | overwrite_name
+```
+
+Required when purpose is `fit`. Not a slot when purpose is `inspect` (inspect never overwrites a fit pair).
+
+Collaborators: HashManager (CONTRACT), ExclusiveDirLock (still a draft), InspectableCheckpointer. Inspect loads weights through `TrainValLightningModule.load_net` (that class owns `self.net`). Not ModuleWeights.
+
+---
+
+## `train()`
+
+**Assume:** purpose is `fit`. Recipe bound. Logger closed. This process has not yet claimed or attached in this call.
+
+```
+if purpose is not fit: error
+
+process_run_identity()          # claim (launch) or attach (DDP worker); artifacts Directory exists
+apply_seed()
+
+net            = get_net()
+loaders        = get_loaders()          # TrainValLoaders
+steps          = get_steps()            # FitSteps
+metrics        = get_metrics()          # TrainValMetrics
+optimization   = get_optimization()     # needs net
+trainer        = get_trainer()          # legal TrainerConfig row (indices, not a count)
+checkpointer   = get_checkpointer()     # needs artifacts Directory, monitor, max_epochs
+logger         = get_logger()           # built, not open
+run_log        = get_run_log()
+
+try:
+    TrainValRun.fit(
+        net=net,
+        loaders=loaders,
+        steps=steps,
+        metrics=metrics,
+        optimization=optimization,
+        trainer=trainer,
+        checkpointer=checkpointer,
+        logger=logger,
+        run_log=run_log,
+    )
+finally:
+    if this process claimed the fit pair (not a DDP worker):
+        checkpointer.mark_finished()
+```
+
+**After:** `fit` has returned (or raised). The claiming process has catalog `fit.status = finished`. Logger closed (`fit`’s `finally`). Identity pair still on disk.
+
+Getter order is the algorithm. `get_optimization` may use `net`. `get_checkpointer` may use `metrics.monitor` and `trainer.max_epochs`. Getters assume `process_run_identity` already ran. Calling a getter before that is an error.
+
+Scripts do not call getters. Getters are the subclass contract.
+
+Identity before seed: a failed claim must not have seeded, and identity does not need a seed.
+
+---
+
+## `process_run_identity()`
+
+**Assume:** purpose is `fit`. HashManager, identity-index path, artifacts parent, name, identity payload, force, lock timeout are available from getters.
+
+Identity of the **fit run**:
+
+```
+name = get_run_name()                          # recipe label, HashManager.assert_name
+payload = get_identity_payload()               # JSON object; name is not in it
+configuration_hash = HashManager.hash_payload(payload)
+```
+
+`payload` is what makes two recipes the same run. Project-level store URIs are not in it. Inspect recipe is not in it. Logger tags / MLflow experiment name are not in it.
+
+`get_identity_index()` is the HashManager Directory for **this run’s group**, not a single global `storage/runs`. Occupancy is per that Directory. The same `name` in two groups is two runs.
+
+Two multiprocessing stories. Do not mix them.
+
+### A. Two independent `train()` processes (two shells)
+
+Both are launching processes (no Lightning rank env, or global rank 0). The occupancy tree makes the second one fail (or overwrite the **name** only if `Force.OVERWRITE_NAME`). This is the uniqueness HashManager is for.
+
+### B. Lightning DDP workers
+
+Lightning re-runs this process with `RANK` / `LOCAL_RANK` / `NODE_RANK` > 0. Those processes **attach**. They never `claim`. They never `mark_finished`. They never ignore occupancy errors.
+
+```
+if this process is a DDP worker:
+    attach_fit_identity()
+    return
+claim_fit_identity()
+```
+
+Worker detection:
+
+```
+RANK or GLOBAL_RANK is an int and > 0 → worker
+else NODE_RANK or GROUP_RANK is an int and > 0 → worker
+else LOCAL_RANK is an int and > 0 → worker
+else launching process
+```
+
+Limitation: a shell that exports `RANK=1` by accident will attach and then hang in `fit`. Documented, not papered over.
+
+---
+
+### `claim_fit_identity()` — occupancy tree
+
+HashManager does not mkdir the index root and does not lock. This method does both.
+
+```
+CREATE get_identity_index() if missing            # Directory parse CREATE (parents ok)
+ExclusiveDirLock(identity-index / identity.lock) for the whole tree plus mkdir
+lookup(index, name, configuration_hash)
+```
+
+Evaluate in this order. Catalog status is not consulted. Resume is not a branch. `get_artifacts_directory()` is the run folder for this group + name.
+
+```
+HASH_TAKEN  → FileExistsError. Force ignored. Cannot steal another run’s hash in this group.
+BOTH_MATCH  → FileExistsError. Force ignored. Resume is not this method.
+BOTH_FREE   → if artifacts directory exists: FileExistsError (orphan). Force ignored.
+              else HashManager.claim(..., extra=identity payload); mkdir artifacts directory (no overwrite)
+NAME_TAKEN  → Force.off: FileExistsError
+              Force.overwrite_name: release_name; rmtree artifacts directory if present;
+              then claim + mkdir as BOTH_FREE. Logger stores are not touched.
+```
+
+**After:** this pair is stored under this group’s index. The artifacts directory exists. This process may construct the checkpointer.
+
+`Force.overwrite_name` never overwrites `BOTH_MATCH`, never steals `HASH_TAKEN`, never deletes an orphan artifacts folder.
+
+---
+
+### `attach_fit_identity()`
+
+No claim. No mkdir of artifacts. Force does not apply.
+
+**Simultaneous launch (torchrun / SLURM):** every rank starts `train()` at once. Rank 0 is still claiming. A worker that looks up too early sees `BOTH_FREE`. Lightning’s default GPU launcher does not have this race (rank 0 claims in the original process, then `fit` spawns the others). The algorithm must cover both.
+
+```
+deadline = now + get_identity_lock_timeout()
+loop:
+    if identity-index Directory is missing:
+        if not a DDP worker or now past deadline: FileNotFoundError (run does not exist)
+        wait; continue
+    lookup(index, name, configuration_hash)
+    BOTH_MATCH  → require get_artifacts_directory() exists
+                  else if not a DDP worker or now past deadline: FileNotFoundError
+                  else wait; continue
+    BOTH_FREE   → if not a DDP worker or now past deadline: FileNotFoundError
+                  else wait; continue          # rank 0 has not claimed yet
+    NAME_TAKEN  → FileExistsError (same name, different hash). No retry.
+    HASH_TAKEN  → FileExistsError (same hash, different name). No retry.
+```
+
+Workers do **not** hold ExclusiveDirLock while waiting; rank 0 needs that lock to claim.
+
+Inspect is not a DDP worker: missing pair / `BOTH_FREE` is `FileNotFoundError` immediately.
+
+**After:** this process may read artifacts / fetch checkpoints / `fit` as a DDP worker. It must not `claim` and must not `mark_finished`.
+
+---
+
+## `inspect()`
+
+**Assume:** purpose is `inspect`. Fit recipe bound (which run). Inspect extras bound. Fit pair already exists on disk (a `train()` claimed it, possibly still running). Logger closed.
+
+`inspect()` does **not** claim a second HashManager pair and does **not** lock out other inspect processes. Fit identity (`process_run_identity`) is the uniqueness this engine pays for: two independent `train()` shells. Keeping a second inspect process off the same logger is a lock plus a claim; that synchronization is not worth it here.
+
+**Limitation:** two (or more) inspect processes on the same fit run write the same vendor inspect stream. Logging is corrupted. The caller must not launch overlapping inspects. This method does not detect or refuse that.
+
+```
+if purpose is not inspect: error
+
+attach_fit_identity()              # BOTH_MATCH + artifacts. Never claim the fit pair.
+                                   # No worker-retry: inspect is one process.
+                                   # Missing pair → FileNotFoundError immediately.
+
+checkpointer = get_checkpointer()
+request      = get_checkpoint_request()
+staging      = get_inspect_staging_directory()    # empty Directory this process owns
+record       = checkpointer.fetch(request, dest=staging)
+
+payload_dir = get_inspect_payload_directory(epoch=record.epoch)
+
+net = get_net()                   # same architecture as fit; weights not loaded
+TrainValLightningModule.load_net( # classmethod on the module that wrote the file
+    net=net,
+    file=record.path,
+    map_location=get_eval_device(),
+)
+
+loaders = get_eval_loaders()      # EvalLoaders (a map). Not “the val loader” only.
+
+evaluate(                         # EvalRun
+    net=net,
+    loaders=loaders,
+    evaluate_fn=get_evaluate_fn(),          # closed over payload_dir; EvalContext has no folder
+    device=get_eval_device(),
+    logger=get_logger(),                    # built, not open
+    logger_config=EvalLoggerConfig(
+        stream=inspect,
+        existence=require,
+        step=record.epoch,
+    ),
+    run_log=get_run_log(),
+)
+```
+
+**After:** EvalRun closed the logger. `payload_dir` holds whatever `evaluate_fn` wrote. Staging may still hold the fetched `.ckpt`. Catalog unchanged (fetch copied; it did not prune). No inspect identity pair is stored.
+
+`inspect()` does not loop. A polling script constructs purpose=`inspect` per attempt. This method does not skip an epoch already inspected. `CheckpointLookupError` (rank=1 not retained yet) is the retry.
+
+Logger: inspect `require`s the vendor run fit `create`d. If fit has not yet `setup(create)`, require errors. Inspect of a claimed-but-not-started fit is illegal. The script retries; this method does not.
+
+EvalRun only emits `LogItem`s. Neighbor sheets / embeddings on disk are not logging. `evaluate_fn` is built with `payload_dir` closed over. EvalContext does not grow a folder (that would revise EvalRun). `evaluate` still receives the bare `net` (already loaded). `evaluate_fn` may use that object however it wants; this engine passes the inner module.
+
+---
+
+## Getters (subclass contract)
+
+Each getter assumes `process_run_identity` / `attach_fit_identity` has succeeded unless noted. Return types are the TrainValRun / EvalRun inputs. No `None`. No defaults.
+
+| Getter | Returns | Needed by |
+|---|---|---|
+| `get_run_name` | legal name | identity |
+| `get_identity_payload` | JSON object | identity hash |
+| `get_force` | `Force` | claim tree |
+| `get_hash_manager` | `HashManager` | identity |
+| `get_identity_index` | Directory for this run’s group (exists after CREATE) | identity |
+| `get_identity_lock_timeout` | seconds > 0 | ExclusiveDirLock, worker attach deadline |
+| `get_artifacts_directory` | Directory for this group + name | checkpointer, inspect |
+| `apply_seed` | (process seed) | before `get_net` |
+| `get_net` | `nn.Module` | fit, inspect |
+| `get_loaders` | `TrainValLoaders` | fit |
+| `get_steps` | `FitSteps` | fit |
+| `get_metrics` | `TrainValMetrics` | fit, checkpointer monitor |
+| `get_optimization` | `OptimizationConfig` | fit |
+| `get_trainer` | `TrainerConfig` (legal row) | fit |
+| `get_checkpointer` | `InspectableCheckpointer` | fit, inspect fetch |
+| `get_logger` | `Logger` built, closed | fit, inspect |
+| `get_run_log` | `RunLogConfig` | fit, inspect |
+| `get_checkpoint_request` | `CheckpointRequest` | inspect |
+| `get_inspect_staging_directory` | Directory (empty, this process) | inspect fetch dest |
+| `get_inspect_payload_directory(epoch)` | Directory | evaluate_fn closure |
+| `get_eval_loaders` | `EvalLoaders` | inspect |
+| `get_evaluate_fn` | EvalRun callable | inspect |
+| `get_eval_device` | `torch.device` | inspect |
+
+`get_trainer().devices` is a tuple of GPU indices (empty iff CPU). A recipe **count** is not a TrainerConfig. Conversion is DefaultLayout, not this algorithm.
+
+`get_eval_loaders` is a named map. Passing only the fit val loader is legal (`{"val": that loader}`) and is often too small (embeddings, probes, neighbor sheets). The project’s `evaluate_fn` decides which names it reads. This engine does not invent `"val"`.
+
+`apply_seed` sets Python, NumPy, and Torch RNGs to the recipe seed. DataLoader worker seeding is the experiment builder, not this method.
+
+---
+
+## Translation (class)
+
+| Algorithm | Method |
+|---|---|
+| purpose + bound recipe | constructor of the **subclass** |
+| fit flow | `train()` |
+| inspect flow | `inspect()` |
+| occupancy tree / attach | `process_run_identity` / `attach_fit_identity` / `claim_fit_identity` |
+| trainer pickle → inner `net` | `TrainValLightningModule.load_net` (on that class, not this engine) |
+| objects for `fit` / `evaluate` | getters above |
+
+Abstract class implements `train` / `inspect` / the occupancy trees. It does not know `identity.json` or `storage/runs`. Subclass implements getters (DefaultLayoutTrainValEngine uses ProjectLayout).
+
+No `exp_engine/common/` and no run-agnostic engine class. TrainOnly copies this folder shape later.
+
+---
+
+## Tensions
+
+1. **Zero-arg methods move CLI into the constructor.** `force`, inspect selector, eval device, evaluate_fn are construction-time. Purpose `fit` | `inspect` keeps train CLI from needing inspect fields. One class, two purposes — not a fourth engine.
+
+2. **Two independent trains vs DDP.** Occupancy handles two shells. DDP workers attach. Worker attach **retries** `BOTH_FREE` until timeout so torchrun does not lose the race to rank 0’s claim. Lightning default spawn does not need the retry; the retry is still the algorithm.
+
+3. **No inspect process uniqueness.** The itch was “two inspect shells on the same run.” That is a process lock, not a train-hash or epoch key. This engine does not implement it. Overlapping inspects corrupt the vendor inspect stream (TensorBoard / MLflow writers on the same run). A polling script that re-inspects the same epoch also double-writes `step=epoch`. Skip logic, if any, belongs in the script.
+
+4. **No ModuleWeights.** Inspect is `get_net()` plus `TrainValLightningModule.load_net`. The `net.` layout is that class’s `self.net`, not a key-layout entity. Weights-only test files (`write_weights`) are not this method; they are not inspect.
+
+5. **ExclusiveDirLock is still a draft.** The fit identity tree holds it. Do not pretend HashManager is atomic.
+
+6. **EvalRun vs inspect folders.** EvalRun only logs. Disk files go to `payload_dir` via closure. EvalContext does not grow a folder. `payload_dir` is not a uniqueness gate.
+
+7. **Inspect `require` needs fit `create`.** First-epoch inspect racing `on_fit_start` can fail. The script retries; this method does not.
+
+8. **Resume is not a branch.** `BOTH_MATCH` on `train()` is an error. Attach is inspect and DDP workers.
+
+9. **`get_optimization` depends on `net`.** Getter order in `train()` is the contract. Do not construct the optimizer at engine init before identity.
+
+10. **`mark_finished` on the claiming process only.** Workers that call it fight the catalog lock. The `finally` is only on that process, including when `fit` raises.
+
+11. **Logger tags.** TrainValRun `on_fit_start` logs params and text, not tags. Recipe tags must live in `run_log.payload` (flattened to params) or they never reach the store. Do not call `logger.log_tags` from a place that is not open yet.
+
+12. **`experiment_management` is removed.** `ExpEngine` / `RunSession` / `ExperimentConfigManager` / `dl_toolbox_config` / `default_layout` under that package do not survive as names or paths. Layout lives in `project_layout`. This class lives in `dl_engine/exp_engine/train_val_engine/`.
+
+13. **Identity index is per `run_group`.** Occupancy does not span groups. Two shells can claim the same `human_readable_name` in different groups. `Force.overwrite_name` only affects this group’s index and artifacts folder.

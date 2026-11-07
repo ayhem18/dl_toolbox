@@ -8,7 +8,7 @@ alwaysApply: false
 
 External-state functionality. One train-only `Trainer.fit` in this process. It writes the **fit** logger stream and whatever the checkpointer writes.
 
-Not this entity: train/val (`train_val_run.mdc`), LR finder, inspect. Passing the train loader as `val` is TrainValRun with a fake split.
+Not this entity: train/val (`train_val_run.mdc`), LR finder, eval (`eval_run.mdc`). Passing the train loader as `val` is TrainValRun with a fake split.
 
 This is not the engine. Identity, recipe hash, `force`, DDP worker attach, `inspect()`, GPU picking, strategy choice are the caller. `fit` receives the already resolved accelerator, GPU index tuple, and strategy.
 

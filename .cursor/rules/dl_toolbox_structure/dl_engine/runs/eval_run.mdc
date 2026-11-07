@@ -1,0 +1,131 @@
+---
+description: EvalRun is one evaluation in this process. evaluate_fn returns LogItems. emit dispatches kind to Logger. Logger setup is EvalLoggerConfig (stream, existence, step).
+globs: **/dl_engine/runs/eval_run/**,**/tests/dl_engine/runs/eval_run/**
+alwaysApply: false
+---
+
+# EvalRun
+
+External-state functionality. One evaluation in this process. It writes one logger stream.
+
+`evaluate` receives an already loaded `net`, a built logger, and the already resolved device. Identity, checkpoint fetch, and weight load are the caller.
+
+Named constants, no defaults.
+
+The procedures in code are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+
+---
+
+## Given
+
+```
+evaluate(
+  *,
+  net,             # nn.Module, weights already loaded
+  loaders,         # EvalLoaders
+  evaluate_fn,     # EvalContext → Sequence[LogItem]
+  device,          # torch.device
+  logger,          # built, not open
+  logger_config,   # EvalLoggerConfig: stream, existence, step
+  run_log,         # RunLogConfig
+)
+```
+
+Keyword-only. Every argument required.
+
+`EvalLoaders`: non-empty map of non-empty name → `DataLoader`.
+
+`EvalLoggerConfig.stream` is `fit` | `inspect`. `existence` is `create` | `require`. `step` is an int >= 0 (caller clock).
+
+`EvalContext`:
+
+```
+net
+loaders
+device
+step          # logger_config.step
+```
+
+Each `LogItem` carries its own step. `emit` uses the item’s step.
+
+`LogItem` constructors:
+
+| Constructor | Payload |
+|---|---|
+| `LogItem.scalars(*, step, values)` | `values`: `Mapping[str, float]`, keys non-empty |
+| `LogItem.image(*, step, tag, image)` | `tag` non-empty, `image` the object `log_image` accepts |
+| `LogItem.text(*, step, tag, text)` | `tag` non-empty, `text` a `str` |
+| `LogItem.table(*, step, tag, rows)` | `tag` non-empty, `rows` a sequence of mappings |
+
+A one-name scalar is `LogItem.scalars(step=…, values={tag: value})`.
+
+---
+
+## `evaluate` — check inputs
+
+**Assume:** the seven arguments, all present. Logger closed.
+
+```
+net is nn.Module
+loaders has at least one DataLoader
+evaluate_fn is callable
+device is a torch.device
+logger_config is EvalLoggerConfig
+run_log is RunLogConfig
+```
+
+**After:** inputs are legal. Logger still closed. Callable not run.
+
+---
+
+## `evaluate` — run
+
+**Assume:** inputs legal. Logger closed.
+
+```
+net.eval()
+net.to(device)
+
+logger.setup(stream=logger_config.stream, existence=logger_config.existence)
+logger.log_params(flatten(run_log.payload))
+logger.log_text(run_log.filename, dump(run_log.payload, form=ascii_pretty), step=0)
+
+context = EvalContext(net, loaders, device, logger_config.step)
+items = evaluate_fn(context)
+if items is not a sequence of LogItem: error
+emit(logger, items)
+```
+
+`finally`: `logger.close()` (idempotent).
+
+**After:** logger closed.
+
+---
+
+## `emit`
+
+**Assume:** logger open. `items` is a sequence of `LogItem`.
+
+For each item, in list order:
+
+```
+if kind is SCALARS: logger.log_scalars(values, step=item.step)
+if kind is IMAGE:   logger.log_image(tag, image, step=item.step)
+if kind is TEXT:    logger.log_text(tag, text, step=item.step)
+if kind is TABLE:   logger.log_table(tag, rows, step=item.step)
+```
+
+**After:** every item has been passed to Logger. Logger still open.
+
+---
+
+## Translation
+
+| Behavior | Translation |
+|---|---|
+| check, `net.eval` / `to(device)`, setup, call, emit, `finally` close | `evaluate` |
+| kind → logger method | `emit` |
+| constructors above | `LogItem` |
+| name → DataLoader | `EvalLoaders` |
+| callable input | `EvalContext` |
+| stream, existence, step | `EvalLoggerConfig` |

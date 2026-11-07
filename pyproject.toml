@@ -87,4 +87,6 @@ testpaths = [
     "tests/dl_engine/dl_engine_utils/image_patchify",
     "tests/dl_engine/runs",
     "tests/base/hashing/test_hash_manager.py",
+    "tests/project_layout",
+    "tests/dl_engine/exp_engine",
 ]

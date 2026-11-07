@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -256,3 +257,47 @@ def test_module_init_has_no_defaults() -> None:
             continue
         assert param.default is inspect.Parameter.empty, name
         assert param.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_load_net_has_no_defaults() -> None:
+    params = inspect.signature(TrainValLightningModule.load_net).parameters
+    for name, param in params.items():
+        if name == "cls":
+            continue
+        assert param.default is inspect.Parameter.empty, name
+        assert param.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_load_net_copies_inner_weights(tmp_path: Path) -> None:
+    source = nn.Linear(4, 1)
+    with torch.no_grad():
+        source.weight.fill_(0.25)
+        source.bias.fill_(-1.5)
+    shell = nn.Module()
+    shell.add_module("net", source)
+    path = tmp_path / "net.ckpt"
+    torch.save({"state_dict": shell.state_dict()}, path)
+    dest = nn.Linear(4, 1)
+    loaded = TrainValLightningModule.load_net(
+        net=dest, file=path, map_location=torch.device("cpu")
+    )
+    assert loaded is dest
+    assert torch.equal(dest.weight, source.weight)
+    assert torch.equal(dest.bias, source.bias)
+
+
+def test_load_net_errors_on_unexpected_keys(tmp_path: Path) -> None:
+    extra = nn.Sequential(nn.Linear(4, 1), nn.Linear(1, 1))
+    shell = nn.Module()
+    shell.add_module("net", extra)
+    path = tmp_path / "bad.ckpt"
+    torch.save({"state_dict": shell.state_dict()}, path)
+    dest = nn.Linear(4, 1)
+    try:
+        TrainValLightningModule.load_net(
+            net=dest, file=path, map_location=torch.device("cpu")
+        )
+    except ValueError as exc:
+        assert "state_dict" in str(exc)
+        return
+    raise AssertionError("expected ValueError")

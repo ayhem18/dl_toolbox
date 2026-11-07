@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import lightning as L
@@ -153,3 +155,50 @@ class TrainValLightningModule(L.LightningModule):
 
     def configure_optimizers(self) -> Optimizer | dict[str, Any]:
         return configured_optimizers(self._optimization)
+
+    @classmethod
+    def load_net(
+        cls,
+        *,
+        net: nn.Module,
+        file: Path,
+        map_location: torch.device,
+    ) -> nn.Module:
+        del cls
+        if not isinstance(net, nn.Module):
+            raise TypeError(f"net must be nn.Module, got {type(net)!r}")
+        if not isinstance(file, Path):
+            raise TypeError(f"file must be Path, got {type(file)!r}")
+        if not file.is_absolute():
+            raise ValueError(f"file must be an absolute Path, got {file}")
+        if not isinstance(map_location, torch.device):
+            raise TypeError(
+                f"map_location must be torch.device, got {type(map_location)!r}"
+            )
+        payload = torch.load(file, map_location=map_location, weights_only=False)
+        if not isinstance(payload, dict) or "state_dict" not in payload:
+            raise ValueError(
+                "checkpoint must be a dict with key 'state_dict', "
+                f"got {type(payload)!r}"
+            )
+        state = payload["state_dict"]
+        if not isinstance(state, Mapping):
+            raise TypeError(
+                f"state_dict must be a mapping, got {type(state)!r}"
+            )
+        shell = nn.Module()
+        shell.add_module("net", net)
+        try:
+            incompatible = shell.load_state_dict(state, strict=True)
+        except RuntimeError as exc:
+            raise ValueError(
+                f"checkpoint state_dict does not match net: {exc}"
+            ) from exc
+        missing = list(incompatible.missing_keys)
+        unexpected = list(incompatible.unexpected_keys)
+        if missing or unexpected:
+            raise ValueError(
+                "checkpoint state_dict does not match net: "
+                f"missing={missing} unexpected={unexpected}"
+            )
+        return net

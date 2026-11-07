@@ -8,7 +8,7 @@ alwaysApply: false
 
 External-state functionality. One train/val `Trainer.fit` in this process. It writes the **fit** logger stream and whatever the checkpointer writes.
 
-Not this entity: train-only (`train_only_run.mdc`), LR finder, inspect. Passing the train loader as `val` is still this entity, and it is the wrong entity for overfit.
+Not this entity: train-only (`train_only_run.mdc`), LR finder, eval (`eval_run.mdc`). Passing the train loader as `val` is still this entity, and it is the wrong entity for overfit.
 
 This is not the engine. Identity, recipe hash, `force`, DDP worker attach, `inspect()`, GPU picking, strategy choice are the caller. `fit` receives the already resolved accelerator, GPU index tuple, and strategy.
 
@@ -233,6 +233,31 @@ logger.close()
 
 ---
 
+## `TrainValLightningModule.load_net(*, net, file, map_location)`
+
+Not a `fit` method. Inspect (TrainValEngine) calls it. Same mapping as a `Trainer.save_checkpoint` pickle, inner weights under the child name `net`. No extra key in the pickle. No ModuleWeights.
+
+**Assume:** `file` is that pickle (what `fetch` copied). `net` is a bare `nn.Module` with the fit architecture, weights not loaded. `map_location` is a `torch.device`.
+
+```
+payload = torch.load(file, map_location=map_location, weights_only=False)
+if payload is not a dict or "state_dict" not in payload: error
+state = payload["state_dict"]
+
+shell = nn.Module()
+shell.add_module("net", net)                 # child name matches self.net
+missing, unexpected = shell.load_state_dict(state, strict=True)
+if missing or unexpected: error
+```
+
+**After:** `net` holds the inner weights. `file` unchanged. Lightning optimizer / epoch keys in the pickle are not loaded (they are not in `state_dict`).
+
+`strict=True` on the shell is the same `net.` mapping as a prefix strip, without dropping leftover keys. Unexpected keys are an error.
+
+classmethod, not static: the child name is a fact of **this class**. Do not call this from `fit`. Do not override `state_dict` / `on_save_checkpoint`.
+
+---
+
 ## Translation
 
 | Behavior | Translation |
@@ -240,3 +265,4 @@ logger.close()
 | check, construct, `Trainer.fit(train, val)`, `finally` close | `fit` |
 | loop methods | `TrainValLightningModule` |
 | `on_validation_end` save | `InspectableCheckpointCallback(checkpointer=…)` |
+| trainer pickle → inner `net` | `TrainValLightningModule.load_net` |
