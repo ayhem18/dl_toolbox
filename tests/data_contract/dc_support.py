@@ -4,20 +4,50 @@ from __future__ import annotations
 
 import random
 import string
+from pathlib import Path
+
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
+)
+from dl_toolbox.base.hashing.hash_manager import HashManager
 
 N_TRIALS = 40
+
+
+def hash_manager() -> HashManager:
+    return HashManager(
+        prefix_len=12,
+        human_readable_dir_name="human_readable",
+        hash_dir_name="hashes",
+        lock_timeout_seconds=2,
+        lock_poll_seconds=0.05,
+    )
+
+
+def identity_index(manager: HashManager, path: Path) -> Directory:
+    directory = Directory.from_absolute(
+        path=path, policy=DirectoryParsePolicy.ALLOW_MISSING
+    )
+    return manager.create_identity_index(directory)
+
+
+def missing_directory(path: Path) -> Directory:
+    return Directory.from_absolute(
+        path=path, policy=DirectoryParsePolicy.ALLOW_MISSING
+    )
+
+
+def existing_directory(path: Path) -> Directory:
+    return Directory.from_absolute(
+        path=path, policy=DirectoryParsePolicy.CREATE
+    )
 
 
 def random_generating_process_name(rng: random.Random) -> str:
     alphabet = string.ascii_lowercase + string.digits
     n = rng.randint(6, 18)
     return "run_" + "".join(rng.choice(alphabet) for _ in range(n))
-
-
-def shuffled_mapping(rng: random.Random, payload: dict) -> dict:
-    items = list(payload.items())
-    rng.shuffle(items)
-    return dict(items)
 
 
 def random_json_object(rng: random.Random) -> dict:

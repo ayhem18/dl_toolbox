@@ -36,6 +36,7 @@ def _checkpointer(
         monitor=CheckpointMonitor(key="loss", mode="min"),
         max_epochs=10,
         lock_timeout_seconds=5.0,
+        lock_poll_seconds=0.05,
     )
 
 

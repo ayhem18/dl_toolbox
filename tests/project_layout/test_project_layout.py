@@ -11,7 +11,7 @@ from dl_toolbox.base.file_management.directory import (
     DirectorySpec,
 )
 from dl_toolbox.base.file_management.file import File
-from dl_toolbox.base.input_output.json_io import JsonTextForm, read, write
+from dl_toolbox.base.input_output.json_io import JsonTextForm, read_object, write_object
 from dl_toolbox.project_layout import ProjectLayout, TrackingBackend
 from dl_toolbox.project_layout.names import (
     DEFAULT_CHECKPOINT_CONFIG,
@@ -34,6 +34,29 @@ def _scaffold(
         root=root, project_name=name, tracking_backend=backend
     )
     return root
+
+
+def _logging_dir(root: Directory) -> Directory:
+    return Directory.from_under(
+        root=root,
+        relative_path="project_level_configs/logging",
+        policy=DirectoryParsePolicy.MUST_EXIST,
+    )
+
+
+def _assert_hash_manager(layout: ProjectLayout) -> None:
+    manager = layout.hash_manager
+    assert manager.prefix_len == DEFAULT_IDENTITY_CONFIG["prefix_len"]
+    assert (
+        manager.human_readable_dir_name
+        == DEFAULT_IDENTITY_CONFIG["human_readable_dirname"]
+    )
+    assert manager.hash_dir_name == DEFAULT_IDENTITY_CONFIG["hashes_dirname"]
+    assert manager.lock_timeout_seconds == DEFAULT_CHECKPOINT_CONFIG[
+        "lock_timeout_seconds"
+    ]
+    assert manager.lock_poll_seconds == ProjectLayout.LOCK_POLL_SECONDS
+    assert layout.lock_timeout_seconds == manager.lock_timeout_seconds
 
 
 def test_scaffold_then_from_start_tensorboard(
@@ -62,10 +85,7 @@ def test_scaffold_then_from_start_tensorboard(
         assert layout.root.path == root.path
         assert layout.project_name == name
         assert layout.tracking_backend == TrackingBackend.TENSORBOARD
-        assert layout.hash_manager.prefix_len == DEFAULT_IDENTITY_CONFIG["prefix_len"]
-        assert layout.lock_timeout_seconds == DEFAULT_CHECKPOINT_CONFIG[
-            "lock_timeout_seconds"
-        ]
+        _assert_hash_manager(layout)
         assert layout.tensorboard_log_dir().path == root.path / "storage" / "tensorboard"
         assert layout.tensorboard_log_dir().spec == DirectorySpec.MISSING
         index = layout.identity_index(run_group=())
@@ -85,7 +105,7 @@ def test_from_start_does_not_use_cwd(
     root = _scaffold(
         tmp_path / "repo", name=name, backend=TrackingBackend.TENSORBOARD
     )
-    start = File.from_absolute(path=root.path / MARKER_FILENAME)
+    start = File.from_under(root=root, relative_path=MARKER_FILENAME)
     layout = ProjectLayout.from_start(
         start=start,
         project_name=name,
@@ -109,7 +129,8 @@ def test_from_start_mlflow_and_does_not_rewrite_tracking_file(
     root = _scaffold(
         tmp_path, name=name, backend=TrackingBackend.TENSORBOARD
     )
-    before = (root.path / TRACKING_BACKEND_FILENAME).read_text(encoding="utf-8")
+    backend_file = File.from_under(root=root, relative_path=TRACKING_BACKEND_FILENAME)
+    before = backend_file.path.read_text(encoding="utf-8")
     layout = ProjectLayout.from_start(
         start=root,
         project_name=name,
@@ -123,9 +144,8 @@ def test_from_start_mlflow_and_does_not_rewrite_tracking_file(
     assert layout.mlflow_artifact_root().path == (
         root.path / "storage" / "mlflow" / "artifacts"
     )
-    assert (root.path / TRACKING_BACKEND_FILENAME).read_text(
-        encoding="utf-8"
-    ) == before
+    after = File.from_under(root=root, relative_path=TRACKING_BACKEND_FILENAME)
+    assert after.path.read_text(encoding="utf-8") == before
     with pytest.raises(ValueError, match="tensorboard"):
         layout.tensorboard_log_dir()
 
@@ -135,12 +155,20 @@ def test_scaffold_does_not_write_wandb(tmp_path: Path, rng: random.Random) -> No
     root = _scaffold(
         tmp_path, name=name, backend=TrackingBackend.TENSORBOARD
     )
-    logging_dir = root.path / "project_level_configs" / "logging"
-    assert (logging_dir / "tensorboard.json").is_file()
-    assert (logging_dir / "mlflow.json").is_file()
-    assert not (logging_dir / "wandb.json").exists()
-    assert not (root.path / "storage" / "runs").exists()
-    marker = read(file=File.from_under(root=root, relative_path=MARKER_FILENAME))
+    logging_dir = _logging_dir(root)
+    File.from_under(root=logging_dir, relative_path="tensorboard.json")
+    File.from_under(root=logging_dir, relative_path="mlflow.json")
+    with pytest.raises(FileNotFoundError):
+        File.from_under(root=logging_dir, relative_path="wandb.json")
+    runs = Directory.from_under(
+        root=root,
+        relative_path="storage/runs",
+        policy=DirectoryParsePolicy.ALLOW_MISSING,
+    )
+    assert runs.spec == DirectorySpec.MISSING
+    marker = read_object(
+        file=File.from_under(root=root, relative_path=MARKER_FILENAME)
+    )
     assert marker == {"name": name}
 
 
@@ -162,7 +190,7 @@ def test_marker_rejects_package_key(tmp_path: Path, rng: random.Random) -> None:
     root = _scaffold(
         tmp_path, name=name, backend=TrackingBackend.TENSORBOARD
     )
-    write(
+    write_object(
         directory=root,
         name=MARKER_FILENAME,
         payload={"name": name, "package": name},
@@ -184,12 +212,8 @@ def test_absolute_log_dir_stays_absolute(
         tmp_path / "proj", name=name, backend=TrackingBackend.TENSORBOARD
     )
     absolute = tmp_path / "outside_tb"
-    write(
-        directory=Directory.from_under(
-            root=root,
-            relative_path="project_level_configs/logging",
-            policy=DirectoryParsePolicy.MUST_EXIST,
-        ),
+    write_object(
+        directory=_logging_dir(root),
         name="tensorboard.json",
         payload={"log_dir": str(absolute)},
         form=JsonTextForm.DOCUMENT,
@@ -200,6 +224,34 @@ def test_absolute_log_dir_stays_absolute(
         tracking_backend=TrackingBackend.TENSORBOARD,
     )
     assert layout.tensorboard_log_dir().path == absolute
+
+
+def test_hash_manager_takes_checkpoint_lock_timeout(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    name = random_generating_process_name(rng)
+    root = _scaffold(
+        tmp_path, name=name, backend=TrackingBackend.TENSORBOARD
+    )
+    configs = Directory.from_under(
+        root=root,
+        relative_path="project_level_configs",
+        policy=DirectoryParsePolicy.MUST_EXIST,
+    )
+    write_object(
+        directory=configs,
+        name="checkpoint.json",
+        payload={"lock_timeout_seconds": 12.5},
+        form=JsonTextForm.DOCUMENT,
+    )
+    layout = ProjectLayout.from_start(
+        start=root,
+        project_name=name,
+        tracking_backend=TrackingBackend.TENSORBOARD,
+    )
+    assert layout.hash_manager.lock_timeout_seconds == 12.5
+    assert layout.lock_timeout_seconds == 12.5
+    assert layout.hash_manager.lock_poll_seconds == ProjectLayout.LOCK_POLL_SECONDS
 
 
 def test_run_group_joins_identity_and_artifacts(

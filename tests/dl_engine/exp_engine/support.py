@@ -10,7 +10,7 @@ from dl_toolbox.base.file_management.directory import (
     DirectoryParsePolicy,
 )
 from dl_toolbox.base.file_management.file import File
-from dl_toolbox.base.input_output.json_io import JsonTextForm, write
+from dl_toolbox.base.input_output.json_io import JsonTextForm, write_object
 from dl_toolbox.dl_engine.exp_engine.train_val_engine.experiment import (
     TrainValEvalParts,
     TrainValFitParts,
@@ -103,7 +103,7 @@ def write_recipe(root: Directory, *, relative_path: str, payload: dict[str, Any]
         relative_path=parent_relative,
         policy=DirectoryParsePolicy.CREATE,
     )
-    return write(
+    return write_object(
         directory=directory,
         name=name,
         payload=payload,

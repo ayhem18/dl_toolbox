@@ -7,7 +7,7 @@ import pytest
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 
-from dl_toolbox.dl_engine.loggers.logger import EXISTENCE_CREATE, STREAM_FIT
+from dl_toolbox.dl_engine.loggers.logger import LogExistence, LogStream
 from dl_toolbox.dl_engine.metrics.classification.classification import (
     binary_bce_loss_metric,
 )
@@ -78,7 +78,7 @@ def test_fit_cpu_end_to_end(tmp_path: Path) -> None:
     assert (checkpoints / "catalog.json").is_file()
     ckpt_files = list((checkpoints / "live").glob("*.ckpt"))
     assert ckpt_files
-    assert logger.setup_calls == [(STREAM_FIT, EXISTENCE_CREATE)]
+    assert logger.setup_calls == [(LogStream.FIT, LogExistence.CREATE)]
     assert logger.close_calls >= 1
     assert logger.params
     assert logger.texts[0][0] == "run_config"
@@ -112,7 +112,7 @@ def test_fit_accumulate_grad_batches_and_live_scheduler(tmp_path: Path) -> None:
         run_log=run_log(),
     )
     assert trainer.accumulate_grad_batches == 2
-    assert logger.setup_calls == [(STREAM_FIT, EXISTENCE_CREATE)]
+    assert logger.setup_calls == [(LogStream.FIT, LogExistence.CREATE)]
 
 
 def test_fit_rejects_monitor_missing_from_val_metrics(tmp_path: Path) -> None:

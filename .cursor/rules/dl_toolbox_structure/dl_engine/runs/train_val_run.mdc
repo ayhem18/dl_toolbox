@@ -1,268 +1,139 @@
 ---
-description: TrainValRun is one train/val Trainer.fit. Both loaders required. Monitor is a val epoch metric. The run constructs InspectableCheckpointCallback(checkpointer).
-globs: **/dl_engine/runs/train_val_run/**,**/tests/dl_engine/runs/train_val_run/**
+description: TrainValRun is fit() for a train+val Lightning module. on_fit_start (rank 0) is LogStream.FIT / LogExistence.CREATE, flatten_object into log_params, dump_object into log_text. Early stopping is EarlyStoppingConfig.NONE or PATIENCE. Scheduler is OptimizationConfig.ABSENT or an LRScheduler. Lightning logger=False, enable_checkpointing=False.
+globs: **/runs/train_val_run/**,**/runs/common/**,**/tests/dl_engine/runs/train_val_run/**
 alwaysApply: false
 ---
 
 # TrainValRun
 
-External-state functionality. One train/val `Trainer.fit` in this process. It writes the **fit** logger stream and whatever the checkpointer writes.
+## Context
 
-Not this entity: train-only (`train_only_run.mdc`), LR finder, eval (`eval_run.mdc`). Passing the train loader as `val` is still this entity, and it is the wrong entity for overfit.
+The engine claims occupancy and binds getters. Something still has to construct the Lightning module, call `trainer.fit`, open the FIT stream, and install early stopping. That something is `fit()` in this package: one procedure, not a class with a second lifecycle.
 
-This is not the engine. Identity, recipe hash, `force`, DDP worker attach, `inspect()`, GPU picking, strategy choice are the caller. `fit` receives the already resolved accelerator, GPU index tuple, and strategy.
+`TrainValRun` is that procedure plus the objects it consumes: `TrainValLightningModule`, `TrainValLoaders`, `TrainValMetrics`, `FitSteps`, `TrainerConfig`, `OptimizationConfig`, `RunLogConfig`, the checkpointer, the Logger. Rank 0 `on_fit_start` opens the FIT stream (`LogStream.FIT`, `LogExistence.CREATE`), logs flattened hparams (`flatten_object` → `log_params`), and logs the structured payload (`dump_object` → `log_text` under `RunLogConfig.filename`). Other ranks skip that write. `fit()` always `logger.close()` in `finally`. Lightning's own logger and checkpointing are off; this run owns both.
 
-The checkpointer has no Lightning hook. This run constructs `InspectableCheckpointCallback(checkpointer=…)`.
+Train-only is a sibling procedure with no val loader. Eval is `evaluate()` / `LogItem`. They share `runs/common`.
 
-Named constants, no defaults. `None` is not “no scheduler” and not “CPU devices”.
+---
 
-The class and procedures in code are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+## Terminology
 
-Lightning calls **callbacks first, then the module**, for the same hook name. `InspectableCheckpointCallback` is `on_validation_end`. It runs after `module.on_validation_epoch_end`.
+Logger, LogStream, LogExistence: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. JSON `dump_object` / `flatten_object` / `JsonTextForm`: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`. TrainValEngine: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `fit` | the train+val procedure |
+| `TrainValLightningModule` | Lightning module: training_step, validation_step, configure_optimizers, on_fit_start |
+| `TrainValLoaders` | `train` DataLoader plus `val` DataLoader |
+| `TrainValMetrics` | train metrics, val metrics, `monitor` |
+| `FitSteps` | `prepare_tensors_fn`, `forward_fn`, `loss_fn`, `build_metric_inputs_fn` |
+| `TrainerConfig` | Lightning Trainer fields this run names |
+| `OptimizationConfig` | optimizer plus `scheduler` |
+| `OptimizationConfig.ABSENT` | no scheduler |
+| `EarlyStoppingConfig` | `NONE` or `PATIENCE` |
+| `EarlyStoppingConfig.none()` | no Lightning EarlyStopping callback |
+| `EarlyStoppingConfig.PATIENCE` | `patience` + `min_delta`; monitor comes from metrics |
+| `RunLogConfig` | `payload` plus `filename` |
+| `Accelerator` / `Strategy` | Lightning accelerator and strategy names |
+| `on_fit_start` | rank-0 logger setup + params + text dump |
+| `FitError` | run-level error for illegal trainer / monitor combinations |
 
 ---
 
 ## Input Specification
 
-```
-fit(
-  *,
-  net,
-  loaders,        # TrainValLoaders.train and .val, both required
-  steps,          # FitSteps: the four callables
-  metrics,        # TrainValMetrics: train_metrics, val_metrics, monitor
-  optimization,   # optimizer, scheduler = ABSENT | live LRScheduler
-  trainer,        # TrainerConfig
-  checkpointer,   # InspectableCheckpointer
-  logger,         # built, not open
-  run_log,        # payload JSON object, filename
-)
-```
+`fit(*, net, loaders, steps, metrics, optimization, trainer, checkpointer, logger, run_log)`: `net` is `nn.Module`. `loaders` has `train` and `val`. `steps` is `FitSteps`. `metrics.monitor.key` is among the val epoch metric keys. `optimization.scheduler` is `OptimizationConfig.ABSENT` or an `LRScheduler`. `trainer.early_stopping.name` is `NONE` or `PATIENCE`. `PATIENCE` has `patience` (int ≥ 1) and `min_delta` (float ≥ 0). `run_log.payload` is JSON-legal via `dump_object`.
 
-Keyword-only. Every argument required.
+`on_fit_start` runs inside Lightning. Only `trainer.is_global_zero` writes. Logger is not yet open on the FIT stream.
 
-`monitor.key` is a **val** epoch metric name (`…/val/epoch/…`).
-
-`TrainerConfig.early_stopping` is `NONE` or `PATIENCE` with required `patience` and `min_delta`.
-
-`devices` is a tuple of GPU indices. Empty iff CPU. Never a count, never `"auto"`, never `None`.
-
-Legal compute rows: `gpu` + length 1 + `single_device`; `gpu` + length ≥ 2 unique + `ddp`; `cpu` + `()` + `single_device`.
-
-`fit` does not write `CUDA_VISIBLE_DEVICES` and does not call `nvidia-smi`.
-
-Shared types with TrainOnlyRun: `FitSteps`, `OptimizationConfig`, `TrainerConfig`, `RunLogConfig`, `EarlyStoppingConfig`, `MonitorConfig`.
+Lightning Trainer: `logger=False`, `enable_checkpointing=False`, `check_val_every_n_epoch=1`, `num_nodes=1`. `require_single_machine` after construct.
 
 ---
 
-## `fit` — check inputs
+## Main functionalities
 
-**Assume:** the nine arguments, all present.
+### `fit(...)`
+
+**input:** `net`, `loaders`, `steps`, `metrics`, `optimization`, `trainer`, `checkpointer`, `logger`, `run_log`.
+
+**assumptions on the input:** Input Specification. Engine already claimed occupancy.
+
+**steps:**
 
 ```
-if trainer combination is not a legal row: error
-if max_epochs < 1 or accumulate_grad_batches < 1: error
-if early_stopping is PATIENCE: patience and min_delta are already on that object
-monitor.key must be among val epoch metric names
-  (checked again at first real val end)
+require metrics.monitor.key ∈ val epoch metric keys
+lit = TrainValLightningModule(net, steps, metrics, optimization, logger, run_log)
+callbacks = [InspectableCheckpointCallback(checkpointer)]
+if early_stopping.name is PATIENCE:
+    add EarlyStopping(monitor=metrics.monitor.key, patience=..., mode=metrics.monitor.mode, min_delta=...)
+Lightning Trainer from TrainerConfig (logger=False, enable_checkpointing=False, ...)
+require_single_machine
+try: trainer.fit(lit, train_dataloaders=loaders.train, val_dataloaders=loaders.val)
+finally: logger.close()
 ```
 
-**After:** inputs are legal. No Trainer yet.
+**side effects:** training, checkpoints, FIT logs, logger close.
+
+**outputs:** the Lightning Trainer after fit.
+
+### `on_fit_start` (rank 0)
+
+**input:** the Lightning module's bound logger and `RunLogConfig`.
+
+**assumptions on the input:** `trainer.is_global_zero`. Logger not yet open for FIT.
+
+**steps:**
+
+```
+if not global zero: return
+logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
+logger.log_params(flatten_object(run_log.payload))
+logger.log_text(run_log.filename, dump_object(payload, form=JsonTextForm.ASCII_PRETTY), step=0)
+```
+
+**side effects:** logger entity created; params logged; text dump logged.
+
+**outputs:** none. Fit continues.
+
+### `TrainValLightningModule` steps
+
+**input:** a batch, `FitSteps`, `optimization`, metrics.
+
+**assumptions on the input:** loaders yield the batch type `prepare_tensors_fn` names.
+
+**steps:**
+
+```
+training_step: prepare_tensors_fn, forward_fn, loss_fn, metric.update on train metrics, log scalars
+validation_step: same on val metrics
+configure_optimizers: optimizer, and scheduler unless ABSENT
+```
+
+**side effects:** metric state, logged scalars.
+
+**outputs:** loss tensor (`training_step`).
 
 ---
 
-## `fit` — construct and run
+## Secondary functionalities
 
-**Assume:** inputs legal. Logger closed.
+`Accelerator` / `Strategy` are the Lightning names this run passes through `lightning_devices` / `lightning_strategy`.
 
-Build the module from `net`, `optimization`, `logger`, `steps`, `metrics`, `run_log`.
+`FitError` is the run-level error (monitor key missing from val epoch metrics; illegal trainer combinations `require_single_machine` names).
 
-Callbacks: `InspectableCheckpointCallback(checkpointer=checkpointer)`, then EarlyStopping if `PATIENCE`. Not `TrainEpochCheckpointCallback`.
-
-```
-Trainer(
-  max_epochs, accelerator, devices, strategy, precision,
-  accumulate_grad_batches,
-  callbacks,
-  enable_progress_bar,
-  logger=False,
-  enable_checkpointing=False,
-  check_val_every_n_epoch=1,
-  num_nodes=1,
-)
-```
-
-Lightning names (constructor only):
-
-| Ours | Lightning |
-|---|---|
-| `cpu` + `devices=()` | `accelerator="cpu"`, `devices=1` |
-| `gpu` + index tuple | `accelerator="gpu"`, `devices=list(indices)` |
-| `single_device` | `strategy="auto"` |
-| `ddp` | `strategy="ddp"` |
-
-After Trainer exists:
-
-```
-if trainer.num_nodes > 1: error
-if strategy is ddp and world_size != len(devices): error
-if strategy is single_device and world_size != 1: error
-```
-
-**After:** module + Trainer ready. Logger still closed.
-
-`trainer.fit(module, loaders.train, loaders.val)`. `finally`: `logger.close()` (idempotent).
-
-`check_val_every_n_epoch=1` is part of this run. Validating every N is a different run.
+`RunLogConfig` names `payload` and `filename`.
 
 ---
 
-## Loop
+## What this implies for the engine/multiprocess
 
-Lightning may run a sanity val before epoch 0. Same val methods; `on_train_epoch_end` / `on_validation_epoch_end` return immediately when `sanity_checking`. The checkpointer also skips sanity.
-
-Only global zero calls Logger.
-
-`self.log` is Lightning `callback_metrics` (`sync_dist=True`). Rank 0 also `logger.log_scalars`. Two writes.
-
-`configure_optimizers`:
-
-```
-if scheduler is ABSENT: return optimizer
-return {optimizer, lr_scheduler: {scheduler, interval=epoch}}
-```
+Engine `train()` calls `fit()`. Workers skip `on_fit_start` writes. Logger setup on rank 0 is `CREATE`; inspect later `REQUIRE`s that entity. Close is this procedure's `finally`, not the engine's.
 
 ---
 
-### `on_fit_start`
+## Tensions
 
-**Assume:** Trainer exists. Rank is known. Logger closed.
-
-```
-if not is_global_zero: return
-logger.setup(stream=fit, existence=create)
-logger.log_params(flatten(run_log.payload))
-logger.log_text(run_log.filename, dump(run_log.payload, form=ascii_pretty), step=0)
-```
-
-**After:** rank 0 may `log_*`.
-
----
-
-### `on_train_epoch_start`
-
-```
-train_accumulator = MetricAccumulator(train_metrics, split=train)
-```
-
-All ranks.
-
----
-
-### `training_step(raw_batch, batch_idx)`
-
-```
-batch = prepare_tensors_fn(raw_batch)
-output = forward_fn(net, batch)
-loss = loss_fn(output, batch)
-if train_accumulator is None: error
-update train_accumulator from build_metric_inputs_fn(output, batch)   # no grad
-return loss
-```
-
----
-
-### `on_train_epoch_end`
-
-```
-if sanity_checking: return
-if train_accumulator is None: error
-self.log(train epoch scalars, sync_dist=True, logger=False, prog_bar=False)
-if is_global_zero:
-    logger.log_scalars(those scalars, step=epoch)
-```
-
-MetricAccumulator is rank-local. `sync_dist=True` is mean-of-means.
-
----
-
-### `on_validation_epoch_start`
-
-```
-val_accumulator = MetricAccumulator(val_metrics, split=val)
-```
-
----
-
-### `validation_step(raw_batch, batch_idx)`
-
-```
-batch = prepare_tensors_fn(raw_batch)
-output = forward_fn(net, batch)           # inference_mode
-if val_accumulator is None: error
-update val_accumulator from build_metric_inputs_fn(output, batch)
-```
-
-No loss backward.
-
----
-
-### `on_validation_epoch_end`
-
-```
-if sanity_checking: return
-if val_accumulator is None: error
-self.log(val epoch scalars, sync_dist=True, logger=False, prog_bar=True)
-if is_global_zero:
-    logger.log_scalars(those scalars, step=epoch)
-if monitor.key not in val epoch keys: error
-```
-
-Checkpoint has not run yet. Next Lightning hook is `on_validation_end` on callbacks: `InspectableCheckpointCallback`.
-
----
-
-### `on_fit_end`
-
-```
-if not is_global_zero: return
-logger.close()
-```
-
-`fit`’s `finally` may `close` again.
-
----
-
-## `TrainValLightningModule.load_net(*, net, file, map_location)`
-
-Not a `fit` method. Inspect (TrainValEngine) calls it. Same mapping as a `Trainer.save_checkpoint` pickle, inner weights under the child name `net`. No extra key in the pickle. No ModuleWeights.
-
-**Assume:** `file` is that pickle (what `fetch` copied). `net` is a bare `nn.Module` with the fit architecture, weights not loaded. `map_location` is a `torch.device`.
-
-```
-payload = torch.load(file, map_location=map_location, weights_only=False)
-if payload is not a dict or "state_dict" not in payload: error
-state = payload["state_dict"]
-
-shell = nn.Module()
-shell.add_module("net", net)                 # child name matches self.net
-missing, unexpected = shell.load_state_dict(state, strict=True)
-if missing or unexpected: error
-```
-
-**After:** `net` holds the inner weights. `file` unchanged. Lightning optimizer / epoch keys in the pickle are not loaded (they are not in `state_dict`).
-
-`strict=True` on the shell is the same `net.` mapping as a prefix strip, without dropping leftover keys. Unexpected keys are an error.
-
-classmethod, not static: the child name is a fact of **this class**. Do not call this from `fit`. Do not override `state_dict` / `on_save_checkpoint`.
-
----
-
-## Translation
-
-| Behavior | Translation |
-|---|---|
-| check, construct, `Trainer.fit(train, val)`, `finally` close | `fit` |
-| loop methods | `TrainValLightningModule` |
-| `on_validation_end` save | `InspectableCheckpointCallback(checkpointer=…)` |
-| trainer pickle → inner `net` | `TrainValLightningModule.load_net` |
+- **`fit()` is a procedure.** There is no TrainValRun instance to hold a second logger after close.
+- **Flattened params drop structure.** Nested recipe keys become path-like strings. The structured copy is `log_text` of `dump_object`, not a File write from this run.
+- **Val loader is required.** A fit with no validation is TrainOnlyRun. Monitor is a val epoch key here.
+- **Lightning checkpointing is off.** The InspectableCheckpointer callback is the checkpoint path. Turning Lightning checkpointing on would be a second writer.

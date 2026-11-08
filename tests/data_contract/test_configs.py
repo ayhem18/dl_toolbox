@@ -1,50 +1,50 @@
-# PARKED: no contract yet. Not collected by pytest until this package is rewritten.
 from __future__ import annotations
-
-import pytest
-
-pytest.skip("Parked: this package has no contract yet.", allow_module_level=True)
 
 import random
 from pathlib import Path
 
 import pytest
 
+from dl_toolbox.base.file_management.directory import Directory
+from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.base.hashing.identity import artifact_stem
+from dl_toolbox.base.input_output.json_io import read_object
 from dl_toolbox.data_contract.configs import (
-    hashed_artifact_path,
-    list_hashed_artifacts,
-    load_artifact,
-    resolve_artifact_path,
-    save_hashed_artifact,
+    load_collection_configuration,
     write_collection_configuration,
 )
-from dl_toolbox.base.hashing.identity import artifact_stem, hash_payload
-from dl_toolbox.base.input_output.json_io import read_json
 
-from tests.data_contract.dc_support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.data_contract.dc_support import (
+    N_TRIALS,
+    existing_directory,
+    hash_manager,
+    random_generating_process_name,
+    random_json_object,
+)
 
 
 class _Collection:
     def __init__(
         self,
-        configs_dir: Path,
+        configs_dir: Directory,
         generating_process_name: str,
         *,
         signature: dict,
         members: dict,
+        manager: HashManager,
     ) -> None:
         self._configs_dir = configs_dir
         self.generating_process_name = generating_process_name
         self.generating_process_signature = signature
         self._members = members
-        self.collection_hash = hash_payload(
+        self.collection_hash = manager.hash_payload(
             {
                 "generating_process_signature": self.generating_process_signature,
                 "members": self._members,
             }
         )
 
-    def configs_dir(self) -> Path:
+    def configs_dir(self) -> Directory:
         return self._configs_dir
 
     def to_dict(self) -> dict:
@@ -59,8 +59,9 @@ class _Collection:
 def test_written_configuration_loads_by_name_hash_and_prefix(
     tmp_path: Path, rng: random.Random
 ) -> None:
+    manager = hash_manager()
     for i in range(N_TRIALS):
-        configs_dir = tmp_path / f"collections_{i}"
+        configs_dir = existing_directory(tmp_path / f"collections_{i}")
         name = random_generating_process_name(rng)
         signature = {"strategy": "example", "args": random_json_object(rng)}
         members = {f"item_{rng.randint(0, 10_000)}": random_json_object(rng)}
@@ -69,76 +70,97 @@ def test_written_configuration_loads_by_name_hash_and_prefix(
             name,
             signature=signature,
             members=members,
+            manager=manager,
         )
-        hashed_path = write_collection_configuration(collection)
-        alias = configs_dir / f"{name}.json"
-        stored = read_json(hashed_path)
+        hashed_file = write_collection_configuration(collection, manager=manager)
+        stored = read_object(file=hashed_file)
         assert stored["hash"] == collection.collection_hash
         assert stored["generating_process_name"] == name
-        assert hashed_path == hashed_artifact_path(
-            configs_dir, collection.collection_hash
+        prefix = artifact_stem(
+            collection.collection_hash, prefix_len=manager.prefix_len
         )
-        assert resolve_artifact_path(configs_dir, name) == alias
-        assert (
-            resolve_artifact_path(configs_dir, collection.collection_hash)
-            == hashed_path
+        assert hashed_file.path.name == f"{prefix}.json"
+        by_name = load_collection_configuration(
+            configs_dir, name, manager=manager
         )
-        assert (
-            resolve_artifact_path(
-                configs_dir, artifact_stem(collection.collection_hash)
-            )
-            == hashed_path
+        by_hash = load_collection_configuration(
+            configs_dir, collection.collection_hash, manager=manager
         )
-        _, loaded = load_artifact(configs_dir, name)
-        assert loaded == stored
-        assert list_hashed_artifacts(configs_dir) == [hashed_path]
+        by_prefix = load_collection_configuration(
+            configs_dir, prefix, manager=manager
+        )
+        assert by_name[1] == stored
+        assert by_hash[0].path == hashed_file.path
+        assert by_hash[1] == stored
+        assert by_prefix[0].path == hashed_file.path
+        assert by_prefix[1] == stored
 
 
 def test_collection_hash_ignores_generating_process_name(
     tmp_path: Path, rng: random.Random
 ) -> None:
+    manager = hash_manager()
     for i in range(N_TRIALS):
         signature = {"strategy": "example", "args": random_json_object(rng)}
         members = {"item_1": random_json_object(rng)}
         left = _Collection(
-            tmp_path / f"a_{i}",
+            existing_directory(tmp_path / f"a_{i}"),
             random_generating_process_name(rng),
             signature=signature,
             members=members,
+            manager=manager,
         )
         right = _Collection(
-            tmp_path / f"b_{i}",
+            existing_directory(tmp_path / f"b_{i}"),
             random_generating_process_name(rng),
             signature=signature,
             members=members,
+            manager=manager,
         )
         assert left.collection_hash == right.collection_hash
 
 
-def test_truncated_identity_is_rejected(tmp_path: Path) -> None:
+def test_truncated_hash_is_rejected(tmp_path: Path) -> None:
+    manager = hash_manager()
+
+    class _ShortHash:
+        generating_process_name = "run_v1"
+        collection_hash = "abcd" * 4
+
+        def configs_dir(self) -> Directory:
+            return existing_directory(tmp_path / "short")
+
+        def to_dict(self) -> dict:
+            return {
+                "hash": self.collection_hash,
+                "generating_process_name": self.generating_process_name,
+            }
+
     with pytest.raises(ValueError, match="64-char"):
-        save_hashed_artifact(
-            tmp_path,
-            {
-                "hash": "abcd" * 4,
-                "generating_process_name": "run_v1",
-            },
-            full_hash="abcd" * 4,
-            generating_process_name="run_v1",
-        )
+        write_collection_configuration(_ShortHash(), manager=manager)
 
 
 def test_name_mismatch_is_rejected(tmp_path: Path, rng: random.Random) -> None:
+    manager = hash_manager()
     for _ in range(N_TRIALS):
-        digest = hash_payload(random_json_object(rng))
         left = random_generating_process_name(rng)
         right = random_generating_process_name(rng)
         if left == right:
             right = left + "_b"
+        digest = manager.hash_payload(random_json_object(rng))
+
+        class _Mismatch:
+            generating_process_name = right
+            collection_hash = digest
+
+            def configs_dir(self) -> Directory:
+                return existing_directory(tmp_path / "mismatch")
+
+            def to_dict(self) -> dict:
+                return {
+                    "hash": digest,
+                    "generating_process_name": left,
+                }
+
         with pytest.raises(ValueError, match="generating_process_name"):
-            save_hashed_artifact(
-                tmp_path,
-                {"hash": digest, "generating_process_name": left},
-                full_hash=digest,
-                generating_process_name=right,
-            )
+            write_collection_configuration(_Mismatch(), manager=manager)

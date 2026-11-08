@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
-from dl_toolbox.base.input_output.json_io import dump, JsonTextForm
+from dl_toolbox.base.input_output.json_io import dump_object, JsonTextForm
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
 _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -207,5 +207,5 @@ class RunLogConfig(BaseModel):
     @field_validator("payload")
     @classmethod
     def _json_object(cls, value: dict[str, Any]) -> dict[str, Any]:
-        dump(value, form=JsonTextForm.ASCII_PRETTY)
+        dump_object(value, form=JsonTextForm.ASCII_PRETTY)
         return value

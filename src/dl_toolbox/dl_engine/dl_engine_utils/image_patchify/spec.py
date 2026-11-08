@@ -1,8 +1,8 @@
-"""Patch layout, polarity, and specs.
+"""PatchLayout, MaskPolarity, PatchifiedTensorSpec, PatchifiedMaskSpec.
 
-``PatchifiedTensor`` / ``PatchifiedMask`` are a spec plus a batched tensor.
-Grid size lives on the payload except on ``SEQUENCE``, where it is an
-``unflatten`` argument, not a spec field.
+PatchifiedTensorSpec is layout × original_channels × patch_size.
+PatchifiedMaskSpec is layout × patch_size × polarity. Grid size lives on
+the payload except on SEQUENCE, where it is an unflatten argument.
 """
 
 from __future__ import annotations

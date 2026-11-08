@@ -11,8 +11,8 @@ from dl_toolbox.dl_engine.exp_engine.train_val_engine.default_layout import (
     pick_visible_gpu_indices,
 )
 from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
-    Force,
-    Purpose,
+    EnginePurpose,
+    IdentityOverwritePolicy,
 )
 from dl_toolbox.dl_engine.runs.common.run_config import Accelerator, Strategy
 from tests.dl_engine.exp_engine.support import (
@@ -87,11 +87,11 @@ def test_get_trainer_converts_count(
     )
     layout = layout_from_root(root, name="proj_gpu", backend="tensorboard")
     engine = DefaultLayoutTrainValEngine(
-        purpose=Purpose.FIT,
+        purpose=EnginePurpose.FIT,
         layout=layout,
         fit_recipe=recipe,
         experiment=LinearBinaryExperiment(),
-        force=Force.OFF,
+        force=IdentityOverwritePolicy.OFF,
     )
     trainer = engine.get_trainer()
     assert trainer.accelerator == Accelerator.GPU
@@ -117,18 +117,18 @@ def test_identity_payload_excludes_logger_labels(tmp_path: Path) -> None:
     )
     layout = layout_from_root(root, name="proj_hash", backend="tensorboard")
     left = DefaultLayoutTrainValEngine(
-        purpose=Purpose.FIT,
+        purpose=EnginePurpose.FIT,
         layout=layout,
         fit_recipe=first,
         experiment=LinearBinaryExperiment(),
-        force=Force.OFF,
+        force=IdentityOverwritePolicy.OFF,
     )
     right = DefaultLayoutTrainValEngine(
-        purpose=Purpose.FIT,
+        purpose=EnginePurpose.FIT,
         layout=layout,
         fit_recipe=second,
         experiment=LinearBinaryExperiment(),
-        force=Force.OFF,
+        force=IdentityOverwritePolicy.OFF,
     )
     assert left.get_identity_payload() == right.get_identity_payload()
     assert "tags" not in left.get_identity_payload()
@@ -151,14 +151,14 @@ def test_purpose_mismatch(tmp_path: Path) -> None:
     )
     layout = layout_from_root(root, name="proj_p", backend="tensorboard")
     fit_engine = DefaultLayoutTrainValEngine(
-        purpose=Purpose.FIT,
+        purpose=EnginePurpose.FIT,
         layout=layout,
         fit_recipe=fit,
         experiment=LinearBinaryExperiment(),
-        force=Force.OFF,
+        force=IdentityOverwritePolicy.OFF,
     )
     inspect_engine = DefaultLayoutTrainValEngine(
-        purpose=Purpose.INSPECT,
+        purpose=EnginePurpose.INSPECT,
         layout=layout,
         fit_recipe=fit,
         experiment=LinearBinaryExperiment(),
@@ -182,9 +182,9 @@ def test_cpu_devices_reject_gpu_indices(tmp_path: Path) -> None:
     layout = layout_from_root(root, name="proj_bad", backend="tensorboard")
     with pytest.raises(ValueError, match="cpu trainer.devices"):
         DefaultLayoutTrainValEngine(
-            purpose=Purpose.FIT,
+            purpose=EnginePurpose.FIT,
             layout=layout,
             fit_recipe=recipe,
             experiment=LinearBinaryExperiment(),
-            force=Force.OFF,
+            force=IdentityOverwritePolicy.OFF,
         )

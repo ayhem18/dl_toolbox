@@ -1,4 +1,10 @@
-"""Opinionated toolbox project tree."""
+"""ProjectLayout is one toolbox project tree, already located and read.
+
+from_start walks to dl_toolbox_project.json. scaffold writes the tree into
+an existing root. TrackingBackend is tensorboard or mlflow, chosen per
+from_start. HashManager is built from identity.json plus checkpoint.json
+lock timeout.
+"""
 
 from __future__ import annotations
 
@@ -15,9 +21,10 @@ from dl_toolbox.base.file_management.directory import (
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.file_management.join import resolve_under_project
 from dl_toolbox.base.hashing.hash_manager import HashManager
-from dl_toolbox.base.input_output.json_io import JsonTextForm, read, write
+from dl_toolbox.base.input_output.json_io import JsonTextForm, read_object, write_object
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
+from dl_toolbox.base.parsing.parse_utils import one_of_message, parse_one_of
 from dl_toolbox.project_layout.documents import (
     CheckpointDocument,
     IdentityDocument,
@@ -51,9 +58,7 @@ from dl_toolbox.project_layout.names import (
 class TrackingBackend:
     TENSORBOARD = "tensorboard"
     MLFLOW = "mlflow"
-
-
-_BACKENDS = frozenset({TrackingBackend.TENSORBOARD, TrackingBackend.MLFLOW})
+    BACKENDS = (TENSORBOARD, MLFLOW)
 
 
 class _TensorBoardLogging:
@@ -73,6 +78,8 @@ class _MlflowLogging:
 class ProjectLayout:
     """One toolbox project tree, already located and read."""
 
+    LOCK_POLL_SECONDS = 0.05
+
     def __init__(
         self,
         *,
@@ -80,24 +87,21 @@ class ProjectLayout:
         project_name: str,
         tracking_backend: str,
         hash_manager: HashManager,
-        lock_timeout_seconds: float,
         logging: _TensorBoardLogging | _MlflowLogging,
     ) -> None:
         if root.spec != DirectorySpec.EXISTS:
             raise ValueError(f"project root Directory must exist: {root.path}")
-        if tracking_backend == TrackingBackend.TENSORBOARD:
+        backend = _parse_backend(tracking_backend)
+        if backend == TrackingBackend.TENSORBOARD:
             if not isinstance(logging, _TensorBoardLogging):
                 raise TypeError("tensorboard backend requires tensorboard logging")
-        elif tracking_backend == TrackingBackend.MLFLOW:
+        else:
             if not isinstance(logging, _MlflowLogging):
                 raise TypeError("mlflow backend requires mlflow logging")
-        else:
-            raise ValueError(f"unknown tracking_backend {tracking_backend!r}")
         self._root = root
         self._project_name = project_name
-        self._tracking_backend = tracking_backend
+        self._tracking_backend = backend
         self._hash_manager = hash_manager
-        self._lock_timeout_seconds = lock_timeout_seconds
         self._logging = logging
 
     @property
@@ -118,7 +122,7 @@ class ProjectLayout:
 
     @property
     def lock_timeout_seconds(self) -> float:
-        return self._lock_timeout_seconds
+        return self._hash_manager.lock_timeout_seconds
 
     def tensorboard_log_dir(self) -> Directory:
         logging = self._logging
@@ -150,14 +154,14 @@ class ProjectLayout:
         expected_name = parse_non_empty_str(project_name, label="project_name")
         marker = File.from_parent_walk(start=start, basename=MARKER_FILENAME)
         root = marker.parent()
-        document = _marker_document(read(file=marker))
+        document = _marker_document(read_object(file=marker))
         if document.name != expected_name:
             raise ValueError(
                 f"{MARKER_FILENAME} name {document.name!r} does not match "
                 f"project_name {expected_name!r}"
             )
         identity = _identity_document(
-            read(
+            read_object(
                 file=File.from_under(
                     root=root,
                     relative_path=(
@@ -166,13 +170,8 @@ class ProjectLayout:
                 )
             )
         )
-        hash_manager = HashManager(
-            prefix_len=identity.prefix_len,
-            human_readable_dir_name=identity.human_readable_dirname,
-            hash_dir_name=identity.hashes_dirname,
-        )
         checkpoint = _checkpoint_document(
-            read(
+            read_object(
                 file=File.from_under(
                     root=root,
                     relative_path=(
@@ -181,11 +180,14 @@ class ProjectLayout:
                 )
             )
         )
+        hash_manager = _hash_manager_from_identity(
+            identity, lock_timeout_seconds=checkpoint.lock_timeout_seconds
+        )
         logging_relative = (
             f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}/"
             f"{backend}.json"
         )
-        logging_payload = read(
+        logging_payload = read_object(
             file=File.from_under(root=root, relative_path=logging_relative)
         )
         if backend == TrackingBackend.TENSORBOARD:
@@ -206,7 +208,6 @@ class ProjectLayout:
             project_name=expected_name,
             tracking_backend=backend,
             hash_manager=hash_manager,
-            lock_timeout_seconds=checkpoint.lock_timeout_seconds,
             logging=logging,
         )
 
@@ -222,10 +223,15 @@ class ProjectLayout:
             raise ValueError(f"scaffold root Directory must exist: {root.path}")
         backend = _parse_backend(tracking_backend)
         name = parse_non_empty_str(project_name, label="project_name")
-        marker_path = root.path / MARKER_FILENAME
-        if marker_path.is_file():
-            raise FileExistsError(f"project marker already exists: {marker_path}")
-        write(
+        try:
+            existing = File.from_under(root=root, relative_path=MARKER_FILENAME)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            raise FileExistsError(
+                f"project marker already exists: {existing.path}"
+            )
+        write_object(
             directory=root,
             name=MARKER_FILENAME,
             payload={"name": name},
@@ -239,13 +245,13 @@ class ProjectLayout:
             relative_path=PROJECT_LEVEL_CONFIGS_DIRNAME,
             policy=DirectoryParsePolicy.CREATE,
         )
-        write(
+        write_object(
             directory=configs,
             name=IDENTITY_CONFIG_FILENAME,
             payload=dict(DEFAULT_IDENTITY_CONFIG),
             form=JsonTextForm.DOCUMENT,
         )
-        write(
+        write_object(
             directory=configs,
             name=CHECKPOINT_CONFIG_FILENAME,
             payload=dict(DEFAULT_CHECKPOINT_CONFIG),
@@ -256,13 +262,13 @@ class ProjectLayout:
             relative_path=f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{LOGGING_CONFIGS_DIRNAME}",
             policy=DirectoryParsePolicy.CREATE,
         )
-        write(
+        write_object(
             directory=logging_dir,
             name=f"{TrackingBackend.TENSORBOARD}.json",
             payload={"log_dir": f"{STORAGE_DIRNAME}/{TENSORBOARD_DIRNAME}"},
             form=JsonTextForm.DOCUMENT,
         )
-        write(
+        write_object(
             directory=logging_dir,
             name=f"{TrackingBackend.MLFLOW}.json",
             payload=_mlflow_scaffold_payload(),
@@ -329,12 +335,30 @@ class ProjectLayout:
 
 def _parse_backend(raw: object) -> str:
     backend = parse_non_empty_str(raw, label="tracking_backend")
-    if backend not in _BACKENDS:
-        raise ValueError(
-            f"tracking_backend must be {TrackingBackend.TENSORBOARD!r} or "
-            f"{TrackingBackend.MLFLOW!r}, got {backend!r}"
+    parsed = parse_one_of(
+        backend,
+        allowed=TrackingBackend.BACKENDS,
+        label="tracking_backend",
+        error_type=ValueError,
+        error_message=one_of_message,
+    )
+    if not isinstance(parsed, str):
+        raise TypeError(
+            f"tracking_backend must be str, got {type(parsed)!r}"
         )
-    return backend
+    return parsed
+
+
+def _hash_manager_from_identity(
+    identity: IdentityDocument, *, lock_timeout_seconds: float
+) -> HashManager:
+    return HashManager(
+        prefix_len=identity.prefix_len,
+        human_readable_dir_name=identity.human_readable_dirname,
+        hash_dir_name=identity.hashes_dirname,
+        lock_timeout_seconds=lock_timeout_seconds,
+        lock_poll_seconds=ProjectLayout.LOCK_POLL_SECONDS,
+    )
 
 
 def _marker_document(payload: object) -> MarkerDocument:

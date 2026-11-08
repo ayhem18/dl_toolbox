@@ -1,4 +1,8 @@
-"""Construct module + Trainer and run one train-only fit. No val dataloaders."""
+"""fit() for a train-only Lightning module.
+
+Same on_fit_start as TrainValRun. Loaders have train and no val. Monitor is
+a train epoch metric key. Close is this procedure's finally.
+"""
 
 from __future__ import annotations
 

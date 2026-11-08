@@ -70,7 +70,7 @@ Strategy name → class. Instantiation is `build_*(strategy=..., args=...)` with
 
 ### The process ABC owns the shared loop; strategies own the steps
 
-`process(generating_process_name=...)` claims the `generating_process_name`, asks the collection class for `artifacts_dir(generating_process_name)` when file-backed, writes payload **if any** at relative paths the strategy owns, constructs the collection in memory, writes the collection configuration with the ABC helper, then writes the process configuration. Strategies implement the per-item steps. Consumers never import a strategy to find bytes.
+`process(generating_process_name=...)` creates the identity index, claims the pair with `lookup` (`BOTH_FREE`), asks the collection class for `artifacts_dir(generating_process_name)` when file-backed, writes payload **if any** at relative paths the strategy owns, constructs the collection in memory, writes the collection configuration with the ABC helper, then `create_pair`. Strategies implement the per-item steps. Consumers never import a strategy to find bytes.
 
 A JSON-only collection has no `artifacts_dir`. A JSON-only process does not write payload.
 
@@ -86,7 +86,7 @@ A file-backed entity stores a path relative to the collection’s artifact direc
 
 The collection owns the artifact directory. When it indexes a member it joins that directory to the entity’s relative path, requires an existing absolute file that stays under the directory, and keeps that absolute path in its own index, keyed by the member id. Payload reads are methods on the collection. They take that id and use the index. `member(id)` returns the entity. JSON-only entities have no path field. A JSON-only collection has no payload index and no payload load.
 
-The home of a collection configuration is a static method on the collection class (`configs_dir`). The home of a file-backed collection’s payload is a static method on the **same** class (`artifacts_dir(generating_process_name)`). The home of a process configuration is a static method on the process class. Do not put those directories on the instance. Do not put `artifacts_dir` on the process. JSON-only collections have `configs_dir` only.
+The home of a collection configuration is a static method on the collection class (`configs_dir`), returning a Directory. The home of a file-backed collection’s payload is a static method on the **same** class (`artifacts_dir(generating_process_name)`), returning a Directory. The home of a process configuration is a static method on the process class, returning the identity-index Directory. Do not put those directories on the instance. Do not put `artifacts_dir` on the process. JSON-only collections have `configs_dir` only.
 
 ### Keyword-only construction
 
@@ -102,9 +102,9 @@ Entity and collection modules at the level root. Process modules in a process pa
 
 ### A generating_process_name and a process configuration are claimed exclusively
 
-The process class owns a records directory. [`HashManager`](../exp_mng_engine/identity/identity.md) names the two index folders from `identity.json` (defaults `human_readable/` and `hashes/`) and owns the exclusive (name, hash) pair. Payload stays `Collection.artifacts_dir(generating_process_name)` — HashManager does not mkdir it. Claim reads both JSON files; it does not trust the filename. `mkdir` without overwrite.
+The process class owns a records directory. [`HashManager`](../../.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc) names the two index folders and owns the exclusive (`name`, `hash`) pair. `create_identity_index` marks that directory. Claim is `lookup`; completion is `create_pair` with `extra={"generating_process_signature": ...}`. Payload stays `Collection.artifacts_dir(generating_process_name)` — HashManager does not mkdir it. `mkdir` without overwrite.
 
-An incomplete run deletes leftover payload, the collection configuration it started, and any process-configuration files, so the same `generating_process_name` can be retried. The process configuration is the completion record. A finished `generating_process_name` or a finished `generating_process_signature` is not overwritten by `process()`. No `--force` on `process()`. A cleanup helper may delete those files first (`remove_named_freeze`, `process_hash_occupant`); that helper is not `process()`.
+An incomplete run deletes leftover payload, the collection configuration it started, and the process pair (`drop_pair`), so the same `generating_process_name` can be retried. The process pair is the completion record. A finished `generating_process_name` or a finished `generating_process_signature` is not overwritten by `process()`. No `--force` on `process()`. A cleanup helper may delete those files first (`remove_named_freeze`, `process_hash_occupant`); that helper is not `process()`.
 
 ### Scripts are thin
 

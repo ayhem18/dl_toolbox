@@ -56,6 +56,7 @@ def _checkpointer(run_artifacts_dir: Path) -> InspectableCheckpointer:
         monitor=CheckpointMonitor(key="loss", mode="min"),
         max_epochs=10,
         lock_timeout_seconds=5.0,
+        lock_poll_seconds=0.05,
     )
 
 
@@ -102,6 +103,7 @@ def test_callback_skip_uses_barrier_on_global_zero(tmp_path: Path) -> None:
         monitor=CheckpointMonitor(key="loss", mode="min"),
         max_epochs=10,
         lock_timeout_seconds=5.0,
+        lock_poll_seconds=0.05,
     )
     callback = InspectableCheckpointCallback(checkpointer=checkpointer)
     first = _FakeTrainer(epoch=0, metrics={"loss": 0.1}, is_global_zero=True)

@@ -1,4 +1,9 @@
-"""Fill TrainValEngine getters from a ProjectLayout plus bound recipes."""
+"""DefaultLayoutTrainValEngine fills TrainValEngine getters from a ProjectLayout.
+
+Fit construction takes a fit-recipe File, an experiment with build_fit /
+build_eval, and force. Inspect adds inspect_recipe File and eval_device.
+GPU count picks the first N visible CUDA devices; a list is explicit indices.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +23,7 @@ from dl_toolbox.base.file_management.directory import (
 )
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.hashing.hash_manager import HashManager
-from dl_toolbox.base.input_output.json_io import read
+from dl_toolbox.base.input_output.json_io import read_object
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.checkpointer import (
     InspectableCheckpointer,
@@ -32,13 +37,11 @@ from dl_toolbox.dl_engine.exp_engine.train_val_engine.experiment import (
     TrainValFitParts,
 )
 from dl_toolbox.dl_engine.exp_engine.train_val_engine.recipe import (
-    FitRecipe,
-    InspectRecipe,
     parse_fit_recipe,
     parse_inspect_recipe,
 )
 from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
-    Purpose,
+    EnginePurpose,
     TrainValEngine,
     parse_force,
 )
@@ -64,18 +67,15 @@ from dl_toolbox.dl_engine.runs.train_val_run.train_val_config import (
 )
 from dl_toolbox.project_layout.project_layout import ProjectLayout, TrackingBackend
 
-RESOLVED_CONFIG_FILENAME = "resolved_config.json"
-INSPECTION_STAGING_DIRNAME = "inspection_staging"
-INSPECTION_RUNS_DIRNAME = "inspection_runs"
-FIT_CONSTRUCTOR_KEYS = ("force",)
-INSPECT_CONSTRUCTOR_KEYS = ("inspect_recipe", "eval_device")
-
 
 class DefaultLayoutTrainValEngine(TrainValEngine):
-    """
-    This is the Experiment management engine based on a the opiniated default layout 
-    implemented by the dl_toolbox package
-    """
+    """TrainValEngine filled from a ProjectLayout plus recipe Files."""
+
+    RESOLVED_CONFIG_FILENAME = "resolved_config.json"
+    INSPECTION_STAGING_DIRNAME = "inspection_staging"
+    INSPECTION_RUNS_DIRNAME = "inspection_runs"
+    FIT_CONSTRUCTOR_KEYS = ("force",)
+    INSPECT_CONSTRUCTOR_KEYS = ("inspect_recipe", "eval_device")
 
     def __init__(
         self,
@@ -94,7 +94,7 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
         self._layout = layout
         self._fit_recipe_file = fit_recipe
         self._fit_recipe = parse_fit_recipe(
-            read(file=fit_recipe),
+            read_object(file=fit_recipe),
             tracking_backend=layout.tracking_backend,
             hash_manager=layout.hash_manager,
         )
@@ -103,15 +103,17 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
         self._eval_parts: TrainValEvalParts | None = None
         self._trainer_config: TrainerConfig | None = None
         self._payload_directory: Directory | None = None
-        if self._purpose == Purpose.FIT:
+        if self._purpose == EnginePurpose.FIT:
             require_exact_keys(
-                fields, FIT_CONSTRUCTOR_KEYS, label="DefaultLayoutTrainValEngine fit"
+                fields,
+                self.FIT_CONSTRUCTOR_KEYS,
+                label="DefaultLayoutTrainValEngine fit",
             )
             self._force = parse_force(fields["force"])
             return
         require_exact_keys(
             fields,
-            INSPECT_CONSTRUCTOR_KEYS,
+            self.INSPECT_CONSTRUCTOR_KEYS,
             label="DefaultLayoutTrainValEngine inspect",
         )
         inspect_recipe = fields["inspect_recipe"]
@@ -125,7 +127,7 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
                 f"eval_device must be torch.device, got {type(eval_device)!r}"
             )
         self._inspect_recipe_file = inspect_recipe
-        self._inspect_recipe = parse_inspect_recipe(read(file=inspect_recipe))
+        self._inspect_recipe = parse_inspect_recipe(read_object(file=inspect_recipe))
         self._eval_device = eval_device
 
     def get_run_name(self) -> str:
@@ -135,7 +137,7 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
         return self._fit_recipe.identity_payload()
 
     def get_force(self) -> str:
-        if self._purpose != Purpose.FIT:
+        if self._purpose != EnginePurpose.FIT:
             raise ValueError("get_force is not a slot when purpose is inspect")
         return self._force
 
@@ -166,18 +168,18 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
         return self._require_fit_parts().net
 
     def get_loaders(self) -> TrainValLoaders:
-        self._require_purpose(Purpose.FIT)
+        self._require_purpose(EnginePurpose.FIT)
         return self._require_fit_parts().loaders
 
     def get_steps(self) -> FitSteps:
-        self._require_purpose(Purpose.FIT)
+        self._require_purpose(EnginePurpose.FIT)
         return self._require_fit_parts().steps
 
     def get_metrics(self) -> TrainValMetrics:
         return self._require_fit_parts().metrics
 
     def get_optimization(self) -> OptimizationConfig:
-        self._require_purpose(Purpose.FIT)
+        self._require_purpose(EnginePurpose.FIT)
         return self._require_fit_parts().optimization
 
     def get_trainer(self) -> TrainerConfig:
@@ -212,6 +214,7 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
             ),
             max_epochs=trainer.max_epochs,
             lock_timeout_seconds=self.get_identity_lock_timeout(),
+            lock_poll_seconds=self.get_hash_manager().lock_poll_seconds,
         )
 
     def get_logger(self) -> Logger:
@@ -246,48 +249,50 @@ class DefaultLayoutTrainValEngine(TrainValEngine):
         experiment = self._fit_recipe.mlflow_experiment
         if experiment is not None:
             payload["experiment"] = experiment
-        return RunLogConfig(payload=payload, filename=RESOLVED_CONFIG_FILENAME)
+        return RunLogConfig(
+            payload=payload, filename=self.RESOLVED_CONFIG_FILENAME
+        )
 
     def get_checkpoint_request(self) -> CheckpointRequest:
-        self._require_purpose(Purpose.INSPECT)
+        self._require_purpose(EnginePurpose.INSPECT)
         self.require_identity()
         return CheckpointRequest.parse(self._inspect_recipe.selector)
 
     def get_inspect_staging_directory(self) -> Directory:
-        self._require_purpose(Purpose.INSPECT)
+        self._require_purpose(EnginePurpose.INSPECT)
         self.require_identity()
         token = uuid.uuid4().hex
         return Directory.from_under(
             root=self._existing_artifacts(),
-            relative_path=f"{INSPECTION_STAGING_DIRNAME}/{token}",
+            relative_path=f"{self.INSPECTION_STAGING_DIRNAME}/{token}",
             policy=DirectoryParsePolicy.CREATE,
         )
 
     def get_inspect_payload_directory(self, *, epoch: int) -> Directory:
-        self._require_purpose(Purpose.INSPECT)
+        self._require_purpose(EnginePurpose.INSPECT)
         self.require_identity()
         if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
             raise ValueError(f"epoch must be an int >= 0, got {epoch!r}")
         directory = Directory.from_under(
             root=self._existing_artifacts(),
-            relative_path=f"{INSPECTION_RUNS_DIRNAME}/epoch={epoch}",
+            relative_path=f"{self.INSPECTION_RUNS_DIRNAME}/epoch={epoch}",
             policy=DirectoryParsePolicy.CREATE,
         )
         self._payload_directory = directory
         return directory
 
     def get_eval_loaders(self) -> EvalLoaders:
-        self._require_purpose(Purpose.INSPECT)
+        self._require_purpose(EnginePurpose.INSPECT)
         return self._require_eval_parts().loaders
 
     def get_evaluate_fn(
         self,
     ) -> Callable[[EvalContext], Sequence[LogItem]]:
-        self._require_purpose(Purpose.INSPECT)
+        self._require_purpose(EnginePurpose.INSPECT)
         return self._require_eval_parts().evaluate_fn
 
     def get_eval_device(self) -> torch.device:
-        self._require_purpose(Purpose.INSPECT)
+        self._require_purpose(EnginePurpose.INSPECT)
         return self._eval_device
 
     def _require_purpose(self, purpose: str) -> None:

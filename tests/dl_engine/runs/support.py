@@ -154,6 +154,7 @@ def checkpointer(
         monitor=CheckpointMonitor(key=monitor_key, mode="min"),
         max_epochs=max_epochs,
         lock_timeout_seconds=5.0,
+        lock_poll_seconds=0.05,
     )
 
 

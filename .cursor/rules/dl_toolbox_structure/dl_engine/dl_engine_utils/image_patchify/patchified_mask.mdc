@@ -1,26 +1,134 @@
 ---
-description: PatchifiedMask is layout × patch_size × polarity plus a patch-constant binary tensor. Sequence unflatten takes Y_patches and X_patches.
+description: PatchifiedMask is PatchifiedMaskSpec plus a patch-constant binary tensor. PatchLayout × patch_size × MaskPolarity. from_tensor requires spec. convert maps layout and polarity. SEQUENCE to grid is unflatten(Y_patches, X_patches).
 globs: **/image_patchify/patchified_mask.py,**/image_patchify/spec.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_patchified_mask.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_spec.py
 alwaysApply: false
 ---
 
 # PatchifiedMask
 
-`PatchifiedMask` = `PatchifiedMaskSpec` + batched `torch.Tensor`. Spec is `PatchLayout` × `patch_size` × `MaskPolarity`. No `original_channels`. Binary, floating `{0, 1}`, constant on non-overlapping `P×P` patches. Polarity is a claim.
+## Context
 
-| Layout | Payload |
+MAE-style masking, patch dropout, and anything that drops whole `P×P` blocks need a mask that stays constant on those blocks. A dense spatial mask that is not patch-constant is a different object. Treating both as a bool tensor and then guessing at convert time is the Image smell: the claim lives in a comment.
+
+`PatchifiedMask` is the patch-constant binary mask: a `PatchifiedMaskSpec` plus a batched `torch.Tensor`. Spec is layout × `patch_size` × `MaskPolarity`. There is no `original_channels`: a mask has no photometric channels. Spatial payload is `(B, Y_dim, X_dim)`. A leading singleton channel `(B, 1, Y_dim, X_dim)` squeezes at `from_tensor`; it is not a fourth layout.
+
+Polarity is a claim. Value `1` can mean “removed” or “visible”. The tensor cannot prove which. `convert` that flips polarity is `1 - mask`. Layout maps are the same three as PatchifiedTensor (`SPATIAL` ↔ `PATCH_GRID`, both → `SEQUENCE`). `SEQUENCE` → grid is `unflatten(*, Y_patches, X_patches)`.
+
+PatchifiedTensor is the image. They share `PatchLayout` and `patch_size`. They stay two entities.
+
+---
+
+## Terminology
+
+PatchifiedTensor, `PatchLayout`, `Y_patches` / `X_patches`: `.cursor/rules/dl_toolbox_structure/dl_engine/dl_engine_utils/image_patchify/patchified_tensor.mdc`.
+
+| Term | Meaning |
 |---|---|
-| `SPATIAL` | `(B, Y_dim, X_dim)` |
-| `PATCH_GRID` | `(B, Y_patches, X_patches)` |
-| `SEQUENCE` | `(B, Y_patches·X_patches)` |
+| `PatchifiedMask` | `PatchifiedMaskSpec` plus a batched `tensor` |
+| `spec` | the layout / patch-size / polarity claim |
+| `tensor` | contiguous batched `torch.Tensor`. Floating `{0, 1}`, constant on each `P×P` |
+| `PatchifiedMaskSpec` | `layout` × `patch_size` × `polarity` |
+| `MaskPolarity` | meaning of value 1 |
+| `MaskPolarity.REMOVED_IS_ONE` | 1 means removed |
+| `MaskPolarity.VISIBLE_IS_ONE` | 1 means visible |
+| `from_tensor` | tensor source. Caller passes `spec` |
+| `convert` | map this mask onto a target `spec` with the same `P` |
+| `unflatten` | `SEQUENCE` → `PATCH_GRID` |
+| `validate_patchified_mask` | payload matches spec |
 
-- Tensor: `PatchifiedMask.from_tensor(tensor=..., spec=...)`. Spatial `(B, 1, Y_dim, X_dim)` squeezes. Not a fourth layout.
-- Convert: layout maps as PatchifiedTensor; polarity flip is `1 - mask`. Same `P`.
-- `SEQUENCE` → grid: `unflatten(Y_patches=..., X_patches=...)` → `PATCH_GRID`.
+Layout payloads:
 
-```python
-mask = PatchifiedMask.from_tensor(tensor=spatial, spec=spatial_spec)
-tokens = mask.convert(spec=sequence_spec)
-grid = tokens.unflatten(Y_patches=y_patches, X_patches=x_patches)
-visible = mask.convert(spec=visible_spec)
 ```
+SPATIAL      (B, Y_dim, X_dim)
+PATCH_GRID   (B, Y_patches, X_patches)
+SEQUENCE     (B, Y_patches·X_patches)
+```
+
+---
+
+## Input Specification
+
+`PatchifiedMaskSpec` is `layout` (`PatchLayout`) × `patch_size` (int > 1) × `polarity` (`MaskPolarity`). Every combination is legal.
+
+`PatchifiedMask` is that spec plus `tensor`: contiguous, batched, floating, values in `{0, 1}`, constant on each non-overlapping `P×P` block when spatial. `B ≥ 1`. `Y_dim` and `X_dim` divisible by `P` on `SPATIAL`.
+
+`from_tensor` takes `tensor` and `spec`. Both required. Spatial rank-4 with a singleton channel axis squeezes to rank 3.
+
+`convert` takes `spec` (target). `patch_size` must match. `SEQUENCE` as the source of `convert` is an error: that map is `unflatten`.
+
+`unflatten` takes `Y_patches` and `X_patches` (ints ≥ 1). This layout is `SEQUENCE`. Product equals the sequence length.
+
+---
+
+## Main functionalities
+
+### `PatchifiedMask.from_tensor(*, tensor, spec)`
+
+**input:** `tensor`, `spec`.
+
+**assumptions on the input:** Input Specification. `spec` is the layout and polarity claim.
+
+**steps:**
+
+```
+if spatial rank 4 and channel axis is 1: squeeze that axis
+tensor = tensor.contiguous()
+validate_patchified_mask(tensor, spec=spec)
+return PatchifiedMask(spec=spec, tensor=tensor)
+```
+
+**side effects:** none.
+
+**outputs:** a PatchifiedMask.
+
+### `convert(*, spec)`
+
+**input:** this PatchifiedMask, target `spec`.
+
+**assumptions on the input:** this object is already valid. Target `patch_size` matches. This layout is `SPATIAL` or `PATCH_GRID`.
+
+**steps:**
+
+```
+if spec == this spec: return PatchifiedMask with the same tensor
+if this layout is SEQUENCE: error (call unflatten)
+working = this as PATCH_GRID (or SPATIAL), then the target layout
+if polarity differs: working = 1 - working
+return PatchifiedMask(spec=spec, tensor=working)
+```
+
+**side effects:** none.
+
+**outputs:** a PatchifiedMask with the target spec.
+
+### `unflatten(*, Y_patches, X_patches)`
+
+**input:** this PatchifiedMask, `Y_patches`, `X_patches`.
+
+**assumptions on the input:** this layout is `SEQUENCE`. Product equals the sequence length.
+
+**steps:**
+
+```
+reshape SEQUENCE to PATCH_GRID with those two counts
+return PatchifiedMask(spec=PATCH_GRID × same P × same polarity, tensor=that grid)
+```
+
+**side effects:** none.
+
+**outputs:** a `PATCH_GRID` PatchifiedMask.
+
+---
+
+## Secondary functionalities
+
+`validate_patchified_mask(tensor, *, spec)` is the payload match: shape for the layout, values in `{0, 1}`, patch-constant on `SPATIAL`.
+
+Polarity flip is `1 - tensor`. It is the polarity half of `convert`.
+
+---
+
+## Tensions
+
+- **Polarity is a claim.** Two legal masks can hold the same `{0, 1}` tensor. `convert` that flips polarity is `1 - mask`; it does not look at the pixels to decide which name was true.
+- **Squeeze of `(B, 1, Y_dim, X_dim)` is parse, not a layout.** After `from_tensor`, spatial is rank 3. A caller that wanted a channel axis keeps it by not passing that shape.

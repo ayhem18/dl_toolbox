@@ -12,8 +12,7 @@ def require_key(payload: Mapping, key: str, *, label: str) -> object:
 
 
 def require_exact_keys(
-    payload: Mapping, keys: Sequence[str], *, label: str
-) -> None:
+    payload: Mapping, keys: Sequence[str], *, label: str) -> None:
     expected = tuple(keys)
     actual = set(payload)
     if actual != set(expected):
@@ -31,8 +30,7 @@ def one_of_message(
     value: object,
     allowed: Sequence[object],
     label: str,
-    allowed_text: str,
-) -> str:
+    allowed_text: str) -> str:
     del allowed
     return f"{label} must be {allowed_text}, got {value!r}"
 
@@ -43,8 +41,7 @@ def parse_one_of(
     allowed: Sequence[object],
     label: str,
     error_type: type[BaseException],
-    error_message: Callable[..., str],
-) -> object:
+    error_message: Callable[..., str]) -> object:
     if isinstance(allowed, (str, bytes)) or not isinstance(allowed, Sequence):
         raise TypeError(
             f"allowed must be a non-string Sequence, got {type(allowed)!r}"

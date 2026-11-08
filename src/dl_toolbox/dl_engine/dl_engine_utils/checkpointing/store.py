@@ -86,7 +86,7 @@ from dl_toolbox.base.file_management.directory import (
 )
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.hashing.identity import hash_file
-from dl_toolbox.base.input_output.json_io import JsonTextForm, read, write
+from dl_toolbox.base.input_output.json_io import JsonTextForm, read_object, write_object
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.policy import (
     RankedCheckpoint,
     ScoredCheckpoint,
@@ -164,7 +164,13 @@ class CheckpointStore:
         self.ensure_live()
         return self._live / DDP_JOIN_FILENAME
 
+    def ensure_root(self) -> Directory:
+        return Directory.from_absolute(
+            path=self._root, policy=DirectoryParsePolicy.CREATE
+        )
+
     def ensure_live(self) -> Directory:
+        self.ensure_root()
         return Directory.from_absolute(
             path=self._live, policy=DirectoryParsePolicy.CREATE
         )
@@ -178,13 +184,13 @@ class CheckpointStore:
                 f"catalog does not exist: {self._catalog_path}"
             )
         return CatalogDocument.model_validate(
-            read(file=File.from_absolute(path=self._catalog_path))
+            read_object(file=File.from_absolute(path=self._catalog_path))
         )
 
     def read_or_empty(self) -> CatalogDocument:
         if self._catalog_path.is_file():
             return CatalogDocument.model_validate(
-                read(file=File.from_absolute(path=self._catalog_path))
+                read_object(file=File.from_absolute(path=self._catalog_path))
             )
         return self.empty_catalog()
 
@@ -205,7 +211,7 @@ class CheckpointStore:
         parent = Directory.from_absolute(
             path=self._root, policy=DirectoryParsePolicy.CREATE
         )
-        write(
+        write_object(
             directory=parent,
             name=CATALOG_FILENAME,
             payload=catalog.model_dump(mode="json"),

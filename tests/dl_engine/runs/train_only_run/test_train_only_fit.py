@@ -13,7 +13,7 @@ from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.callback import (
     InspectableCheckpointCallback,
     TrainEpochCheckpointCallback,
 )
-from dl_toolbox.dl_engine.loggers.logger import EXISTENCE_CREATE, STREAM_FIT
+from dl_toolbox.dl_engine.loggers.logger import LogExistence, LogStream
 from dl_toolbox.dl_engine.metrics.classification.classification import (
     binary_bce_loss_metric,
 )
@@ -92,7 +92,7 @@ def test_fit_cpu_end_to_end_writes_catalog_without_val(tmp_path: Path) -> None:
     assert (checkpoints / "catalog.json").is_file()
     ckpt_files = list((checkpoints / "live").glob("*.ckpt"))
     assert ckpt_files
-    assert logger.setup_calls == [(STREAM_FIT, EXISTENCE_CREATE)]
+    assert logger.setup_calls == [(LogStream.FIT, LogExistence.CREATE)]
     assert logger.close_calls >= 1
     assert logger.params
     assert logger.texts[0][0] == "run_config"

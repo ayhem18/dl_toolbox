@@ -16,8 +16,6 @@ from dl_toolbox.base.file_management.directory import (
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.project_layout.project_layout import ProjectLayout, TrackingBackend
 
-_TRACKING_BACKENDS = (TrackingBackend.MLFLOW, TrackingBackend.TENSORBOARD)
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dl-toolbox")
@@ -30,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument(
         "--tracking-backend",
         required=True,
-        choices=sorted(_TRACKING_BACKENDS),
+        choices=sorted(TrackingBackend.BACKENDS),
         help=(
             "Scaffolded default written to .tracking-backend. "
             "from_start still takes tracking_backend per process. "

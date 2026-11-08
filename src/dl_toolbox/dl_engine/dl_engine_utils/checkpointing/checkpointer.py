@@ -45,11 +45,17 @@ class InspectableCheckpointer:
         monitor: CheckpointMonitor,
         max_epochs: int,
         lock_timeout_seconds: float,
+        lock_poll_seconds: float,
     ) -> None:
         timeout = float(lock_timeout_seconds)
         if timeout <= 0:
             raise ValueError(
                 f"lock_timeout_seconds must be > 0, got {lock_timeout_seconds}"
+            )
+        poll = float(lock_poll_seconds)
+        if poll <= 0:
+            raise ValueError(
+                f"lock_poll_seconds must be > 0, got {lock_poll_seconds}"
             )
         artifacts = Directory.from_absolute(
             path=abs_path(run_artifacts_dir),
@@ -67,11 +73,16 @@ class InspectableCheckpointer:
         self._lock = ExclusiveDirLock(
             self._store.lock_dir,
             timeout_seconds=timeout,
+            poll_seconds=poll,
         )
 
     @property
     def monitor_key(self) -> str:
         return self._monitor.key
+
+    def _acquire(self) -> None:
+        self._store.ensure_root()
+        self._lock.acquire()
 
     def ddp_join_path(self) -> Path:
         """Path non-zero ranks pass to ``Trainer.save_checkpoint`` for the barrier."""
@@ -87,7 +98,7 @@ class InspectableCheckpointer:
         """Decide keep, then write. Returns whether a file was written."""
         if epoch < 0:
             raise ValueError(f"epoch must be >= 0, got {epoch}")
-        self._lock.acquire()
+        self._acquire()
         try:
             catalog = self._store.read_or_empty()
             current_files = self._store.current_scored(catalog)
@@ -136,7 +147,7 @@ class InspectableCheckpointer:
             path=abs_path(dest),
             policy=DirectoryParsePolicy.CREATE,
         )
-        self._lock.acquire()
+        self._acquire()
         try:
             return self._store.fetch(request, dest=dest_dir)
         finally:
@@ -159,7 +170,7 @@ class InspectableCheckpointer:
         )
 
     def mark_finished(self) -> None:
-        self._lock.acquire()
+        self._acquire()
         try:
             catalog = self._store.read_or_empty()
             catalog = catalog.model_copy(

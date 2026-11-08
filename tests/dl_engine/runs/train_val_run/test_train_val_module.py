@@ -9,10 +9,10 @@ import torch
 from torch import Tensor, nn
 from torch.optim.lr_scheduler import LambdaLR
 
-from dl_toolbox.base.input_output.json_io import dump, flatten, JsonTextForm
+from dl_toolbox.base.input_output.json_io import dump_object, flatten_object, JsonTextForm
 from dl_toolbox.dl_engine.loggers.logger import (
-    EXISTENCE_CREATE,
-    STREAM_FIT,
+    LogExistence,
+    LogStream,
     Logger,
 )
 from dl_toolbox.dl_engine.runs.common.run_config import (
@@ -202,11 +202,11 @@ def test_on_fit_start_and_end_are_rank_zero_only() -> None:
     module0._trainer = _FakeTrainer(is_global_zero=True, epoch=0)
     module0.on_fit_start()
     module0.on_fit_end()
-    assert rank0.setup_calls == [(STREAM_FIT, EXISTENCE_CREATE)]
+    assert rank0.setup_calls == [(LogStream.FIT, LogExistence.CREATE)]
     assert rank0.close_calls == 1
-    assert rank0.params == [flatten({"task": "unit"})]
+    assert rank0.params == [flatten_object({"task": "unit"})]
     assert rank0.texts[0][0] == "run_config"
-    assert rank0.texts[0][1] == dump(
+    assert rank0.texts[0][1] == dump_object(
         {"task": "unit"}, form=JsonTextForm.ASCII_PRETTY
     )
     assert rank0.texts[0][2] == 0

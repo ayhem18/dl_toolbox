@@ -1,131 +1,140 @@
 ---
-description: EvalRun is one evaluation in this process. evaluate_fn returns LogItems. emit dispatches kind to Logger. Logger setup is EvalLoggerConfig (stream, existence, step).
-globs: **/dl_engine/runs/eval_run/**,**/tests/dl_engine/runs/eval_run/**
+description: EvalRun is evaluate() for a bound checkpoint. evaluate_fn(EvalContext) returns a sequence of LogItem (scalars, image, text, table). emit writes each item. Setup uses EvalLoggerConfig.stream / existence. flatten_object / dump_object log the RunLogConfig payload, then close.
+globs: **/runs/eval_run/**,**/tests/dl_engine/runs/eval_run/**
 alwaysApply: false
 ---
 
 # EvalRun
 
-External-state functionality. One evaluation in this process. It writes one logger stream.
+## Context
 
-`evaluate` receives an already loaded `net`, a built logger, and the already resolved device. Identity, checkpoint fetch, and weight load are the caller.
+Inspect is not a second `trainer.fit`. It loads a checkpoint, runs a caller-supplied `evaluate_fn` on eval loaders, and writes whatever that function returns onto a logger entity the engine required (`LogStream.INSPECT`, `LogExistence.REQUIRE` in the usual inspect path).
 
-Named constants, no defaults.
+`EvalRun` is that procedure: `evaluate()`, `emit()`, `LogItem`. `LogItem` is one logged thing: `scalars`, `image`, `text`, or `table`, each with a `step`. `evaluate_fn` takes `EvalContext` and returns a sequence of `LogItem`. `emit` is the loop that calls `logger.log_*` for each kind. `evaluate()` sets up the logger from `EvalLoggerConfig`, logs the `RunLogConfig` payload the same way fit does (`flatten_object` / `dump_object`), emits the items, and `close()`s in `finally`.
 
-The procedures in code are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+`EvalContext` is the bound bundle: `net`, `loaders`, `device`, `step`. The engine's `inspect()` builds that call from getters.
+
+---
+
+## Terminology
+
+Logger, LogStream, LogExistence: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. JSON `dump_object` / `flatten_object`: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`. TrainValEngine inspect: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `evaluate` | the inspect procedure |
+| `evaluate_fn` | `(EvalContext) → Sequence[LogItem]` |
+| `LogItem` | one emit: `scalars` / `image` / `text` / `table` |
+| `LogItem.SCALARS` / `IMAGE` / `TEXT` / `TABLE` | the four kinds |
+| `emit` | write a sequence of LogItem onto the Logger |
+| `EvalContext` | `net`, `loaders`, `device`, `step` |
+| `EvalLoaders` | named DataLoaders inspect iterates |
+| `EvalLoggerConfig` | `stream`, `existence`, `step` |
+| `EvalError` | run-level error for illegal eval input / unknown kind |
 
 ---
 
 ## Input Specification
 
-```
-evaluate(
-  *,
-  net,             # nn.Module, weights already loaded
-  loaders,         # EvalLoaders
-  evaluate_fn,     # EvalContext → Sequence[LogItem]
-  device,          # torch.device
-  logger,          # built, not open
-  logger_config,   # EvalLoggerConfig: stream, existence, step
-  run_log,         # RunLogConfig
-)
-```
+`evaluate(*, net, loaders, evaluate_fn, device, logger, logger_config, run_log)`: `net` is `nn.Module`. `loaders` is `EvalLoaders`. `evaluate_fn` is callable. `device` is `torch.device`. `logger` is a `Logger`. `logger_config` is `EvalLoggerConfig`. `run_log` is `RunLogConfig`. `evaluate_fn(context)` returns a sequence of `LogItem` (not a str/bytes).
 
-Keyword-only. Every argument required.
+`LogItem.scalars(*, step, values)`: `step` is an int ≥ 0. `values` is `str → float` (exact `float` values).
 
-`EvalLoaders`: non-empty map of non-empty name → `DataLoader`.
+`LogItem.image(*, step, tag, image)`: `tag` non-empty str. `image` is the object `logger.log_image` accepts.
 
-`EvalLoggerConfig.stream` is `fit` | `inspect`. `existence` is `create` | `require`. `step` is an int >= 0 (caller clock).
+`LogItem.text(*, step, tag, text)`: `tag` non-empty. `text` is `str`.
 
-`EvalContext`:
+`LogItem.table(*, step, tag, rows)`: `tag` non-empty. `rows` is a sequence of mappings.
 
-```
-net
-loaders
-device
-step          # logger_config.step
-```
+Direct `LogItem()` is an error. Use the four constructors.
 
-Each `LogItem` carries its own step. `emit` uses the item’s step.
+`emit(logger, items)`: logger already set up. Every element is a `LogItem`.
 
-`LogItem` constructors:
-
-| Constructor | Payload |
-|---|---|
-| `LogItem.scalars(*, step, values)` | `values`: `Mapping[str, float]`, keys non-empty |
-| `LogItem.image(*, step, tag, image)` | `tag` non-empty, `image` the object `log_image` accepts |
-| `LogItem.text(*, step, tag, text)` | `tag` non-empty, `text` a `str` |
-| `LogItem.table(*, step, tag, rows)` | `tag` non-empty, `rows` a sequence of mappings |
-
-A one-name scalar is `LogItem.scalars(step=…, values={tag: value})`.
+Engine inspect path: `logger_config.stream` is `LogStream.INSPECT`, `existence` is `LogExistence.REQUIRE`, `step` is the fetched checkpoint's epoch.
 
 ---
 
-## `evaluate` — check inputs
+## Main functionalities
 
-**Assume:** the seven arguments, all present. Logger closed.
+### `evaluate(...)`
 
-```
-net is nn.Module
-loaders has at least one DataLoader
-evaluate_fn is callable
-device is a torch.device
-logger_config is EvalLoggerConfig
-run_log is RunLogConfig
-```
+**input:** `net`, `loaders`, `evaluate_fn`, `device`, `logger`, `logger_config`, `run_log`.
 
-**After:** inputs are legal. Logger still closed. Callable not run.
+**assumptions on the input:** Input Specification. Engine already attached identity and loaded `net`.
 
----
-
-## `evaluate` — run
-
-**Assume:** inputs legal. Logger closed.
+**steps:**
 
 ```
-net.eval()
-net.to(device)
-
+net.eval(); net.to(device)
 logger.setup(stream=logger_config.stream, existence=logger_config.existence)
-logger.log_params(flatten(run_log.payload))
-logger.log_text(run_log.filename, dump(run_log.payload, form=ascii_pretty), step=0)
-
-context = EvalContext(net, loaders, device, logger_config.step)
-items = evaluate_fn(context)
-if items is not a sequence of LogItem: error
-emit(logger, items)
+try:
+    logger.log_params(flatten_object(run_log.payload))
+    logger.log_text(run_log.filename, dump_object(payload, form=JsonTextForm.ASCII_PRETTY), step=0)
+    context = EvalContext(net=net, loaders=loaders, device=device, step=logger_config.step)
+    items = evaluate_fn(context)
+    require every element is LogItem
+    emit(logger, items)
+finally:
+    logger.close()
 ```
 
-`finally`: `logger.close()` (idempotent).
+**side effects:** inspect logs; logger close.
 
-**After:** logger closed.
+**outputs:** none.
+
+### `emit(logger, items)`
+
+**input:** open Logger, a sequence of `LogItem`.
+
+**assumptions on the input:** logger is already set up. Kinds are the four.
+
+**steps:**
+
+```
+SCALARS → logger.log_scalars(item.values, step=item.step)
+IMAGE   → logger.log_image(item.tag, item.image, step=item.step)
+TEXT    → logger.log_text(item.tag, item.text, step=item.step)
+TABLE   → logger.log_table(item.tag, item.rows, step=item.step)
+unknown kind → EvalError
+```
+
+**side effects:** one logger write per item.
+
+**outputs:** none.
+
+### `LogItem` constructors
+
+**input:** `step` plus the kind-specific payload.
+
+**assumptions on the input:** Input Specification.
+
+**steps:** construct a LogItem with `kind` set to `SCALARS` / `IMAGE` / `TEXT` / `TABLE`. Direct `LogItem()` raises `TypeError` (`use LogItem.scalars / image / text / table`).
+
+**side effects:** none.
+
+**outputs:** a LogItem.
 
 ---
 
-## `emit`
+## Secondary functionalities
 
-**Assume:** logger open. `items` is a sequence of `LogItem`.
+`EvalLoaders` is the named mapping of DataLoaders `evaluate_fn` iterates.
 
-For each item, in list order:
+`EvalLoggerConfig` is `stream`, `existence`, `step`. The engine fills those; this run does not invent them.
 
-```
-if kind is SCALARS: logger.log_scalars(values, step=item.step)
-if kind is IMAGE:   logger.log_image(tag, image, step=item.step)
-if kind is TEXT:    logger.log_text(tag, text, step=item.step)
-if kind is TABLE:   logger.log_table(tag, rows, step=item.step)
-```
-
-**After:** every item has been passed to Logger. Logger still open.
+`EvalError` is the run-level error (non-sequence return, non-LogItem element, unknown kind).
 
 ---
 
-## Translation
+## What this implies for the engine/multiprocess
 
-| Behavior | Translation |
-|---|---|
-| check, `net.eval` / `to(device)`, setup, call, emit, `finally` close | `evaluate` |
-| kind → logger method | `emit` |
-| constructors above | `LogItem` |
-| name → DataLoader | `EvalLoaders` |
-| callable input | `EvalContext` |
-| stream, existence, step | `EvalLoggerConfig` |
+Engine `inspect()` calls `evaluate()` after `load_net`. Rank 0 required the pair. Logger `REQUIRE` fails if fit never `CREATE`d the entity. `evaluate_fn` is a getter; two inspect processes can return different items from the same checkpoint. Close is this procedure's `finally`.
+
+---
+
+## Tensions
+
+- **`evaluate_fn` is opaque to this run.** This procedure does not know whether the checkpoint was the best val, last step, or a manual File. That is `get_checkpoint_request` / `fetch`.
+- **Table rows are mappings, not a parsed JSON array.** `logger.log_table` / `table_as_json` own the JSON array shape. EvalRun passes `rows` through.
+- **Image type is the logger's image type.** LogItem does not convert to `Image`. An ndarray vs CHW vs HWC mismatch is the logger Tension, visible here as an untyped `image` field.
+- **`evaluate_fn` returns a sequence, not a generator.** The whole list is built before `emit`. A long inspect that wanted to stream items has nowhere to yield.

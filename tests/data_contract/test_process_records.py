@@ -1,159 +1,176 @@
-# PARKED: no contract yet. Not collected by pytest until this package is rewritten.
 from __future__ import annotations
-
-import pytest
-
-pytest.skip("Parked: this package has no contract yet.", allow_module_level=True)
 
 import random
 from pathlib import Path
 
 import pytest
 
-from dl_toolbox.data_contract.configs import hashed_artifact_path
-from dl_toolbox.base.hashing.identity import hash_payload
-from dl_toolbox.base.input_output.json_io import read_json, write_json
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
+    DirectorySpec,
+)
+from dl_toolbox.base.file_management.file import File
+from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.base.hashing.identity import artifact_stem
+from dl_toolbox.base.input_output.json_io import JsonTextForm, read_object, write_object
 from dl_toolbox.data_contract.process_records import (
-    assert_generating_process_name_available,
+    claim_generating_process,
     create_payload_directory,
     delete_incomplete_run,
-    process_configuration_paths,
-    save_process_configuration,
+    write_process_configuration,
 )
 
-from tests.data_contract.dc_support import N_TRIALS, random_generating_process_name, random_json_object
+from tests.data_contract.dc_support import (
+    N_TRIALS,
+    existing_directory,
+    hash_manager,
+    identity_index,
+    missing_directory,
+    random_generating_process_name,
+    random_json_object,
+)
 
 
 def test_saved_record_is_exclusive_for_name_and_signature(
     tmp_path: Path, rng: random.Random
 ) -> None:
+    manager = hash_manager()
     for i in range(N_TRIALS):
-        process_dir = tmp_path / f"preparation_{i}"
+        directory = identity_index(manager, tmp_path / f"preparation_{i}")
         signature = {"strategy": "example", "args": random_json_object(rng)}
-        configuration_hash = hash_payload(signature)
+        configuration_hash = manager.hash_payload(signature)
         name = random_generating_process_name(rng)
-        assert_generating_process_name_available(
+        checked = claim_generating_process(
+            manager,
+            directory,
             generating_process_name=name,
             configuration_hash=configuration_hash,
-            process_configurations_dir=process_dir,
         )
-        saved = save_process_configuration(
-            process_dir,
-            generating_process_name=name,
+        saved = write_process_configuration(
+            manager,
+            directory,
+            generating_process_name=checked,
             configuration_hash=configuration_hash,
             generating_process_signature=signature,
         )
-        document = read_json(saved)
-        assert document["generating_process_name"] == name
+        document = read_object(file=saved)
+        assert document["name"] == checked
         assert document["hash"] == configuration_hash
         assert document["generating_process_signature"] == signature
-        with pytest.raises(FileExistsError, match="already saved"):
-            assert_generating_process_name_available(
-                generating_process_name=name,
+        with pytest.raises(FileExistsError, match="pair already exists"):
+            claim_generating_process(
+                manager,
+                directory,
+                generating_process_name=checked,
                 configuration_hash=configuration_hash,
-                process_configurations_dir=process_dir,
             )
-        other_name = name + "_other"
-        with pytest.raises(FileExistsError, match="already saved as"):
-            assert_generating_process_name_available(
+        other_name = checked + "_other"
+        with pytest.raises(FileExistsError, match="already saved as name"):
+            claim_generating_process(
+                manager,
+                directory,
                 generating_process_name=other_name,
                 configuration_hash=configuration_hash,
-                process_configurations_dir=process_dir,
             )
-        other_hash = hash_payload({"strategy": "other", "args": {"i": i}})
+        other_hash = manager.hash_payload({"strategy": "other", "args": {"i": i}})
         with pytest.raises(FileExistsError, match="already exists with hash"):
-            assert_generating_process_name_available(
-                generating_process_name=name,
+            claim_generating_process(
+                manager,
+                directory,
+                generating_process_name=checked,
                 configuration_hash=other_hash,
-                process_configurations_dir=process_dir,
-            )
-
-
-def test_existing_payload_directory_blocks_a_new_claim(
-    tmp_path: Path, rng: random.Random
-) -> None:
-    for i in range(N_TRIALS):
-        process_dir = tmp_path / f"preparation_{i}"
-        name = random_generating_process_name(rng)
-        payload_dir = tmp_path / "artifacts" / name
-        payload_dir.mkdir(parents=True)
-        with pytest.raises(FileExistsError, match="payload directory"):
-            assert_generating_process_name_available(
-                generating_process_name=name,
-                configuration_hash=hash_payload({"i": i}),
-                process_configurations_dir=process_dir,
-                payload_dir=payload_dir,
             )
 
 
 def test_payload_directory_is_created_once(tmp_path: Path, rng: random.Random) -> None:
     for i in range(N_TRIALS):
-        payload_dir = tmp_path / "artifacts" / random_generating_process_name(rng) / str(i)
-        created = create_payload_directory(payload_dir)
-        assert created.is_dir()
+        payload = missing_directory(
+            tmp_path / "artifacts" / random_generating_process_name(rng) / str(i)
+        )
+        created = create_payload_directory(payload)
+        assert created.spec == DirectorySpec.EXISTS
+        assert created.path.is_dir()
         with pytest.raises(FileExistsError):
-            create_payload_directory(payload_dir)
+            create_payload_directory(created)
 
 
 def test_incomplete_run_leaves_no_files(tmp_path: Path, rng: random.Random) -> None:
+    manager = hash_manager()
     for i in range(N_TRIALS):
         name = random_generating_process_name(rng)
-        payload_dir = tmp_path / "artifacts" / f"{name}_{i}"
-        create_payload_directory(payload_dir)
-        (payload_dir / "image.npy").write_bytes(rng.randbytes(8))
-        process_dir = tmp_path / f"preparation_{i}"
-        configuration_hash = hash_payload({"i": i, "noise": rng.randint(0, 1000)})
-        name_path, hash_path = process_configuration_paths(
-            process_dir,
+        payload = create_payload_directory(
+            missing_directory(tmp_path / "artifacts" / f"{name}_{i}")
+        )
+        (payload.path / "image.npy").write_bytes(rng.randbytes(8))
+        directory = identity_index(manager, tmp_path / f"preparation_{i}")
+        configuration_hash = manager.hash_payload(
+            {"i": i, "noise": rng.randint(0, 1000)}
+        )
+        write_process_configuration(
+            manager,
+            directory,
             generating_process_name=name,
             configuration_hash=configuration_hash,
+            generating_process_signature={"i": i},
         )
-        write_json(name_path, {"generating_process_name": name})
-        configs_dir = tmp_path / f"collections_{i}"
-        collection_alias = configs_dir / f"{name}.json"
-        collection_hashed = hashed_artifact_path(configs_dir, configuration_hash)
-        write_json(collection_alias, {"hash": configuration_hash})
-        write_json(collection_hashed, {"hash": configuration_hash})
+        configs_dir = existing_directory(tmp_path / f"collections_{i}")
+        write_object(
+            directory=configs_dir,
+            name=f"{name}.json",
+            payload={"hash": configuration_hash},
+            form=JsonTextForm.DOCUMENT,
+        )
+        write_object(
+            directory=configs_dir,
+            name=f"{artifact_stem(configuration_hash, prefix_len=manager.prefix_len)}.json",
+            payload={"hash": configuration_hash},
+            form=JsonTextForm.DOCUMENT,
+        )
         delete_incomplete_run(
-            payload_dir=payload_dir,
-            collection_hashed_path=collection_hashed,
-            collection_alias_path=collection_alias,
-            process_name_path=name_path,
-            process_hash_path=hash_path,
+            manager=manager,
+            directory=directory,
+            generating_process_name=name,
+            configs_dir=configs_dir,
+            payload=payload,
         )
-        assert not payload_dir.exists()
-        assert not collection_alias.exists()
-        assert not collection_hashed.exists()
-        assert not name_path.exists()
-        assert not hash_path.exists()
+        assert not payload.path.exists()
+        lookup = manager.lookup(
+            directory, human_readable_name=name, hash=configuration_hash
+        )
+        assert lookup.state == HashManager.BOTH_FREE
+        with pytest.raises(FileNotFoundError):
+            File.from_absolute(path=configs_dir.path / f"{name}.json")
 
 
 def test_hash_prefix_owned_by_a_different_digest_is_rejected(
     tmp_path: Path, rng: random.Random
 ) -> None:
+    manager = hash_manager()
     for i in range(N_TRIALS):
-        process_dir = tmp_path / f"preparation_{i}"
-        configuration_hash = hash_payload({"i": i, "noise": rng.randint(0, 1000)})
-        name = random_generating_process_name(rng)
-        _, hash_path = process_configuration_paths(
-            process_dir,
-            generating_process_name=name,
-            configuration_hash=configuration_hash,
+        directory = identity_index(manager, tmp_path / f"preparation_{i}")
+        configuration_hash = manager.hash_payload(
+            {"i": i, "noise": rng.randint(0, 1000)}
         )
-        other_hash = hash_payload({"other": i, "noise": rng.randint(0, 1000)})
+        name = random_generating_process_name(rng)
+        other_hash = manager.hash_payload({"other": i, "noise": rng.randint(0, 1000)})
         if other_hash == configuration_hash:
-            other_hash = hash_payload({"other": i, "extra": True})
-        write_json(
-            hash_path,
-            {
-                "generating_process_name": "other",
-                "hash": other_hash,
-                "generating_process_signature": {"strategy": "other"},
-            },
+            other_hash = manager.hash_payload({"other": i, "extra": True})
+        hashes = Directory.from_under(
+            root=directory,
+            relative_path=manager.hash_dir_name,
+            policy=DirectoryParsePolicy.MUST_EXIST,
+        )
+        write_object(
+            directory=hashes,
+            name=f"{artifact_stem(configuration_hash, prefix_len=manager.prefix_len)}.json",
+            payload={"name": "other", "hash": other_hash},
+            form=JsonTextForm.DOCUMENT,
         )
         with pytest.raises(ValueError, match="already used by"):
-            assert_generating_process_name_available(
+            claim_generating_process(
+                manager,
+                directory,
                 generating_process_name=name,
                 configuration_hash=configuration_hash,
-                process_configurations_dir=process_dir,
             )

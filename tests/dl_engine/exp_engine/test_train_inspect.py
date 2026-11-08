@@ -9,8 +9,8 @@ from dl_toolbox.dl_engine.exp_engine.train_val_engine.default_layout import (
     DefaultLayoutTrainValEngine,
 )
 from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
-    Force,
-    Purpose,
+    EnginePurpose,
+    IdentityOverwritePolicy,
 )
 from tests.dl_engine.exp_engine.support import (
     LinearBinaryExperiment,
@@ -38,14 +38,14 @@ def test_train_cpu_then_inspect_last(tmp_path: Path) -> None:
     )
     layout = layout_from_root(root, name="proj_tv", backend="tensorboard")
     DefaultLayoutTrainValEngine(
-        purpose=Purpose.FIT,
+        purpose=EnginePurpose.FIT,
         layout=layout,
         fit_recipe=fit_recipe,
         experiment=LinearBinaryExperiment(),
-        force=Force.OFF,
+        force=IdentityOverwritePolicy.OFF,
     ).train()
     inspect_engine = DefaultLayoutTrainValEngine(
-        purpose=Purpose.INSPECT,
+        purpose=EnginePurpose.INSPECT,
         layout=layout,
         fit_recipe=fit_recipe,
         experiment=LinearBinaryExperiment(),
@@ -85,14 +85,14 @@ def test_mlflow_train_then_inspect(tmp_path: Path) -> None:
     )
     layout = layout_from_root(root, name="proj_ml", backend="mlflow")
     DefaultLayoutTrainValEngine(
-        purpose=Purpose.FIT,
+        purpose=EnginePurpose.FIT,
         layout=layout,
         fit_recipe=fit_recipe,
         experiment=LinearBinaryExperiment(),
-        force=Force.OFF,
+        force=IdentityOverwritePolicy.OFF,
     ).train()
     DefaultLayoutTrainValEngine(
-        purpose=Purpose.INSPECT,
+        purpose=EnginePurpose.INSPECT,
         layout=layout,
         fit_recipe=fit_recipe,
         experiment=LinearBinaryExperiment(),

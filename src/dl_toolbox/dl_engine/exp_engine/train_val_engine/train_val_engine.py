@@ -1,15 +1,8 @@
-"""
-- implementation of the TrainValEngine
+"""TrainValEngine is one process's train+val engine: purpose plus bound getters.
 
-1. TrainValEngine: accepts - purpose (fit or inspect)
-
-2. the fit logic in a nutshell is 2 steps
-
-- 
-- 
-- 
-- 
-
+EnginePurpose is fit or inspect. train() and inspect() take no arguments.
+Rank 0 claims HashManager occupancy on identity_index; other ranks attach.
+IdentityOverwritePolicy is off or overwrite_name (NAME_TAKEN only).
 """
 
 from __future__ import annotations
@@ -28,9 +21,8 @@ from dl_toolbox.base.file_management.directory import (
     DirectoryParsePolicy,
     DirectorySpec,
 )
-from dl_toolbox.base.file_management.exclusive_lock import ExclusiveDirLock
-from dl_toolbox.base.hashing.hash_manager import HashManager, PairState
-from dl_toolbox.base.parsing.parse_utils import parse_one_of
+from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.base.parsing.parse_utils import one_of_message, parse_one_of
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.checkpointer import (
     InspectableCheckpointer,
 )
@@ -53,15 +45,6 @@ from dl_toolbox.dl_engine.runs.train_val_run.train_val_module import (
     TrainValLightningModule,
 )
 
-IDENTITY_LOCK_NAME = "identity.lock"
-IDENTITY_LOCK_POLL_SECONDS = 0.05
-ATTACH_POLL_SECONDS = 0.05
-RANK_ENV = "RANK"
-GLOBAL_RANK_ENV = "GLOBAL_RANK"
-NODE_RANK_ENV = "NODE_RANK"
-GROUP_RANK_ENV = "GROUP_RANK"
-LOCAL_RANK_ENV = "LOCAL_RANK"
-
 
 class EnginePurpose:
     FIT = "fit"
@@ -72,24 +55,23 @@ class IdentityOverwritePolicy:
     OFF = "off"
     OVERWRITE_NAME = "overwrite_name"
 
+
 class TrainValEngine(ABC):
+    """One process's train+val engine: EnginePurpose plus bound getters.
+
+    train() / inspect() are zero-arg. Rank 0 claims occupancy; other ranks
+    attach. Getters are the recipe surface a concrete engine fills.
     """
-    The experiment engine for runs/ experiments with both Train and Validation split. 
 
-    This engine has 3 main functionalities: 
-
-    1. Manage run identities: a run is defined be the hash of its configuration and its human readable name
-    The engine uses a HashManager to enforce a clear protocol when working with multiple runs. 
-
-    2. Define the logical steps for parsing and validating a run recipe compatible with the fit and inspect logic of the train_val_run: 
-
-    dl_toolbox/src/dl_toolbox/dl_engine/runs/train_val_run/train_val_fit.py: fit()
-
-    3. Define the inspect logic.  
-    """
+    ATTACH_POLL_SECONDS = 0.05
+    RANK_ENV = "RANK"
+    GLOBAL_RANK_ENV = "GLOBAL_RANK"
+    NODE_RANK_ENV = "NODE_RANK"
+    GROUP_RANK_ENV = "GROUP_RANK"
+    LOCAL_RANK_ENV = "LOCAL_RANK"
 
     def __init__(self, *, purpose: str) -> None:
-        self._purpose = parse_purpose(purpose) 
+        self._purpose = parse_purpose(purpose)
         self._identity_ready = False
         self._claimed_fit = False
 
@@ -98,11 +80,8 @@ class TrainValEngine(ABC):
             raise ValueError(
                 f"train requires purpose {EnginePurpose.FIT!r}, got {self._purpose!r}"
             )
-
-        # the process_run_identity logic should probably be revisited         
         self.process_run_identity()
         self.apply_seed()
-         
         net = self.get_net()
         loaders = self.get_loaders()
         steps = self.get_steps()
@@ -161,107 +140,65 @@ class TrainValEngine(ABC):
         )
 
     def process_run_identity(self) -> None:
-        """
-        This is a very important method. 
-
-        - The identity of a run defined by 2 things: 
-
-        1. the hash of its json representation
-        2. the human readnable name it was assigned
-
-
-
-        """
+        """Rank 0 claims; a DDP worker attaches."""
         if self._purpose != EnginePurpose.FIT:
             raise ValueError(
                 "process_run_identity requires purpose "
                 f"{EnginePurpose.FIT!r}, got {self._purpose!r}"
             )
-
-
-
         if is_ddp_worker():
-            # TODO: this behavior must documented properly
             self.attach_fit_identity()
             return
-
         self.claim_fit_identity()
 
     def claim_fit_identity(self) -> None:
-        """
-        1. extract the run's identity
-        2. 
-        """
-
-
+        """HashManager lookup, then create or overwrite. HashManager owns identity.lock."""
         name = self.get_run_name()
         payload = self.get_identity_payload()
         manager = self.get_hash_manager()
         configuration_hash = manager.hash_payload(payload)
-        
-        # self.get_force() 
         force = self.get_force()
-        listed = self.get_identity_index()
-        index = Directory.from_absolute(
-            path=listed.path, policy=DirectoryParsePolicy.CREATE
+        index = manager.create_identity_index(self.get_identity_index())
+        lookup = manager.lookup(
+            index, human_readable_name=name, hash=configuration_hash
         )
-        lock_path = index.path / IDENTITY_LOCK_NAME
-
-        # it is a bit funny that the engine itself must open a lock ... 
-
-        with ExclusiveDirLock(
-            lock_path,
-            timeout_seconds=self.get_identity_lock_timeout(),
-            poll_seconds=IDENTITY_LOCK_POLL_SECONDS,
-        ):
-            lookup = manager.lookup(
-                index, human_readable_name=name, hash=configuration_hash
+        if lookup.state == HashManager.HASH_TAKEN:
+            raise FileExistsError(
+                "configuration hash already saved as another name in this group"
             )
-
-            if lookup.state == PairState.HASH_TAKEN:
-                raise FileExistsError(
-                    "configuration hash already saved as another name in this group"
-                )
-
-            if lookup.state == PairState.BOTH_MATCH:
-                raise FileExistsError(
-                    f"already claimed name {name!r} with this configuration hash"
-                )
-
-            if lookup.state == PairState.BOTH_FREE:
-                self._claim_free_pair(
-                    manager=manager,
-                    index=index,
-                    name=name,
-                    configuration_hash=configuration_hash,
-                    payload=payload,
-                )
-                return
-
-            # at this point, the only valid value for lookup.state is PairState.NAME_TAKEN
-
-            # the logic below is for the case of lookup.state = PairState.NAME_TAKEN            
-            if force != IdentityOverwritePolicy.OVERWRITE_NAME:
-                raise FileExistsError(
-                    f"name {name!r} already exists with a different "
-                    "configuration hash"
-                )
-            manager.drop_pair(index, human_readable_name=name)
-            artifacts = self.get_artifacts_directory()
-            if artifacts.path.exists():
-                shutil.rmtree(artifacts.path)
-            manager.create_pair(
-                index,
-                human_readable_name=name,
-                hash=configuration_hash,
-                extra=payload,
+        if lookup.state == HashManager.BOTH_MATCH:
+            raise FileExistsError(
+                f"already claimed name {name!r} with this configuration hash"
             )
-            Directory.from_absolute(
-                path=artifacts.path, policy=DirectoryParsePolicy.CREATE
+        if lookup.state == HashManager.BOTH_FREE:
+            self._claim_free_pair(
+                manager=manager,
+                index=index,
+                name=name,
+                configuration_hash=configuration_hash,
+                payload=payload,
             )
-            self._claimed_fit = True
-            self._identity_ready = True
             return
+        if force != IdentityOverwritePolicy.OVERWRITE_NAME:
+            raise FileExistsError(
+                f"name {name!r} already exists with a different "
+                "configuration hash"
+            )
+        manager.drop_pair(index, human_readable_name=name)
+        artifacts = self.get_artifacts_directory()
+        if artifacts.path.exists():
+            shutil.rmtree(artifacts.path)
+        manager.create_pair(
+            index,
+            human_readable_name=name,
+            hash=configuration_hash,
+            extra=payload,
+        )
+        Directory.from_absolute(
+            path=artifacts.path, policy=DirectoryParsePolicy.CREATE
+        )
+        self._claimed_fit = True
+        self._identity_ready = True
 
 
     def attach_fit_identity(self) -> None:
@@ -283,7 +220,7 @@ class TrainValEngine(ABC):
             lookup = manager.lookup(
                 index, human_readable_name=name, hash=configuration_hash
             )
-            if lookup.state == PairState.BOTH_MATCH:
+            if lookup.state == HashManager.BOTH_MATCH:
                 artifacts = self.get_artifacts_directory()
                 if artifacts.spec == DirectorySpec.EXISTS:
                     self._identity_ready = True
@@ -294,19 +231,19 @@ class TrainValEngine(ABC):
                     message=f"artifacts directory does not exist: {artifacts.path}",
                 )
                 continue
-            if lookup.state == PairState.BOTH_FREE:
+            if lookup.state == HashManager.BOTH_FREE:
                 _raise_or_wait_missing(
                     retry=retry,
                     deadline=deadline,
                     message=f"fit identity pair is not claimed: {name!r}",
                 )
                 continue
-            if lookup.state == PairState.NAME_TAKEN:
+            if lookup.state == HashManager.NAME_TAKEN:
                 raise FileExistsError(
                     f"name {name!r} already exists with a different "
                     "configuration hash"
                 )
-            if lookup.state == PairState.HASH_TAKEN:
+            if lookup.state == HashManager.HASH_TAKEN:
                 raise FileExistsError(
                     "configuration hash already saved under a different name"
                 )
@@ -319,7 +256,8 @@ class TrainValEngine(ABC):
         index: Directory,
         name: str,
         configuration_hash: str,
-        payload: Mapping[str, object],) -> None:
+        payload: Mapping[str, object],
+    ) -> None:
         artifacts = self.get_artifacts_directory()
         if artifacts.spec == DirectorySpec.EXISTS:
             raise FileExistsError(
@@ -442,7 +380,7 @@ def parse_purpose(value: object) -> str:
         allowed=(EnginePurpose.FIT, EnginePurpose.INSPECT),
         label="purpose",
         error_type=ValueError,
-        error_message="{label} must be {allowed}, got {value!r}",
+        error_message=one_of_message,
     )
 
 
@@ -452,30 +390,28 @@ def parse_force(value: object) -> str:
         allowed=(IdentityOverwritePolicy.OFF, IdentityOverwritePolicy.OVERWRITE_NAME),
         label="overwrite policy",
         error_type=ValueError,
-        error_message="{label} must be {allowed}, got {value!r}",
+        error_message=one_of_message,
     )
 
 
 def is_ddp_worker() -> bool:
-    # this must definitely move into a common package instead of being burried in here 
-    rank = _env_int(RANK_ENV)
+    rank = _env_int(TrainValEngine.RANK_ENV)
     if rank is None:
-        rank = _env_int(GLOBAL_RANK_ENV)
+        rank = _env_int(TrainValEngine.GLOBAL_RANK_ENV)
     if rank is not None and rank > 0:
         return True
-    node = _env_int(NODE_RANK_ENV)
+    node = _env_int(TrainValEngine.NODE_RANK_ENV)
     if node is None:
-        node = _env_int(GROUP_RANK_ENV)
+        node = _env_int(TrainValEngine.GROUP_RANK_ENV)
     if node is not None and node > 0:
         return True
-    local = _env_int(LOCAL_RANK_ENV)
+    local = _env_int(TrainValEngine.LOCAL_RANK_ENV)
     if local is not None and local > 0:
         return True
     return False
 
 
 def _env_int(name: str) -> int | None:
-    # TODO: add a file to work on the environment variables 
     raw = os.environ.get(name)
     if raw is None:
         return None
@@ -491,4 +427,4 @@ def _env_int(name: str) -> int | None:
 def _raise_or_wait_missing(*, retry: bool, deadline: float, message: str) -> None:
     if not retry or time.monotonic() >= deadline:
         raise FileNotFoundError(message)
-    time.sleep(ATTACH_POLL_SECONDS)
+    time.sleep(TrainValEngine.ATTACH_POLL_SECONDS)

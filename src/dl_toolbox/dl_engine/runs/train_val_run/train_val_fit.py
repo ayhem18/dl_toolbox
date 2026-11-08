@@ -1,4 +1,9 @@
-"""Construct module + Trainer and run one train/val fit. Loop methods live on the module."""
+"""fit() for a train+val Lightning module.
+
+on_fit_start (rank 0) is LogStream.FIT / LogExistence.CREATE, flatten_object
+into log_params, dump_object into log_text. Lightning logger=False,
+enable_checkpointing=False. Close is this procedure's finally.
+"""
 
 from __future__ import annotations
 

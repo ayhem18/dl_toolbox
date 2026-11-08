@@ -6,8 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from dl_toolbox.dl_engine.loggers.logger import (
-    EXISTENCE_REQUIRE,
-    STREAM_INSPECT,
+    LogExistence,
+    LogStream,
 )
 from dl_toolbox.dl_engine.runs.eval_run.eval_config import (
     EvalLoaders,
@@ -25,22 +25,22 @@ def test_eval_logger_config_has_no_defaults() -> None:
 
 def test_eval_logger_config_accepts_inspect_require() -> None:
     config = EvalLoggerConfig(
-        stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE, step=4
+        stream=LogStream.INSPECT, existence=LogExistence.REQUIRE, step=4
     )
-    assert config.stream == STREAM_INSPECT
-    assert config.existence == EXISTENCE_REQUIRE
+    assert config.stream == LogStream.INSPECT
+    assert config.existence == LogExistence.REQUIRE
     assert config.step == 4
 
 
 def test_eval_logger_config_rejects_illegal_stream() -> None:
     with pytest.raises(ValidationError):
-        EvalLoggerConfig(stream="eval", existence=EXISTENCE_REQUIRE, step=0)
+        EvalLoggerConfig(stream="eval", existence=LogExistence.REQUIRE, step=0)
 
 
 def test_eval_logger_config_rejects_negative_step() -> None:
     with pytest.raises(ValidationError):
         EvalLoggerConfig(
-            stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE, step=-1
+            stream=LogStream.INSPECT, existence=LogExistence.REQUIRE, step=-1
         )
 
 

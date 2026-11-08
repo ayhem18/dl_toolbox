@@ -1,236 +1,152 @@
 ---
-description: DefaultLayoutTrainValEngine fills TrainValEngine getters from ProjectLayout plus fit/inspect recipe Files and experiment.build_fit / build_eval. GPU count becomes the first N visible CUDA indices. run_group is nested folders, not a slash in the name.
-globs: **/dl_engine/exp_engine/train_val_engine/**,**/tests/dl_engine/exp_engine/**
+description: DefaultLayoutTrainValEngine fills TrainValEngine getters from a ProjectLayout plus a fit-recipe File and an experiment with build_fit / build_eval. Inspect adds inspect_recipe File and eval_device. GPU count picks the first N visible CUDA devices; a list is explicit indices.
+globs: **/train_val_engine/default_layout.py,**/train_val_engine/recipe.py,**/train_val_engine/experiment.py,**/tests/dl_engine/exp_engine/train_val_engine/**
 alwaysApply: false
 ---
 
 # DefaultLayoutTrainValEngine
 
-External-state functionality. Home: `src/dl_toolbox/dl_engine/exp_engine/train_val_engine/` next to TrainValEngine. Subclass that fills TrainValEngine getters from a **ProjectLayout** plus the bound recipes.
+## Context
 
-The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+`TrainValEngine` is abstract getters plus occupancy. A Digital Lab project that already has `ProjectLayout` should not re-specify where the identity index lives, where artifacts live, or which tracking backend constructed the loggers.
 
-This is not a second pair-state tree. PairState is TrainValEngine. The project tree is ProjectLayout (CONTRACT). This class answers: how recipe JSON, constructor fields, and project **code** become the remaining TrainValEngine getters.
+`DefaultLayoutTrainValEngine` is the engine that fills those getters from one `ProjectLayout`, one fit-recipe File, and an `experiment` object with `build_fit` / `build_eval`. Fit construction also takes `force`. Inspect construction also takes `inspect_recipe` (File) and `eval_device`. Recipes are JSON with exact keys. `experiment.build_fit` / `build_eval` turn the remaining Python callables (net, loaders, metrics, evaluate_fn) into `TrainValFitParts` / `TrainValEvalParts`.
 
-`experiment_management` is removed. `DefaultExpEngine` / `default_layout` / `DlToolboxConfigManager` / `dl_toolbox_config` do not survive.
-
-Named constants, no defaults.
+Trainer `devices` is either an int `N` (first `N` visible CUDA devices) or a list of GPU indices. One device → `Strategy.SINGLE_DEVICE`. More than one → `Strategy.DDP`. CPU → empty device tuple and `SINGLE_DEVICE`.
 
 ---
 
-## Entity
+## Terminology
 
-One bound **ProjectLayout**, one fit-recipe File (and, if purpose is inspect, one inspect-recipe File), plus the project’s experiment builder (code). After construction, every TrainValEngine getter is answered from those.
+TrainValEngine, EnginePurpose, IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`. ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`. JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
 
-Not this entity: walking parents to the marker (ProjectLayout.from_start), HashManager occupancy, TrainValRun.fit. GPU pick from a recipe **count** is this class.
+| Term | Meaning |
+|---|---|
+| `DefaultLayoutTrainValEngine` | TrainValEngine filled from ProjectLayout + recipes |
+| `FitRecipe` | parsed fit JSON |
+| `InspectRecipe` | parsed inspect JSON |
+| `TrainValFitParts` | `build_fit` product: `net`, `loaders`, `steps`, `metrics`, `optimization` |
+| `TrainValEvalParts` | `build_eval` product: `loaders`, `evaluate_fn` |
+| `DefaultLayoutTrainValEngine.RESOLVED_CONFIG_FILENAME` | `"resolved_config.json"` (RunLogConfig.filename) |
+| `DefaultLayoutTrainValEngine.INSPECTION_STAGING_DIRNAME` | `"inspection_staging"` |
+| `DefaultLayoutTrainValEngine.INSPECTION_RUNS_DIRNAME` | `"inspection_runs"` |
+| `DefaultLayoutTrainValEngine.FIT_CONSTRUCTOR_KEYS` | `("force",)` |
+| `DefaultLayoutTrainValEngine.INSPECT_CONSTRUCTOR_KEYS` | `("inspect_recipe", "eval_device")` |
+| `devices_and_strategy` | map recipe devices to `(indices, Strategy)` |
+| `pick_visible_gpu_indices` | first `N` of `torch.cuda.device_count()` |
+
+Fit recipe exact keys: `human_readable_name`, `run_group`, `seed`, `trainer`, `checkpoint_policy`, `early_stopping`, `logger`, `experiment_config`. Inspect recipe exact keys: `selector`, `evaluate`.
 
 ---
 
 ## Input Specification
 
-```
-DefaultLayoutTrainValEngine(
-  *,
-  purpose,              # TrainValEngine.Purpose.fit | inspect
-  layout,               # ProjectLayout (already from_start)
-  fit_recipe,           # File: the run recipe
-  experiment,           # project builder (code). Not JSON.
-  force,                # required iff purpose is fit; omit the argument otherwise
-  inspect_recipe,       # File, required iff purpose is inspect; omit otherwise
-  eval_device,          # torch.device, required iff purpose is inspect; omit otherwise
-)
-```
+Shared constructor args: `purpose`, existing `ProjectLayout`, fit-recipe File that parses as `FitRecipe` for this layout's `tracking_backend`, `experiment` with `build_fit` and `build_eval` (instance or class that constructs).
 
-Keyword-only. Every field that the purpose needs is required. `force` is not passed when purpose is inspect. `inspect_recipe` / `eval_device` are not passed when purpose is fit.
+Fit: `purpose` is `EnginePurpose.FIT`. Extra exact key `force` (`IdentityOverwritePolicy.OFF` or `OVERWRITE_NAME`).
 
-Scripts: `ProjectLayout.from_start(...)` then this constructor. This class does not walk parents and does not take `start` / `project_name` / `tracking_backend`.
+Inspect: `purpose` is `EnginePurpose.INSPECT`. Extra exact keys `inspect_recipe` (File) and `eval_device` (`torch.device`). Pair will be `BOTH_MATCH` by the time `inspect()` attaches.
 
-`experiment` is the project class that turns `experiment_config` into net / loaders / steps / metrics / optimization / evaluate_fn. JSON cannot hold callables. That is not a missing recipe key.
+Logger JSON matches `layout.tracking_backend` (TensorBoard tags vs MLflow experiment name).
 
-`experiment.build_fit` returns `TrainValFitParts`. `experiment.build_eval` returns `TrainValEvalParts`.
+`devices` in the trainer document: int `≥ 1` or a list of unique int GPU indices `≥ 0`.
 
 ---
 
-## Split: ProjectLayout vs recipe vs constructor vs code
+## Main functionalities
 
-### Already on `layout` (ProjectLayout)
+### Construction
 
-Marker, HashManager, lock timeout, logging store URIs, `identity_index` / `artifacts_directory` joins. This class does not re-read those files.
+**input:** `purpose`, `layout`, `fit_recipe`, `experiment`, plus purpose-specific extra keys.
 
-The identity-index Directory for this recipe is `layout.identity_index(run_group=…)`. TrainValEngine CREATE’s it on claim. Artifacts are `layout.artifacts_directory(run_group=…, name=…)`. There is no inspect identity index.
+**assumptions on the input:** Input Specification.
 
-### Remaining fields — fit recipe File
+**steps:**
 
-JSON object. Exact keys. No `dl_toolbox_config` wrapper.
+```
+parse FitRecipe from the File (always; identity lives there)
+if FIT: parse_force(fields["force"]); return
+if INSPECT: parse inspect_recipe File; store eval_device
+```
 
-| Key | Role |
-|---|---|
-| `human_readable_name` | Fit identity name **inside the group**. Logger `run_name`. Last artifacts folder. HashManager.validate_human_readable_name (basename, no `/`). |
-| `run_group` | Sequence of basenames. `[]` is `storage/runs` and `storage/run_artifacts/{name}`. `["learning_rate_grid", "less_than10"]` is `storage/runs/learning_rate_grid/less_than10` and `storage/run_artifacts/learning_rate_grid/less_than10/{name}`. Parsed by `ProjectLayout.parse_run_group`. In the identity payload. |
-| `seed` | int. `apply_seed`. In the identity payload. |
-| `trainer` | `max_epochs`, `accelerator`, `devices`, `precision`, `enable_progress_bar`, `accumulate_grad_batches`. **Not** `strategy` (derived). **Not** early stopping (its own key). In the identity payload. |
-| `checkpoint_policy` | `save_top_k`, `save_last`. Not lock timeout. In the identity payload. |
-| `early_stopping` | `none` or `patience` with `patience` + `min_delta`. In the identity payload. |
-| `logger` | backend-specific **run labels**, not the store: optional `tags` object; MLflow `experiment` (experiment name). `run_name` is `human_readable_name`, not a second key. **Not** in the identity payload. |
-| `experiment_config` | opaque JSON object for `experiment` (the code builder). In the identity payload. |
+**side effects:** none. Occupancy happens in `train()` / `inspect()`. `build_fit` / `build_eval` run lazily on first getter that needs parts.
 
-`accumulate_grad_batches` lives on `trainer`, not inside `experiment_config`.
+**outputs:** a DefaultLayoutTrainValEngine.
 
-### Remaining fields — inspect recipe File
+### Getters filled from the layout
 
-Required only when purpose is `inspect`. JSON object. Exact keys. **Not** hashed into the fit pair. Inspect has no HashManager pair.
+**input:** this engine, identity already ready where `require_identity()` says so.
 
-| Key | Role |
-|---|---|
-| `selector` | `last` \| `rank=N` \| `epoch=N` \| `value=S` → `CheckpointRequest` |
-| `evaluate` | opaque JSON object for `experiment` to build `evaluate_fn` and `EvalLoaders` (k, which splits, …) |
+**assumptions on the input:** construction succeeded.
 
-### Remaining fields — constructor (process, not a file)
+**steps:**
 
-`purpose`, `force`, `eval_device`. `layout` is already resolved. `eval_device` is CLI (`--device`), not the inspect recipe. Two inspect processes on the same fit run are not refused; they corrupt the vendor inspect stream (TrainValEngine limitation). GPU conflict with a live fit is the script’s problem (`--device` must not be a fit GPU).
+```
+get_run_name              → FitRecipe.human_readable_name
+get_identity_payload      → FitRecipe.identity_payload()
+get_force                 → stored force (FIT only)
+get_hash_manager          → layout.hash_manager
+get_identity_index        → layout.identity_index(run_group=recipe.run_group)
+get_identity_lock_timeout → layout.lock_timeout_seconds
+get_artifacts_directory   → layout.artifacts_directory(run_group=..., name=run_name)
+apply_seed                → random / numpy / torch / cuda from recipe.seed
+get_net / get_loaders / get_steps / get_metrics / get_optimization
+                          → experiment.build_fit(...) once, then those fields
+get_trainer               → TrainerConfig from recipe + devices_and_strategy
+get_checkpointer          → InspectableCheckpointer on existing artifacts
+get_logger                → TensorBoardLogger(log_dir, run_name) or MlflowLogger(...)
+get_run_log               → RunLogConfig(payload=identity + name + tags, filename=resolved_config.json)
+get_checkpoint_request    → CheckpointRequest.parse(inspect_recipe.selector)
+get_inspect_staging_directory → artifacts/inspection_staging/{uuid} CREATE
+get_inspect_payload_directory(epoch) → artifacts/inspection_runs/epoch={epoch} CREATE
+get_eval_loaders / get_evaluate_fn → experiment.build_eval(...) once
+get_eval_device           → constructor eval_device
+```
 
-### Remaining fields — project code (`experiment`)
+**side effects:** `build_fit` / `build_eval` as the experiment defines. Staging / payload Directories created on inspect getters.
 
-Callables and live objects JSON cannot hold.
+**outputs:** the getter returns TrainValEngine already named.
+
+### `devices_and_strategy(*, accelerator, devices_field)`
+
+**input:** recipe accelerator, devices field.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+CPU → (), Strategy.SINGLE_DEVICE
+int N → pick_visible_gpu_indices(count=N)
+list → tuple of those indices
+one index → SINGLE_DEVICE; several → DDP
+```
+
+**side effects:** none.
+
+**outputs:** `(indices, strategy)`.
 
 ---
 
-## What is hashed (fit identity payload)
+## Secondary functionalities
 
-```
-{
-  "run_group": <recipe.run_group as parsed tuple, dumped as a JSON array>,
-  "experiment_config": <recipe.experiment_config>,
-  "seed": <recipe.seed>,
-  "trainer": <recipe.trainer as stored in JSON, before GPU-count conversion>,
-  "checkpoint_policy": <recipe.checkpoint_policy>,
-  "early_stopping": <recipe.early_stopping>
-}
-```
+`parse_fit_recipe` / `parse_inspect_recipe` are JSON `require_exact_keys` plus the document types in `recipe.py`.
 
-`human_readable_name` is **not** in the hash. Project-level URIs, `tracking_backend`, inspect recipe, `eval_device`, `logger.tags`, `logger.experiment` are **not** in the hash.
+`experiment.build_fit` receives `experiment_config` plus `project_root`. `build_eval` receives `experiment_config`, inspect `evaluate` field, `project_root`, `payload_dir`. Both must return the Parts classes.
 
-`run_group` **is** in the hash. Moving a run to another folder is a different identity. Two groups are two HashManager Directories, so the same basename may exist in `learning_rate_grid/less_than10` and `batch_size_grid/less_than20`.
-
-Hashing `trainer` **before** converting a device **count** to indices: two machines that pick different GPU ids from `devices: 4` are still the same run. Hashing the converted index tuple would make the run identity machine-local.
+`pick_visible_gpu_indices(*, count)`: `torch.cuda.device_count()` must be `≥ count`; return `tuple(range(count))`.
 
 ---
 
-## `trainer.devices` (layout parse → TrainerConfig)
+## What this implies for the engine/multiprocess
 
-| accelerator | Recipe `devices` | This class produces |
-|---|---|---|
-| `cpu` | `[]` | `TrainerConfig.devices = ()`, `strategy = single_device` |
-| `gpu` | non-empty list of **indices** | that tuple; length 1 → `single_device`, length ≥ 2 → `ddp` |
-| `gpu` | a **count** (int ≥ 1) | pick that many GPU indices (below), then the same strategy rule |
-
-A count is layout parse, not a TrainerConfig field. After this class, `get_trainer()` is a legal TrainValRun row. `fit` never sees a count.
-
-GPU pick (count only): query visible CUDA devices in this process, take the first `count` indices in ascending order. If fewer than `count` exist: error. This class does **not** write `CUDA_VISIBLE_DEVICES`. It does **not** skip busy GPUs. Explicit indices skip the pick.
-
-`TrainerConfig.early_stopping` is filled from the recipe `early_stopping` key (`none()` vs `patience`). `num_nodes` is not a recipe key; TrainValRun is one node.
-
----
-
-## Logger (this class constructs it)
-
-Store URIs come from `layout`. Fit/inspect never get URIs.
-
-`run_name` = `human_readable_name`. MLflow `experiment` = recipe `logger.experiment` (required when backend is mlflow). Tags from recipe `logger.tags` go into `run_log.payload["tags"]` so TrainValRun’s `log_params` ships them. This class does not call `logger.log_tags` (logger is closed until `fit` / `evaluate` `setup`).
-
----
-
-## `experiment` (code, not a file)
-
-A project class. This layout calls it; it does not parse it.
-
-Fit (after identity + seed):
-
-```
-build_fit(experiment_config, *, project_root) → TrainValFitParts
-    net, TrainValLoaders, FitSteps, TrainValMetrics, OptimizationConfig
-```
-
-`OptimizationConfig.scheduler` is already bound to the optimizer (`ABSENT` or a live scheduler). No factory inside TrainValRun.
-
-Inspect:
-
-```
-build_eval(experiment_config, inspect_recipe.evaluate, *, project_root, payload_dir) → TrainValEvalParts
-    EvalLoaders, evaluate_fn
-```
-
-`payload_dir` is the inspect artifacts Directory. `evaluate_fn` closes over it. EvalContext stays `net, loaders, device, step`.
-
-`get_net()` on inspect builds the **same architecture** as fit (from `experiment_config`), then TrainValEngine loads weights. The builder does not load checkpoints.
-
-`RunLogConfig.filename` is the named constant `resolved_config.json`. `payload` is the fit identity payload plus `human_readable_name` plus `logger.tags` / `logger.experiment` as context (context is not identity).
-
----
-
-## Getter translation (this class)
-
-| TrainValEngine getter | This class reads |
-|---|---|
-| `get_run_name` | fit recipe `human_readable_name` |
-| `get_identity_payload` | table **What is hashed** |
-| `get_force` | constructor `force` |
-| `get_hash_manager` | `layout` |
-| `get_identity_index` | `layout.identity_index(run_group=…)` |
-| `get_identity_lock_timeout` | `layout` lock timeout |
-| `get_artifacts_directory` | `layout.artifacts_directory(run_group=…, name=…)` |
-| `apply_seed` | fit recipe `seed` |
-| `get_net` / `get_loaders` / `get_steps` / `get_metrics` / `get_optimization` | `experiment.build_fit` |
-| `get_trainer` | fit recipe `trainer` + `early_stopping` + GPU pick |
-| `get_checkpointer` | artifacts + `checkpoint_policy` + metrics.monitor + trainer.max_epochs + `layout` lock timeout |
-| `get_logger` | `layout` store URIs + `run_name` = human_readable_name + recipe `logger.experiment` (mlflow) |
-| `get_run_log` | identity payload + name + logger labels; filename `resolved_config.json` |
-| `get_checkpoint_request` | inspect recipe `selector` |
-| `get_inspect_staging_directory` | `{artifacts_directory}/inspection_staging/{uuid}` CREATE empty |
-| `get_inspect_payload_directory(epoch)` | `{artifacts_directory}/inspection_runs/epoch={epoch}` CREATE (reuse if it already exists) |
-| `get_eval_loaders` / `get_evaluate_fn` | `experiment.build_eval` (after payload_dir exists) |
-| `get_eval_device` | constructor `eval_device` |
-
-No inspect HashManager index. `payload_dir` is where `evaluate_fn` writes files. It is not a uniqueness gate: a second inspect of the same epoch writes the same folder. Overlapping inspects still corrupt logging (TrainValEngine limitation).
-
----
-
-## Construction algorithm
-
-**Assume:** arguments as in Given. `layout` already from `ProjectLayout.from_start`.
-
-```
-parse fit_recipe File → exact keys above (pydantic document, then HashManager / TrainerConfig rules)
-if purpose is inspect: parse inspect_recipe File
-hold layout + parsed recipes + experiment. Do not claim identity. Do not load weights. Do not open Logger.
-```
-
-**After:** `train()` / `inspect()` may be called (the one legal for `purpose`).
+Fit rank 0 and inspect both construct a DefaultLayoutTrainValEngine on the same `ProjectLayout.from_start`. They pass different purpose-specific constructor keys. They do not share an in-memory engine object. Identity name and payload always come from the fit-recipe File, including on inspect.
 
 ---
 
 ## Tensions
 
-1. **Recipe count → indices.** TrainValRun forbids a count. This class is the only place a count may appear, and only as recipe parse. “First N visible GPUs” will pick busy devices. Explicit indices are the honest form; count is convenience with that limitation.
-
-2. **MLflow experiment name on the recipe, store URIs on the project.** Several tasks in one repo keep several MLflow experiments without becoming several projects. Experiment name is **not** in the fit hash: renaming the MLflow experiment does not create a new run, and the vendor run fit `create`d is still the one inspect `require`s (backend-specific: MLflow keys by experiment+run_name). If a rename would break `require`, do not rename; that is a vendor constraint, not a hash constraint.
-
-3. **`experiment` is code.** A JSON-only recipe cannot produce `FitSteps`. The project still ships a builder class. Layout reduces *files*, not Python.
-
-4. **Inspect recipe is a second File.** Purpose `inspect` requires it. A polling script passes the same inspect recipe every attempt. This class does not skip an epoch already on disk.
-
-5. **`eval_device` is process CLI.** GPU conflict with a live fit is the script’s problem (`--device` must not be a fit GPU).
-
-6. **Relative `log_dir` / sqlite paths.** Resolved in ProjectLayout.from_start. Absolute URIs stay absolute.
-
-7. **Identity lock timeout = checkpoint lock timeout.** ProjectLayout’s one knob. If they need to diverge, that is a second key — not a silent `30.0` in an engine.
-
-8. **No `dl_toolbox_config` bag.** Seed / trainer / checkpoint_policy / early_stopping / logger labels are first-class recipe keys. Parsers are pydantic documents of those keys.
-
-9. **W&B.** Not a backend of this layout. `logging/wandb.json` in Digital Lab is unused by this class.
-
-10. **Scaffold** is `ProjectLayout.scaffold`. This class does not write the tree. Missing files are errors at `from_start`.
-
-11. **`payload_dir` vs EvalRun.** Disk inspect artifacts stay under `{artifacts_directory}/inspection_runs/epoch=N`. The folder is the artifact, not a process lock. `evaluate_fn` must be built **after** that Directory exists (`inspect()` order). Overlapping inspects of the same epoch share that folder and the vendor logger.
-
-12. **`run_group` is required.** `[]` is the flat parent (`storage/run_artifacts/{name}`). Do not omit the key. Do not put `/` inside `human_readable_name` — HashManager names are basenames. Nested folders are `run_group`, not the name.
+- **Recipe File vs `build_fit` callables.** JSON cannot hold an `nn.Module`. The File names what is serializable; the callables live on `experiment`. Two processes must pass equivalent `experiment` objects for the same recipe File.
+- **`eval_device` is inspect-only.** Fit devices come from the trainer recipe. Inspect does not reread that field.
+- **GPU count is a prefix of visible devices.** Hiding a GPU from this process is `CUDA_VISIBLE_DEVICES`. An explicit list is indices in that visible space.
+- **Fit recipe is required on inspect construction.** Inspect still parses it for name, run_group, logger, and `build_eval`'s `experiment_config`. There is no inspect-only identity.

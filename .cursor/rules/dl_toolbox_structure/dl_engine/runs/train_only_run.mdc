@@ -1,220 +1,121 @@
 ---
-description: TrainOnlyRun is one train-only Trainer.fit. No val loader. Monitor is a train epoch metric. The run constructs TrainEpochCheckpointCallback(checkpointer).
-globs: **/dl_engine/runs/train_only_run/**,**/tests/dl_engine/runs/train_only_run/**
+description: TrainOnlyRun is fit() for a train-only Lightning module. Same on_fit_start as TrainValRun (LogStream.FIT / LogExistence.CREATE, flatten_object, dump_object). Loaders have train and no val. Monitor is a train epoch metric key.
+globs: **/runs/train_only_run/**,**/runs/common/**,**/tests/dl_engine/runs/train_only_run/**
 alwaysApply: false
 ---
 
 # TrainOnlyRun
 
-External-state functionality. One train-only `Trainer.fit` in this process. It writes the **fit** logger stream and whatever the checkpointer writes.
+## Context
 
-Not this entity: train/val (`train_val_run.mdc`), LR finder, eval (`eval_run.mdc`). Passing the train loader as `val` is TrainValRun with a fake split.
+Some runs have no validation split: pretrain, a single-corpus language-model pass, a debug overfit on the train loader. The occupancy story is the same as train+val. The Lightning loop is not: there is no `val` DataLoader, no validation_step, no val metrics.
 
-This is not the engine. Identity, recipe hash, `force`, DDP worker attach, `inspect()`, GPU picking, strategy choice are the caller. `fit` receives the already resolved accelerator, GPU index tuple, and strategy.
+`TrainOnlyRun` is `fit()` for that case. `TrainOnlyLightningModule`, `TrainOnlyLoaders` (`train` only), `TrainOnlyMetrics` (train metrics plus `monitor`). Rank 0 `on_fit_start` is the same write as TrainValRun: `LogStream.FIT`, `LogExistence.CREATE`, `flatten_object` → `log_params`, `dump_object` → `log_text`. `fit()` always `logger.close()` in `finally`. Monitor must be a train epoch metric key.
 
-The checkpointer has no Lightning hook. This run constructs `TrainEpochCheckpointCallback(checkpointer=…)`.
+Shared trainer / optimization / early-stopping objects live in `runs/common`.
 
-Named constants, no defaults. `None` is not “no scheduler” and not “CPU devices”.
+---
 
-The class and procedures in code are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+## Terminology
+
+TrainValRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/train_val_run.mdc`. Logger / JSON terms as there.
+
+| Term | Meaning |
+|---|---|
+| `fit` | the train-only procedure |
+| `TrainOnlyLightningModule` | Lightning module: training_step, configure_optimizers, on_fit_start. No validation_step |
+| `TrainOnlyLoaders` | `train` DataLoader |
+| `TrainOnlyMetrics` | train metrics plus `monitor` |
+| `on_fit_start` | rank-0 logger setup + params + text dump |
+
+`FitSteps`, `TrainerConfig`, `OptimizationConfig`, `EarlyStoppingConfig`, `RunLogConfig`, `Accelerator`, `Strategy`, `FitError` are the common objects TrainValRun names.
 
 ---
 
 ## Input Specification
 
-```
-fit(
-  *,
-  net,
-  loaders,        # TrainOnlyLoaders.train only. No val slot.
-  steps,          # FitSteps: the four callables
-  metrics,        # TrainOnlyMetrics: train_metrics, monitor
-  optimization,   # optimizer, scheduler = ABSENT | live LRScheduler
-  trainer,        # TrainerConfig, same legal GPU/CPU rows as TrainValRun
-  checkpointer,   # InspectableCheckpointer
-  logger,         # built, not open
-  run_log,        # payload JSON object, filename
-)
-```
+`fit(*, net, loaders, steps, metrics, optimization, trainer, checkpointer, logger, run_log)`: same types as TrainValRun except `TrainOnlyLoaders` / `TrainOnlyMetrics`. `metrics.monitor.key` is among the train epoch metric keys.
 
-Keyword-only. Every argument required.
-
-`monitor.key` is a **train** epoch metric name (`…/train/epoch/…`).
-
-`TrainerConfig.early_stopping` is `NONE` or `PATIENCE` with required `patience` and `min_delta`. PATIENCE watches the train monitor.
-
-`devices` is a tuple of GPU indices. Empty iff CPU. Never a count, never `"auto"`, never `None`.
-
-Legal compute rows: `gpu` + length 1 + `single_device`; `gpu` + length ≥ 2 unique + `ddp`; `cpu` + `()` + `single_device`.
+`on_fit_start` and Lightning Trainer flags as TrainValRun (`logger=False`, `enable_checkpointing=False`, `num_nodes=1`).
 
 ---
 
-## `fit` — check inputs
+## Main functionalities
 
-**Assume:** the nine arguments, all present.
+### `fit(...)`
+
+**input:** `net`, `loaders`, `steps`, `metrics`, `optimization`, `trainer`, `checkpointer`, `logger`, `run_log`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
 
 ```
-if trainer combination is not a legal row: error
-if max_epochs < 1 or accumulate_grad_batches < 1: error
-if early_stopping is PATIENCE: patience and min_delta are already on that object
-monitor.key must be among train epoch metric names
-  (checked again at first real train epoch end)
+require metrics.monitor.key ∈ train epoch metric keys
+lit = TrainOnlyLightningModule(...)
+callbacks = [TrainEpochCheckpointCallback(checkpointer)]
+if early_stopping.name is PATIENCE: add EarlyStopping on metrics.monitor
+Lightning Trainer (logger=False, enable_checkpointing=False, ...)
+try: trainer.fit(lit, train_dataloaders=loaders.train)
+finally: logger.close()
 ```
 
-**After:** inputs are legal. No Trainer yet.
+**side effects:** training, checkpoints, FIT logs, logger close.
+
+**outputs:** the Lightning Trainer after fit.
+
+### `on_fit_start` (rank 0)
+
+**input:** bound logger and `RunLogConfig`.
+
+**assumptions on the input:** `trainer.is_global_zero`. Logger not yet open for FIT.
+
+**steps:**
+
+```
+if not global zero: return
+logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
+logger.log_params(flatten_object(run_log.payload))
+logger.log_text(run_log.filename, dump_object(payload, form=JsonTextForm.ASCII_PRETTY), step=0)
+```
+
+**side effects:** logger entity created; params logged; text dump logged.
+
+**outputs:** none.
+
+### `TrainOnlyLightningModule` steps
+
+**input:** a batch, `FitSteps`, `optimization`, train metrics.
+
+**assumptions on the input:** the train loader yields the batch type `prepare_tensors_fn` names.
+
+**steps:**
+
+```
+training_step: prepare_tensors_fn, forward_fn, loss_fn, metric.update, log scalars
+configure_optimizers: optimizer, and scheduler unless ABSENT
+```
+
+**side effects:** metric state, logged scalars.
+
+**outputs:** loss tensor.
 
 ---
 
-## `fit` — construct and run
+## Secondary functionalities
 
-**Assume:** inputs legal. Logger closed.
-
-Build the module from `net`, `optimization`, `logger`, `steps`, `metrics`, `run_log`.
-
-Callbacks: `TrainEpochCheckpointCallback(checkpointer=checkpointer)`, then EarlyStopping if `PATIENCE`. Not `InspectableCheckpointCallback`.
-
-```
-Trainer(
-  max_epochs, accelerator, devices, strategy, precision,
-  accumulate_grad_batches,
-  callbacks,
-  enable_progress_bar,
-  logger=False,
-  enable_checkpointing=True,
-  num_nodes=1,
-)
-```
-
-`enable_checkpointing=True` is required: Lightning refuses a `Checkpoint` subclass when the flag is false. A `Checkpoint` is already in `callbacks`, so Lightning does not insert `ModelCheckpoint`. TrainValRun keeps `enable_checkpointing=False` because its callback is a plain `Callback`.
-
-No `val_dataloaders`. No `check_val_every_n_epoch`. Lightning does not run sanity val.
-
-Lightning names (constructor only):
-
-| Ours | Lightning |
-|---|---|
-| `cpu` + `devices=()` | `accelerator="cpu"`, `devices=1` |
-| `gpu` + index tuple | `accelerator="gpu"`, `devices=list(indices)` |
-| `single_device` | `strategy="auto"` |
-| `ddp` | `strategy="ddp"` |
-
-After Trainer exists:
-
-```
-if trainer.num_nodes > 1: error
-if strategy is ddp and world_size != len(devices): error
-if strategy is single_device and world_size != 1: error
-```
-
-**After:** module + Trainer ready. Logger still closed.
-
-`trainer.fit(module, loaders.train)`. `finally`: `logger.close()` (idempotent).
+Same common objects as TrainValRun: `Accelerator`, `Strategy`, `FitError`, `RunLogConfig`. Checkpoint callback is `TrainEpochCheckpointCallback` (no val).
 
 ---
 
-## Save hook
+## What this implies for the engine/multiprocess
 
-The checkpointer does not choose a hook. This run constructs `TrainEpochCheckpointCallback`. TrainValRun constructs `InspectableCheckpointCallback` (`on_validation_end`). Both call `checkpointer.save()`.
-
-Lightning splits `on_train_epoch_end`:
-
-```
-1. callbacks that are not monitoring
-2. module.on_train_epoch_end
-3. monitoring callbacks   # EarlyStopping and lightning.pytorch.callbacks.Checkpoint
-```
-
-`TrainEpochCheckpointCallback` subclasses Lightning `Checkpoint` so it is step 3, after `self.log`. That is not ModelCheckpoint. TrainValRun must not attach this callback.
+A train-only engine's `train()` calls this `fit()`. Occupancy and rank attach stay on the engine. This procedure never opens a val loop. Close is this procedure's `finally`.
 
 ---
 
-## Loop
+## Tensions
 
-Only global zero calls Logger.
-
-`self.log` is Lightning `callback_metrics` (`sync_dist=True`). Rank 0 also `logger.log_scalars`. Two writes.
-
-`configure_optimizers`:
-
-```
-if scheduler is ABSENT: return optimizer
-return {optimizer, lr_scheduler: {scheduler, interval=epoch}}
-```
-
-If `sanity_checking`: return immediately from epoch-end.
-
----
-
-### `on_fit_start`
-
-**Assume:** Trainer exists. Rank is known. Logger closed.
-
-```
-if not is_global_zero: return
-logger.setup(stream=fit, existence=create)
-logger.log_params(flatten(run_log.payload))
-logger.log_text(run_log.filename, dump(run_log.payload, form=ascii_pretty), step=0)
-```
-
-**After:** rank 0 may `log_*`.
-
----
-
-### `on_train_epoch_start`
-
-```
-train_accumulator = MetricAccumulator(train_metrics, split=train)
-```
-
-All ranks.
-
----
-
-### `training_step(raw_batch, batch_idx)`
-
-```
-batch = prepare_tensors_fn(raw_batch)
-output = forward_fn(net, batch)
-loss = loss_fn(output, batch)
-if train_accumulator is None: error
-update train_accumulator from build_metric_inputs_fn(output, batch)   # no grad
-return loss
-```
-
----
-
-### `on_train_epoch_end`
-
-```
-if sanity_checking: return
-if train_accumulator is None: error
-self.log(train epoch scalars, sync_dist=True, logger=False, prog_bar=True)
-if is_global_zero:
-    logger.log_scalars(those scalars, step=epoch)
-if monitor.key not in train epoch keys: error
-```
-
-MetricAccumulator is rank-local. `sync_dist=True` is mean-of-means.
-
-Checkpoint has not run yet. Next is `on_train_epoch_end` on monitoring callbacks: `TrainEpochCheckpointCallback`.
-
----
-
-### `on_fit_end`
-
-```
-if not is_global_zero: return
-logger.close()
-```
-
-`fit`’s `finally` may `close` again.
-
----
-
-## Translation
-
-| Behavior | Translation |
-|---|---|
-| check, construct, `Trainer.fit(train)`, `finally` close | `fit` |
-| loop methods (no val) | `TrainOnlyLightningModule` |
-| `on_train_epoch_end` save | `TrainEpochCheckpointCallback(checkpointer=…)` |
+- **Early stopping with no val loader.** `EarlyStoppingConfig.PATIENCE` watches `metrics.monitor`, which must be a train epoch scalar.
+- **Flattened params drop structure.** Same as TrainValRun: structured copy is `log_text` of `dump_object`.
+- **Checkpoint callback is the train-epoch one.** Inspect fetch still goes through `InspectableCheckpointer`; the callback type is the train-only writer.

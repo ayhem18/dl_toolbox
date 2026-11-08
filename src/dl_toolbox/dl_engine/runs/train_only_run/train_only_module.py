@@ -9,7 +9,7 @@ import torch
 from torch import Tensor, nn
 from torch.optim import Optimizer
 
-from dl_toolbox.base.input_output.json_io import dump, flatten, JsonTextForm
+from dl_toolbox.base.input_output.json_io import dump_object, flatten_object, JsonTextForm
 from dl_toolbox.dl_engine.loggers.logger import LogExistence, LogStream, Logger
 from dl_toolbox.dl_engine.metrics.accumulator import MetricAccumulator
 from dl_toolbox.dl_engine.runs.common.run_config import (
@@ -65,10 +65,10 @@ class TrainOnlyLightningModule(L.LightningModule):
         if not self.trainer.is_global_zero:
             return
         self._epoch_logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
-        self._epoch_logger.log_params(flatten(self._run_log.payload))
+        self._epoch_logger.log_params(flatten_object(self._run_log.payload))
         self._epoch_logger.log_text(
             self._run_log.filename,
-            dump(self._run_log.payload, form=JsonTextForm.ASCII_PRETTY),
+            dump_object(self._run_log.payload, form=JsonTextForm.ASCII_PRETTY),
             step=0,
         )
 

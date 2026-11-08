@@ -7,10 +7,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from dl_toolbox.base.hashing.hash_manager import HashManager
-from dl_toolbox.base.input_output.json_io import JsonTextForm, dump
+from dl_toolbox.base.input_output.json_io import JsonTextForm, dump_object
 from dl_toolbox.base.parsing.parse_numerical import parse_non_negative_int
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
-from dl_toolbox.base.parsing.parse_utils import require_exact_keys
+from dl_toolbox.base.parsing.parse_utils import (
+    one_of_message,
+    parse_one_of,
+    require_exact_keys,
+)
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.types import (
     CheckpointPolicy,
     CheckpointRequest,
@@ -236,7 +240,7 @@ def parse_fit_recipe(
             "fit recipe experiment_config must be a JSON object, "
             f"got {type(experiment_config)!r}"
         )
-    dump(experiment_config, form=JsonTextForm.CANONICAL)
+    dump_object(experiment_config, form=JsonTextForm.CANONICAL)
     seed = parse_non_negative_int(payload["seed"], label="seed")
     name = hash_manager.validate_human_readable_name(
         parse_non_empty_str(payload["human_readable_name"], label="human_readable_name")
@@ -272,7 +276,7 @@ def parse_inspect_recipe(payload: object) -> InspectRecipe:
         document = InspectRecipeDocument.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(f"inspect recipe: {exc}") from exc
-    dump(document.evaluate, form=JsonTextForm.CANONICAL)
+    dump_object(document.evaluate, form=JsonTextForm.CANONICAL)
     CheckpointRequest.parse(document.selector)
     return InspectRecipe(selector=document.selector, evaluate=document.evaluate)
 
@@ -297,32 +301,32 @@ def _parse_early_stopping(
         raise TypeError(
             f"early_stopping must be a JSON object, got {type(payload)!r}"
         )
-    name = payload.get("name")
+    name = parse_one_of(
+        payload.get("name"),
+        allowed=(EarlyStoppingConfig.NONE, EarlyStoppingConfig.PATIENCE),
+        label="early_stopping.name",
+        error_type=ValueError,
+        error_message=one_of_message,
+    )
     try:
         if name == EarlyStoppingConfig.NONE:
             NoneEarlyStoppingDocument.model_validate(payload)
             return EarlyStoppingConfig.none(), {"name": EarlyStoppingConfig.NONE}
-        if name == EarlyStoppingConfig.PATIENCE:
-            document = PatienceEarlyStoppingDocument.model_validate(payload)
-            return (
-                EarlyStoppingConfig(
-                    name=EarlyStoppingConfig.PATIENCE,
-                    patience=document.patience,
-                    min_delta=document.min_delta,
-                ),
-                {
-                    "name": EarlyStoppingConfig.PATIENCE,
-                    "patience": document.patience,
-                    "min_delta": document.min_delta,
-                },
-            )
+        document = PatienceEarlyStoppingDocument.model_validate(payload)
+        return (
+            EarlyStoppingConfig(
+                name=EarlyStoppingConfig.PATIENCE,
+                patience=document.patience,
+                min_delta=document.min_delta,
+            ),
+            {
+                "name": EarlyStoppingConfig.PATIENCE,
+                "patience": document.patience,
+                "min_delta": document.min_delta,
+            },
+        )
     except ValidationError as exc:
         raise ValueError(f"fit recipe early_stopping: {exc}") from exc
-    raise ValueError(
-        "early_stopping.name must be "
-        f"{EarlyStoppingConfig.NONE!r} or {EarlyStoppingConfig.PATIENCE!r}, "
-        f"got {name!r}"
-    )
 
 
 def _parse_logger(
@@ -330,6 +334,13 @@ def _parse_logger(
 ) -> tuple[dict[str, str], str | None]:
     if not isinstance(payload, dict):
         raise TypeError(f"logger must be a JSON object, got {type(payload)!r}")
+    parse_one_of(
+        tracking_backend,
+        allowed=TrackingBackend.BACKENDS,
+        label="tracking_backend",
+        error_type=ValueError,
+        error_message=one_of_message,
+    )
     try:
         if tracking_backend == TrackingBackend.TENSORBOARD:
             if "tags" in payload:

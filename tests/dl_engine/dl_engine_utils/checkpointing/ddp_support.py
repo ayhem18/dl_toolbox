@@ -127,6 +127,7 @@ def make_checkpointer(config: DdpFitConfig) -> InspectableCheckpointer:
         monitor=CheckpointMonitor(key=MONITOR_KEY, mode=config.mode),
         max_epochs=len(config.scores),
         lock_timeout_seconds=config.lock_timeout_seconds,
+        lock_poll_seconds=0.05,
     )
 
 

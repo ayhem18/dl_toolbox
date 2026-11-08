@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 import torch
 
-from dl_toolbox.base.input_output.json_io import dump, flatten, JsonTextForm
+from dl_toolbox.base.input_output.json_io import dump_object, flatten_object, JsonTextForm
 from dl_toolbox.dl_engine.loggers.logger import (
-    EXISTENCE_REQUIRE,
-    STREAM_INSPECT,
+    LogExistence,
+    LogStream,
 )
 from dl_toolbox.dl_engine.runs.eval_run.eval_config import (
     EvalContext,
@@ -39,7 +39,7 @@ class _EvalLogger(RecordingLogger):
 
 def _logger_config(*, step: int) -> EvalLoggerConfig:
     return EvalLoggerConfig(
-        stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE, step=step
+        stream=LogStream.INSPECT, existence=LogExistence.REQUIRE, step=step
     )
 
 
@@ -84,11 +84,11 @@ def test_evaluate_setup_emits_and_closes() -> None:
         logger_config=_logger_config(step=7),
         run_log=run_log(),
     )
-    assert logger.setup_calls == [(STREAM_INSPECT, EXISTENCE_REQUIRE)]
+    assert logger.setup_calls == [(LogStream.INSPECT, LogExistence.REQUIRE)]
     assert logger.close_calls == 1
-    assert logger.params == [flatten({"task": "unit"})]
+    assert logger.params == [flatten_object({"task": "unit"})]
     assert logger.texts[0][0] == "run_config"
-    assert logger.texts[0][1] == dump(
+    assert logger.texts[0][1] == dump_object(
         {"task": "unit"}, form=JsonTextForm.ASCII_PRETTY
     )
     assert logger.texts[0][2] == 0
@@ -116,7 +116,7 @@ def test_evaluate_closes_when_evaluate_fn_raises() -> None:
             logger_config=_logger_config(step=0),
             run_log=run_log(),
         )
-    assert logger.setup_calls == [(STREAM_INSPECT, EXISTENCE_REQUIRE)]
+    assert logger.setup_calls == [(LogStream.INSPECT, LogExistence.REQUIRE)]
     assert logger.close_calls == 1
     assert logger.scalars == []
 

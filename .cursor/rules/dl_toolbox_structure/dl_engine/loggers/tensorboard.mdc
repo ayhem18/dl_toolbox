@@ -1,143 +1,249 @@
 ---
-description: TensorBoard entity is the event tree under log_dir/run_name. setup create|require opens a SummaryWriter; close is process-local.
+description: TensorBoardLogger is the event tree under log_dir/run_name. setup create|require opens a SummaryWriter. close is process-local.
 globs: **/dl_engine/loggers/tensorboard.py,**/tests/dl_engine/loggers/test_tensorboard.py
 alwaysApply: false
 ---
 
 # TensorBoard logger
 
-External-state functionality. The entity is the **event tree** under `log_dir / run_name /`. The UI is a byproduct: it reads `.tfevents` files. Launching TensorBoard is not a logger method.
+## Context
 
-We do not name or open event files. `setup` builds a `SummaryWriter`; the writer creates one `.tfevents` file. `log_*` go through that writer.
+Logger's Context (`.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`) is why fit and inspect share one call surface. This contract is the TensorBoard side of that surface: the **event tree** under `log_dir / run_name /`.
 
-The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+The UI is a byproduct. It reads `.tfevents` files. `--logdir` for the UI is `log_dir`. Several `run_name`s are several UI runs. When a run directory has more than one event file, the UI process needs `--reload_multifile true`. That flag lives on the UI process.
+
+`setup` builds a `SummaryWriter`. The writer creates one event file. `log_*` go through that writer, then `flush`. TensorBoard puts process identity (`pid`, …) in the event filename, so two writers are two files. That is vendor uniqueness.
+
+`stream` chooses the filename suffix: `LogStream.FIT` → `.fit`, `LogStream.INSPECT` → `.inspect`. Existence `create` lets the writer make `run_dir` if it is missing. Existence `require` errors if `run_dir` is missing, then adds this process's file to the same directory.
+
+Optional extra is `require(package="tensorboard")` then `require(package="torch.utils.tensorboard")` (extras contract, `.cursor/rules/dl_toolbox_structure/base/packaging/require.mdc`). `SummaryWriter` is on that second import.
+
+`log_params` / `log_tags` are run-level text: `dump_object(..., form=JsonTextForm.ASCII_PRETTY)` (JSON contract). `log_table` is `log_text` of `table_as_json`.
+
+### What TensorBoardLogger needs in order to operate
+
+1. `log_dir`: absolute path of the store
+2. `run_name`: one path segment
+3. `stream` and `existence` at `setup`, as Logger
+4. process flag `open`: this process has a writer. Starts false. Not stored on disk
+
+After construction:
+
+```
+log_dir /
+  run_name /          ← run_dir, the UI run
+    events.out.tfevents.{time}.{host}.{pid}.{uid}.fit
+    events.out.tfevents.{time}.{host}.{pid}.{uid}.inspect
+```
+
+The writer creates those files.
+
+### What TensorBoardLogger can do
+
+- **construct:** store `log_dir` and `run_name`. Disk unchanged. No writer yet.
+- **setup create:** open a `SummaryWriter` on `run_dir` with the stream suffix. The writer creates `run_dir` if missing, and one new event file.
+- **setup require:** `run_dir` already exists. Open a writer the same way. One new event file in that directory.
+- **log_*:** through the bound writer, then `flush`.
+- **close:** flush and close this process's writer. Event files stay. The UI run stays.
+
+---
+
+## Terminology
+
+Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`. Extra: `.cursor/rules/dl_toolbox_structure/base/packaging/require.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `TensorBoardLogger` | Logger whose entity is the event tree under `run_dir` |
+| `log_dir` | absolute path of the store. `--logdir` for the UI |
+| `run_name` | one path segment. The UI run is a child of `log_dir` |
+| `run_dir` | `log_dir / run_name` |
+| `SummaryWriter` | vendor writer. `setup` constructs one; `log_*` go through it |
+| `filename_suffix` | `.fit` or `.inspect`, from `stream` |
+| `open` | this process has a writer and may call `log_*` |
+| image map | array → CHW float in `[0, 1]`, what `add_image` takes |
+
+Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `table_as_json`) are Logger's Terminology.
 
 ---
 
 ## Input Specification
 
-An absolute `log_dir` (the store). A `run_name` (one path segment). The UI run is the directory `run_dir = log_dir / run_name`.
-
-`--logdir` for the UI is `log_dir`, not `run_dir`. Several `run_name`s are several UI runs. `--reload_multifile true` is required when a run directory has more than one event file. That is a UI-process flag, not a logger call.
-
-`inspection_runs/` is not this entity.
-
-TensorBoard puts process identity (`pid`, …) in the event filename. Two `SummaryWriter`s therefore get two files. That is vendor uniqueness, not a lock.
-
-`stream` is `fit` or `inspect`. It is required. No default. It only sets the filename suffix:
+`TensorBoardLogger` is constructed with:
 
 ```
-fit     → .fit
-inspect → .inspect
+log_dir     absolute Path or str
+run_name    non-empty basename: no `/`, no `\`, not `.`, not `..`
 ```
 
-Process flag `open`: this process has a writer and may call log. Starts false. Not stored on disk.
+Both required. Relative `log_dir` is an error at construction. Disk unchanged. No writer yet.
 
-Existence is `create` or `require`, required, no default. First process creates the run directory; every other process requires it and adds its own file.
+`run_dir = log_dir / run_name`.
 
-Synchronization of “one live fit, one live inspect” is the engine. Not these algorithms. Counting `*.fit` / `*.inspect` cannot tell a live writer from a finished one (files stay after `close`).
+`setup` takes `stream` and `existence` as Logger. `filename_suffix`:
+
+```
+LogStream.FIT      → .fit
+LogStream.INSPECT  → .inspect
+```
+
+`open` starts false.
+
+`log_*` payloads are Logger's Input Specification. `log_params` / `log_tags` are dumped as `JsonTextForm.ASCII_PRETTY` text under tags `params` / `tags`. `log_table` is `log_text` of `table_as_json`. `log_image` goes through the image map, then `add_image`.
 
 ---
 
-## `setup(create)`
+## Main functionalities
 
-**Assume:** `log_dir` absolute. `open` is false. `stream` given.
+### `TensorBoardLogger(*, log_dir, run_name)`
+
+store the store path and the run name.
+
+**input:** `log_dir`, `run_name`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+store absolute log_dir
+store run_name
+run_dir = log_dir / run_name
+open = false
+writer unbound
+```
+
+**side effects:** none. Disk unchanged.
+
+**outputs:** a TensorBoardLogger that does not yet have a writer.
+
+### `setup(*, stream, existence)`
+
+bind this process so `log_*` is legal. Open a `SummaryWriter` on `run_dir`.
+
+**input:** `stream`, `existence`.
+
+**assumptions on the input:** Logger Input Specification. `open` is false. For `LogExistence.REQUIRE`, `run_dir` already exists as a directory.
+
+**steps:**
 
 ```
 if open: error
+parsed_stream = parse_log_stream(stream)
+parsed_existence = parse_log_existence(existence)
 
-SummaryWriter(log_dir = run_dir, filename_suffix = suffix(stream))
-# writer creates run_dir if missing
+if parsed_existence is LogExistence.REQUIRE:
+    if run_dir is not a directory: error
+
+suffix = .fit if parsed_stream is LogStream.FIT else .inspect
+import SummaryWriter (Secondary)
+writer = SummaryWriter(log_dir=run_dir, filename_suffix=suffix)
+# writer creates run_dir if missing (create)
 # writer creates one new events.out.tfevents.{time}.{host}.{pid}.{uid}{suffix}
 
 open = true
 bind that writer
 ```
 
-**Entity after:** `run_dir` exists. One new event file for this process and stream. Other files in `run_dir` are untouched.
+**side effects:**
 
-If `run_dir` already exists: **allowed**. Create does not raise. A second file is appended to the same UI run. Two `create`s of `fit` are an engine bug, not a torn file.
+- `create`: `run_dir` exists. One new event file for this process and stream. Other files in `run_dir` are untouched. If `run_dir` already existed, a second file is appended to the same UI run.
+- `require`: `run_dir` unchanged except one new event file. This process may log. Fit's file still belongs to fit.
 
----
+There is no TensorBoard analog of a terminal run. If the directory exists, `require` succeeds.
 
-## `setup(require)`
+**outputs:** none.
 
-**Assume:** `open` is false. `stream` given. A `create` already made `run_dir` (fit started).
+### `log_params(params)` / `log_tags(tags)` / `log_scalars(values, *, step)` / `log_image` / `log_text` / `log_table`
 
-```
-if open: error
+Logger's `log_*`, through the bound writer.
 
-if run_dir does not exist: error
-    # do not mkdir. attach is not create.
+**input:** Logger payloads.
 
-SummaryWriter(log_dir = run_dir, filename_suffix = suffix(stream))
-# one new event file, same run_dir, this process's pid
+**assumptions on the input:** `open` is true. Bound writer.
 
-open = true
-bind that writer
-```
-
-**Entity after:** `run_dir` unchanged except one new event file. This process may log. Fit’s file still belongs to fit.
-
-There is no TensorBoard analog of a terminal run. Require does not inspect `status`. If the directory exists, require succeeds.
-
----
-
-## `log_*`
-
-**Assume:** `open` is true. Bound writer. We do not re-scan `run_dir` on every log.
+**steps:**
 
 ```
-if not open: error
-writer.add_*(...)
+require_logger_open(open)
+writer.add_text("params", dump_object(dict(params), form=JsonTextForm.ASCII_PRETTY))   # log_params
+writer.add_text("tags",   dump_object(dict(tags),   form=JsonTextForm.ASCII_PRETTY))   # log_tags
+for each key, value in values: writer.add_scalar(key, value, global_step=step)        # log_scalars
+writer.add_image(tag, image map of image, global_step=step)                           # log_image
+writer.add_text(tag, text, global_step=step)                                          # log_text
+log_text(tag, table_as_json(rows), step=step)                                         # log_table
 writer.flush()
 ```
 
-| Call | Through the writer |
-|---|---|
-| `log_scalars` / `log_image` / `log_text` (`*, step`) | `step` required |
-| `log_table` (`*, step`) | JSON as text, not a table plugin |
-| `log_params` / `log_tags` | run-level text, no `step` |
+Empty `values`: return without writing.
 
----
+**side effects:** this process's event file grows. `run_dir` is not re-scanned.
 
-## `close()`
+**outputs:** none.
 
-**Assume:** this process may or may not be `open`.
+### `close()`
+
+unbind this process.
+
+**input:** this TensorBoardLogger.
+
+**assumptions on the input:** none extra. If `open` is false, return.
+
+**steps:**
 
 ```
-if open:
-    writer.flush()
-    writer.close()
+if not open: return
+writer.flush()
+writer.close()
 open = false
 unbind writer
-# do not delete event files
-# do not delete run_dir
-# do not close other processes' writers
 ```
 
-**Entity after:** this process’s file is finished and stays on disk. Other processes’ files are unchanged. The UI run does not disappear.
+**side effects:** this process's event file is finished and stays on disk. Other processes' files are unchanged. The UI run stays. `run_dir` stays.
 
-`close` is process-local: this logger object stops logging. It is not a lifecycle transition of the run directory.
+**outputs:** none.
 
-Idempotent: `close` when `open` is false is a no-op.
-
-`setup` after `close` in the same process is a new writer, a new file.
+`setup` after `close` is a new writer, a new file.
 
 ---
 
-## Translation (class)
+## Secondary functionalities
 
-| Algorithm | Method |
-|---|---|
-| store + name, no writer | `__init__(log_dir, run_name)` — relative `log_dir` is an error; disk unchanged |
-| `setup(create)` / `setup(require)` | `setup(*, stream, existence)` both required, no defaults |
-| process flag | private `open`; `log_*` check it |
-| `close()` | `close()` |
+### SummaryWriter import
 
-No listing of event files to police uniqueness. No directory lock. No `log_dir=None` → vendor `runs/datetime_host`.
+**steps:**
 
-Engine pairs: fit → `setup(stream=fit, existence=create)`. Inspect → `setup(stream=inspect, existence=require)`. The logger does not forbid other pairs.
+```
+require(package="tensorboard")
+module = require(package="torch.utils.tensorboard")
+SummaryWriter = module.SummaryWriter
+```
+
+A missing `SummaryWriter` on an already-imported `torch.utils.tensorboard` is a broken extra: `ImportError` with the tensorboard extra hint. That check is this class's, after `require` succeeded.
+
+### filename suffix
+
+```
+LogStream.FIT      → ".fit"
+LogStream.INSPECT  → ".inspect"
+```
+
+### image map
+
+**Assume:** `image` is the array `log_image` received.
+
+```
+tensor = image as a CPU tensor
+if rank 2: add a leading channel axis
+if rank 3 and last dim in {1, 3, 4} and first dim not in {1, 3, 4}:
+    permute to (C, Y_dim, X_dim)
+if channel count is 4: drop the last channel
+tensor = float
+if max > 1: divide by 255
+return tensor
+```
+
+**After:** CHW float in `[0, 1]`, what `add_image` takes. Disk unchanged.
 
 ---
 
@@ -145,8 +251,15 @@ Engine pairs: fit → `setup(stream=fit, existence=create)`. Inspect → `setup(
 
 Fit `create` once. Inspect `require` on the same `run_name`. Two writers, two files, one `run_dir`, one UI run. That is the intended pair.
 
-Two processes both `create`: two files in the same directory (pid differs). No corrupt file. Messy UI if both are `fit`. The engine prevents that.
+Two processes both `create`: two files in the same directory (pid differs). The files are not torn. The UI run is still one directory. Messy if both are `fit`. The engine prevents that.
 
-Two processes both `require` while `run_dir` exists: two more files. Engine prevents two inspects if it cares.
+Two processes both `require` while `run_dir` exists: two more files. The engine prevents two inspects if it cares.
 
-Sharing one `SummaryWriter` across processes or threads: outside this algorithm. Do not.
+Counting `*.fit` / `*.inspect` cannot tell a live writer from a finished one: files stay after `close`. That is why "one live fit, one live inspect" is the engine.
+
+---
+
+## Tensions
+
+- **The image map is a guess.** Layout comes from which axis is in `{1, 3, 4}`. Scale comes from `max > 1`. Two arrays that are both legal to pass can take different paths. A float tensor already in `[0, 1]` with a stray value above 1 is scaled. Same hole as Logger.
+- **Two `create`s of `fit` do not tear a file; they do produce a messy UI.** This class has no way to tell a leftover event file from a live writer. Uniqueness of one live fit is the engine.

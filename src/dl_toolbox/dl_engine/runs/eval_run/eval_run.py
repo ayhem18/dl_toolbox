@@ -1,4 +1,9 @@
-"""One evaluation: setup logger, call evaluate_fn, emit LogItems, close."""
+"""evaluate() for a bound checkpoint.
+
+evaluate_fn(EvalContext) returns a sequence of LogItem. emit writes each
+item. Setup uses EvalLoggerConfig.stream / existence. flatten_object /
+dump_object log the RunLogConfig payload, then close.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,7 @@ from collections.abc import Callable, Sequence
 import torch
 from torch import nn
 
-from dl_toolbox.base.input_output.json_io import dump, flatten, JsonTextForm
+from dl_toolbox.base.input_output.json_io import dump_object, flatten_object, JsonTextForm
 from dl_toolbox.dl_engine.loggers.logger import Logger
 from dl_toolbox.dl_engine.runs.common.run_config import RunLogConfig
 from dl_toolbox.dl_engine.runs.eval_run.eval_config import (
@@ -54,10 +59,10 @@ def evaluate(
 
     logger.setup(stream=logger_config.stream, existence=logger_config.existence)
     try:
-        logger.log_params(flatten(run_log.payload))
+        logger.log_params(flatten_object(run_log.payload))
         logger.log_text(
             run_log.filename,
-            dump(run_log.payload, form=JsonTextForm.ASCII_PRETTY),
+            dump_object(run_log.payload, form=JsonTextForm.ASCII_PRETTY),
             step=0,
         )
         context = EvalContext(

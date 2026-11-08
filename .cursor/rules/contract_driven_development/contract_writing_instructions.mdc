@@ -1,5 +1,5 @@
 ---
-description: Dos and don'ts for writing a dl_toolbox feature contract .mdc. Do not define by negation. Do not mention removed names. Do not repeat the contract-folder rules. Tensions are unresolved problems.
+description: Dos and don'ts for writing a dl_toolbox feature contract .mdc. Do not define by negation. Do not mention removed names. Do not repeat the contract-folder rules. Tensions are unresolved problems. When refining, do not park the old code as Tensions.
 alwaysApply: true
 ---
 
@@ -94,3 +94,25 @@ It is not a dump of "also we don't do X". It is not a list of other modules. It 
 **Good tension:** HashManager `drop_pair` then `create_pair` are two lock acquisitions. The engine overwrite-name path needs both. Another process can see the pair as free in the gap. That is an unresolved problem at the time of writing the contract, and it belongs under Tensions.
 
 **Not a tension:** "digest primitives are not HashManager" (that is an assumption to state positively, or it is out of scope and then it is simply omitted). "There is no IdentityManager" (history). "Does not mkdir artifacts or logger stores" (if the Context already says HashManager only owns the identity index, repeating the rest of the project as absences is defining by negation).
+
+When refining an existing contract, the contract must not mention tensions about the existing code that the contract is meant to refine / replace.
+
+The note describes the solution. Tensions are holes in *that* solution. They are not a review of the file the note is meant to replace.
+
+If the class still has a second name, an old import, or a helper the new algorithm does not use, that is a later translation miss (the code is wrong or the note is wrong). It is not a sentence in Tensions.
+
+If a different solution is tempting (a Directory where this note uses a path, an Image where this note takes an array), that is a revision of the algorithm. Write the algorithm this note actually specifies, or stop and change the algorithm. Do not list the other solution as a Tension.
+
+**Bad** (Logger, refinement):
+
+```
+## Tensions
+
+- parse_log_stream currently passes a format string; parse_one_of requires a callable.
+- The module still exports STREAM_FIT beside LogStream.
+- log_dir is still a Path, not a Directory.
+```
+
+Those three sentences are about the code being replaced, or about a different solution. A reader of the new Logger note does not need them. They teach the next edit to keep a punch list of the repo inside the contract.
+
+**Good:** Logger Tensions are the image-layout guess (two legal arrays take different paths) and `table_as_json` as a JSON array while `parse_object` is the object. MLflow Tensions are the create race on the name map and `close` leaving `RUNNING`. Those are holes in the solution at the time of writing.

@@ -1,4 +1,4 @@
-"""MLflow logger. Entity is the tracking instance and the runs in it."""
+"""MlflowLogger. Entity is the tracking instance and the runs in it."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from dl_toolbox.base.packaging import require
 from dl_toolbox.base.parsing.parse_path import parse_absolute_path
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 from dl_toolbox.dl_engine.loggers.logger import (
-    EXISTENCE_CREATE,
+    LogExistence,
     Logger,
     LoggerError,
     parse_log_existence,
@@ -19,13 +19,6 @@ from dl_toolbox.dl_engine.loggers.logger import (
     require_logger_open,
     table_as_json,
 )
-_PARAM_KEY_MAX = 250
-_PARAM_VALUE_MAX = 6000
-_TAG_KEY_MAX = 250
-_TAG_VALUE_MAX = 5000
-_PARAM_CHUNK = 100
-_TERMINAL_STATUSES = frozenset({"FINISHED", "FAILED", "KILLED"})
-_LIFECYCLE_DELETED = "deleted"
 
 
 class MlflowLogger(Logger):
@@ -65,7 +58,7 @@ class MlflowLogger(Logger):
             raise LoggerError("logger is already open")
         parse_log_stream(stream)
         parsed_existence = parse_log_existence(existence)
-        if parsed_existence == EXISTENCE_CREATE:
+        if parsed_existence == LogExistence.CREATE:
             self._setup_create()
             return
         self._setup_require()
@@ -74,9 +67,7 @@ class MlflowLogger(Logger):
         client, run_id = self._client_run()
         from mlflow.entities import Param
 
-        mapping = bounded_mapping(
-            params, "params", key_max=_PARAM_KEY_MAX, value_max=_PARAM_VALUE_MAX
-        )
+        mapping = bounded_mapping(params, "params", key_max=250, value_max=6000)
         keys = list(mapping)
         n = len(keys)
         if n == 0:
@@ -85,19 +76,18 @@ class MlflowLogger(Logger):
         for i in range(n):
             key = keys[i]
             items[i] = Param(key, mapping[key])
-        n_chunks = (n + _PARAM_CHUNK - 1) // _PARAM_CHUNK
+        chunk = 100
+        n_chunks = (n + chunk - 1) // chunk
         for chunk_i in range(n_chunks):
-            start = chunk_i * _PARAM_CHUNK
-            end = min(start + _PARAM_CHUNK, n)
+            start = chunk_i * chunk
+            end = min(start + chunk, n)
             client.log_batch(run_id, params=items[start:end], synchronous=True)
 
     def log_tags(self, tags: Mapping[str, str]) -> None:
         client, run_id = self._client_run()
         from mlflow.entities import RunTag
 
-        mapping = bounded_mapping(
-            tags, "tags", key_max=_TAG_KEY_MAX, value_max=_TAG_VALUE_MAX
-        )
+        mapping = bounded_mapping(tags, "tags", key_max=250, value_max=5000)
         keys = list(mapping)
         n = len(keys)
         if n == 0:
@@ -173,6 +163,8 @@ class MlflowLogger(Logger):
         )
 
     def close(self) -> None:
+        if not self._open:
+            return
         self._open = False
         self._run_id = None
 
@@ -185,9 +177,7 @@ class MlflowLogger(Logger):
                 f"MLflow run {self._run_name!r} already exists in experiment "
                 f"{self._experiment_name!r}"
             )
-        mapping = bounded_mapping(
-            self._tags, "tags", key_max=_TAG_KEY_MAX, value_max=_TAG_VALUE_MAX
-        )
+        mapping = bounded_mapping(self._tags, "tags", key_max=250, value_max=5000)
         run = client.create_run(
             experiment_id,
             tags=mapping if mapping else None,
@@ -211,11 +201,11 @@ class MlflowLogger(Logger):
                 f"MLflow run {self._run_name!r} does not exist in experiment "
                 f"{self._experiment_name!r}"
             )
-        if run.info.lifecycle_stage == _LIFECYCLE_DELETED:
+        if run.info.lifecycle_stage == "deleted":
             raise LoggerError(
                 f"MLflow run {self._run_name!r} is deleted"
             )
-        if run.info.status in _TERMINAL_STATUSES:
+        if run.info.status in ("FINISHED", "FAILED", "KILLED"):
             raise LoggerError(
                 f"MLflow run {self._run_name!r} is terminal "
                 f"(status={run.info.status})"

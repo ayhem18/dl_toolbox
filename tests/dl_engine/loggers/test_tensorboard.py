@@ -3,10 +3,8 @@ from pathlib import Path
 import pytest
 
 from dl_toolbox.dl_engine.loggers.logger import (
-    EXISTENCE_CREATE,
-    EXISTENCE_REQUIRE,
-    STREAM_FIT,
-    STREAM_INSPECT,
+    LogExistence,
+    LogStream,
     LoggerError,
 )
 from dl_toolbox.dl_engine.loggers.tensorboard import TensorBoardLogger
@@ -21,7 +19,7 @@ def test_create_writes_fit_events(tmp_path: Path) -> None:
     import torch
 
     logger = _logger(tmp_path)
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     logger.log_scalars({"loss": 0.5}, step=1)
     logger.log_image("inspection/panel", torch.zeros(1, 8, 8), step=3)
     logger.log_table("inspection/rows", [{"loss": 0.5}], step=3)
@@ -43,10 +41,10 @@ def test_inspect_require_uses_suffix(tmp_path: Path) -> None:
     import torch
 
     fit = _logger(tmp_path)
-    fit.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    fit.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     fit.close()
     inspect = TensorBoardLogger(log_dir=tmp_path / "tb", run_name="run")
-    inspect.setup(stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE)
+    inspect.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
     inspect.log_image("inspection/panel", torch.zeros(3, 4, 4), step=2)
     inspect.close()
     names = [path.name for path in (tmp_path / "tb" / "run").glob("events.out.tfevents.*")]
@@ -62,7 +60,7 @@ def test_inspect_require_uses_suffix(tmp_path: Path) -> None:
 def test_require_without_run_dir_raises(tmp_path: Path) -> None:
     logger = _logger(tmp_path)
     with pytest.raises(LoggerError, match="does not exist"):
-        logger.setup(stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE)
+        logger.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
     assert not (tmp_path / "tb" / "run").exists()
 
 
@@ -75,9 +73,9 @@ def test_log_before_setup_raises(tmp_path: Path) -> None:
 def test_setup_twice_raises(tmp_path: Path) -> None:
     pytest.importorskip("torch.utils.tensorboard")
     logger = _logger(tmp_path)
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     with pytest.raises(LoggerError, match="already open"):
-        logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+        logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     logger.close()
 
 
@@ -86,10 +84,10 @@ def test_close_is_idempotent_and_setup_after_close_makes_a_new_file(
 ) -> None:
     pytest.importorskip("torch.utils.tensorboard")
     logger = _logger(tmp_path)
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     logger.close()
     logger.close()
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     logger.close()
     events = list((tmp_path / "tb" / "run").glob("events.out.tfevents.*"))
     assert len(events) == 2

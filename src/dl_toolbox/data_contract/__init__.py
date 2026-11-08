@@ -1,5 +1,7 @@
 """Freeze utilities for the data-contract ritual.
 
-Notes live in ``dl_toolbox`` repository ``standards/data_contract/``. This
-package does not define entities, collections, or processes.
+The process pair is HashManager. Collection configuration is two Files under
+the collection kind's Directory. Notes live in ``standards/data_contract/``
+and ``standards/contract/proposals/``. This package does not define entities,
+collections, or processes.
 """

@@ -1,178 +1,202 @@
 ---
-description: ProjectLayout is one toolbox project tree. from_start walks to the marker. scaffold writes it. CLI setup-project CREATE’s {cwd}/{name} then scaffold. identity_index and artifacts_directory join run_group under storage/runs and storage/run_artifacts.
-globs: **/project_layout/**,**/tests/project_layout/**
+description: ProjectLayout is one toolbox project tree already located and read. from_start walks to dl_toolbox_project.json. scaffold writes the tree into an existing root. TrackingBackend is tensorboard or mlflow, chosen per from_start. HashManager is built from identity.json plus checkpoint.json lock timeout.
+globs: **/project_layout/project_layout.py,**/project_layout/cli.py,**/project_layout/documents.py,**/project_layout/names.py,**/tests/project_layout/**
 alwaysApply: false
 ---
 
 # ProjectLayout
 
-External-state functionality. One toolbox **project tree** on disk, already located and read.
+## Context
 
-This is not HashManager occupancy, not a recipe parser, not Logger construction, not TrainValEngine. DefaultLayoutTrainValEngine *holds* a ProjectLayout.
+A Digital Lab project is a tree on disk. The training engine, the inspect engine, TensorBoard, MLflow, and HashManager all need the same answers: where is the project root, what is the project name, which tracking backend this process is using, where identity indexes live, where run artifacts live. Without one object that already found those answers, every caller walks the tree again and invents a slightly different layout.
 
-Named constants, no defaults. The class in code is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+`ProjectLayout` is that object: one toolbox project tree, already located and read. Construction is `from_start(*, start, project_name, tracking_backend)`: walk from `start` toward filesystem root until `dl_toolbox_project.json` exists, check that the marker `name` matches `project_name`, then read `project_level_configs/`. The constructor does not create directories. The constructor does not write JSON.
 
-```
-TrackingBackend = tensorboard | mlflow
-```
+The tree is created by `scaffold` (Python) and by `setup-project` (CLI). CLI creates `cwd / project_name`, then calls `scaffold` on that Directory. `scaffold` writes the marker, `.tracking-backend`, the project-level JSON files, and the reserved top-level directories. After that, `from_start` is how every later process attaches.
 
-W&B is not a backend of this layout.
+`TrackingBackend` is the one choice that changes which logging JSON `from_start` reads: `tensorboard` or `mlflow`. Scaffold writes both logging JSON files. `from_start` still takes `tracking_backend` per process.
 
----
-
-## Entity
-
-```
-{project_root}/
-  dl_toolbox_project.json
-  .tracking-backend
-  project_level_configs/
-    identity.json
-    checkpoint.json
-    logging/
-      tensorboard.json | mlflow.json
-  storage/
-  run_recipes/
-  scripts/
-  experiments/
-```
-
-`storage/runs` and `storage/run_artifacts` may still be missing after scaffold. The engine CREATE’s the identity-index Directory on claim.
-
-Not this entity: HashManager `create_pair` / `lookup`, fit recipes, GPU picking, experiment builder code.
+HashManager is not a hardcoded `hashes/` folder. Identity JSON names the two HashManager directory names. Checkpoint JSON names `lock_timeout_seconds`. `LOCK_POLL_SECONDS` on this class is the poll interval HashManager gets.
 
 ---
 
-## `from_start(*, start, project_name, tracking_backend)`
+## Terminology
 
-**Assume:** `start` is a File or Directory that exists. Never `Path.cwd()`. `tracking_backend` is `tensorboard` | `mlflow`. `project_name` is the expected marker `name`.
+Directory, File: `.cursor/rules/dl_toolbox_structure/base/file_management/`. HashManager: `.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc`. JSON `read_object` / `write_object`: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `ProjectLayout` | one project tree, already located and read |
+| `root` | the Directory that contains `dl_toolbox_project.json` |
+| `project_name` | non-empty string; must match marker `name` |
+| `tracking_backend` | `TrackingBackend.TENSORBOARD` or `TrackingBackend.MLFLOW` |
+| `TrackingBackend` | the two backend names |
+| `hash_manager` | `HashManager` built from identity.json + checkpoint lock timeout |
+| `from_start` | walk from `start` to the marker, then construct |
+| `scaffold` | write marker, configs, reserved dirs into an existing `root` |
+| `setup-project` | CLI: create `cwd / project_name`, then `scaffold` |
+| `parse_run_group` | parse a sequence of basenames into `tuple[str, ...]` |
+| `identity_index` | HashManager index Directory under `storage/runs/` + `run_group` |
+| `artifacts_directory` | Directory under `storage/run_artifacts/` + `run_group` + `name` |
+| `LOCK_POLL_SECONDS` | `0.05`. Poll interval this layout hands HashManager |
+| `lock_timeout_seconds` | from checkpoint.json, via HashManager |
+
+Filenames (relative to `root`): `dl_toolbox_project.json`, `.tracking-backend`, `project_level_configs/identity.json`, `project_level_configs/checkpoint.json`, `project_level_configs/logging/tensorboard.json`, `project_level_configs/logging/mlflow.json`.
+
+Reserved top-level directories: `storage`, `scripts`, `experiments`, `run_recipes`.
+
+---
+
+## Input Specification
+
+`from_start(*, start, project_name, tracking_backend)`: `start` is a File or an existing Directory. Walking toward filesystem root finds `dl_toolbox_project.json`. Marker JSON exact key `name` (non-empty str) equals `project_name`. `tracking_backend` is `tensorboard` or `mlflow`. Identity JSON exact keys `prefix_len` (int 8..64), `human_readable_dirname`, `hashes_dirname`. Checkpoint JSON exact key `lock_timeout_seconds` (finite float > 0). Logging JSON for that backend exists under `project_level_configs/logging/{backend}.json`.
+
+`scaffold(*, root, project_name, tracking_backend)`: `root` exists. No marker File yet. `project_name` is a non-empty string. `tracking_backend` is `tensorboard` or `mlflow`.
+
+`setup-project`: positional `project_name` is a single path component (not `.` / `..`, no slash). `--tracking-backend` required. cwd exists. `cwd / project_name` does not exist yet.
+
+`parse_run_group(segments)`: sequence of non-empty basenames. Not a string.
+
+`identity_index(*, run_group)` / `artifacts_directory(*, run_group, name)`: `run_group` is `parse_run_group` output. `name` is a HashManager human-readable name. Both getters use `DirectoryParsePolicy.ALLOW_MISSING`.
+
+TensorBoard logging JSON exact key `log_dir`. MLflow logging JSON: `backend_store` (`type="database"`, `database_type="sqlite"`, `path`, `timeout_seconds`) and `artifact_store` (`type="filesystem"`, `root`). Paths may be relative to `root` or absolute. `backend_store.type="filesystem"` and `database_type="postgres"` are documents that parse and are not wired.
+
+---
+
+## Main functionalities
+
+### `ProjectLayout.from_start(*, start, project_name, tracking_backend)`
+
+**input:** `start`, `project_name`, `tracking_backend`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
 
 ```
-marker = File.from_parent_walk(start, basename=dl_toolbox_project.json)
+marker = File.from_parent_walk(start=start, basename=dl_toolbox_project.json)
 root = marker.parent()
-read marker; exact key name; name == project_name else error
-read project_level_configs/identity.json → HashManager
-read project_level_configs/checkpoint.json → lock_timeout_seconds > 0
-read project_level_configs/logging/{tracking_backend}.json → store paths
-hold these. Do not CREATE storage/runs. Do not open a Logger. Do not rewrite .tracking-backend.
+read marker; name must equal project_name
+read project_level_configs/identity.json
+read project_level_configs/checkpoint.json
+HashManager from identity fields, lock_timeout_seconds from checkpoint,
+  lock_poll_seconds = LOCK_POLL_SECONDS
+read project_level_configs/logging/{tracking_backend}.json
+if TENSORBOARD: logging.log_dir from that JSON
+if MLFLOW: db_path, timeout_seconds, artifact_root from that JSON
+return ProjectLayout(root, project_name, tracking_backend, hash_manager, logging)
 ```
 
-**After:** a ProjectLayout. Missing marker / missing `identity.json` / missing logging file for the chosen backend is an error.
+**side effects:** none. Read only.
 
-Constructor `tracking_backend` is what this process uses. `.tracking-backend` is a scaffolded default only.
+**outputs:** a ProjectLayout.
 
-Relative store paths resolve against `root`. Absolute paths stay absolute.
+### `ProjectLayout.scaffold(*, root, project_name, tracking_backend)`
 
----
+**input:** `root`, `project_name`, `tracking_backend`.
 
-## `scaffold(*, root, project_name, tracking_backend)`
+**assumptions on the input:** `root` exists. Marker does not.
 
-**Assume:** `root` is a Directory that exists. `tracking_backend` is `tensorboard` | `mlflow`.
-
-If `dl_toolbox_project.json` is already a file: `FileExistsError`.
-
-Writes marker (`name` only), `.tracking-backend`, `identity.json`, `checkpoint.json`, `logging/tensorboard.json`, `logging/mlflow.json`, reserved directories `storage/`, `run_recipes/`, `scripts/`, `experiments/`. Does not write W&B config. Does not CREATE `storage/runs`. Does not claim a run.
-
-**After:** `from_start` can read this tree.
-
----
-
-## CLI `setup-project project_name --tracking-backend {tensorboard|mlflow}`
-
-**Assume:** process cwd exists. `project_name` is a non-empty basename: no `/`, not `.`, not `..`. `--tracking-backend` is required. No `--package`. W&B is not a choice.
+**steps:**
 
 ```
-parent = Directory.from_absolute(cwd, MUST_EXIST)
-if {cwd}/{project_name} exists: FileExistsError
-root = CREATE that Directory
-scaffold(*, root, project_name, tracking_backend)
-if scaffold fails: delete root; re-raise
+write dl_toolbox_project.json  {name: project_name}
+write .tracking-backend        tracking_backend plus newline
+write project_level_configs/identity.json     DEFAULT_IDENTITY_CONFIG
+write project_level_configs/checkpoint.json   DEFAULT_CHECKPOINT_CONFIG
+write logging/tensorboard.json  {log_dir: storage/tensorboard}
+write logging/mlflow.json       sqlite db under storage/mlflow/, timeout SQLITE_TIMEOUT_SECONDS
+create storage/, scripts/, experiments/, run_recipes/
 ```
 
-**After:** `from_start` can read this tree. stdout is the root path.
+**side effects:** writes those files and directories. Does not return a ProjectLayout.
 
-cwd is allowed only here. `from_start` / `scaffold` never use `Path.cwd()`. This is not a second Python layout API.
+**outputs:** none.
 
----
+### `setup-project` (CLI)
 
-## `parse_run_group(segments)`
+**input:** `project_name`, `--tracking-backend`. cwd is the parent.
 
-**Assume:** `segments` is a sequence of strings, not a `str`.
+**assumptions on the input:** Input Specification.
 
-Each segment is a non-empty basename: no `/`, not `.`, not `..`. Empty sequence is the storage parents themselves.
-
-**After:** a `tuple[str, ...]`. Disk unchanged.
-
----
-
-## `identity_index(*, run_group)` / `artifacts_directory(*, run_group, name)`
-
-**Assume:** `run_group` is `parse_run_group` output. `name` is a HashManager name.
+**steps:**
 
 ```
-identity_index     = {root}/storage/runs/{run_group...}                  ALLOW_MISSING
-artifacts_directory = {root}/storage/run_artifacts/{run_group...}/{name} ALLOW_MISSING
+parent = Directory of cwd (MUST_EXIST)
+create cwd / project_name
+ProjectLayout.scaffold(root=that Directory, project_name=..., tracking_backend=...)
+on any exception: rmtree the new Directory, re-raise
 ```
 
-Empty `run_group`: `storage/runs` and `storage/run_artifacts/{name}`.
+**side effects:** new project tree, or no leftover directory.
 
-This class does not mkdir those paths. The engine CREATE’s on claim.
+**outputs:** process exit. Path of the new root on success.
 
-Different `run_group` values are different HashManager Directories. The same `name` may exist in two groups.
+### `parse_run_group(segments)`
+
+**input:** a sequence of basenames.
+
+**assumptions on the input:** each segment is a non-empty single path component.
+
+**steps:** return `tuple[str, ...]` of those basenames.
+
+**side effects:** none.
+
+**outputs:** the run-group tuple later getters require.
+
+### `identity_index(*, run_group)`
+
+**input:** this layout, `run_group`.
+
+**assumptions on the input:** `run_group` is `parse_run_group` output.
+
+**steps:** return Directory `root/storage/runs/{run_group...}` with `ALLOW_MISSING`.
+
+**side effects:** none.
+
+**outputs:** a Directory. Creating it is the engine's occupancy path.
+
+### `artifacts_directory(*, run_group, name)`
+
+**input:** this layout, `run_group`, `name`.
+
+**assumptions on the input:** `name` is a HashManager human-readable name.
+
+**steps:** return Directory `root/storage/run_artifacts/{run_group...}/{name}` with `ALLOW_MISSING`.
+
+**side effects:** none.
+
+**outputs:** a Directory.
 
 ---
 
-## Project-level JSON (exact keys)
+## Secondary functionalities
 
-| File | Keys |
-|---|---|
-| `dl_toolbox_project.json` | `name` |
-| `identity.json` | `prefix_len`, `human_readable_dirname`, `hashes_dirname` |
-| `checkpoint.json` | `lock_timeout_seconds` (> 0) |
-| `logging/tensorboard.json` | `log_dir` |
-| `logging/mlflow.json` | `backend_store` + `artifact_store` (sqlite + filesystem root). Postgres / filesystem backend store are not wired. |
+`TrackingBackend.TENSORBOARD` / `MLFLOW` / `BACKENDS` are the two names and the pair.
 
-MLflow experiment name is not here.
+`tensorboard_log_dir()` is legal only when this layout's backend is TensorBoard.
 
----
+`mlflow_db_path()` / `mlflow_timeout_seconds()` / `mlflow_artifact_root()` are legal only when this layout's backend is MLflow.
 
-## What this object answers
+`lock_timeout_seconds` is `hash_manager.lock_timeout_seconds` (from checkpoint.json).
 
-| Question | Answer |
-|---|---|
-| project root | Directory that exists |
-| HashManager | from `identity.json` |
-| lock timeout | `checkpoint.json` (catalog, identity lock, DDP attach deadline) |
-| logging store | TensorBoard `log_dir` or MLflow sqlite path / artifact root |
-| tracking_backend | the `from_start` argument |
-| identity index for a group | `identity_index` |
-| artifacts for a group + name | `artifacts_directory` |
+`LOCK_POLL_SECONDS = 0.05`.
+
+Default identity JSON: `prefix_len=12`, `human_readable_dirname="human_readable"`, `hashes_dirname="hashes"`. Default checkpoint JSON: `lock_timeout_seconds=600.0`. Scaffold MLflow timeout: `SQLITE_TIMEOUT_SECONDS = 30.0`.
 
 ---
 
-## Translation (class)
+## What this implies for the engine/multiprocess
 
-| Algorithm | Method |
-|---|---|
-| walk + read | `from_start(*, start, project_name, tracking_backend)` |
-| write empty tree | `scaffold(*, root, project_name, tracking_backend)` |
-| CREATE `{cwd}/{name}` then scaffold | CLI `setup-project` |
-| group segments | `parse_run_group(segments)` |
-| index / artifacts paths | `identity_index`, `artifacts_directory` |
-| `tensorboard` \| `mlflow` | `TrackingBackend` |
-
-This package does not import TrainValRun, Logger vendor classes, or Lightning.
+Fit rank 0 and inspect attach through `from_start` on the same tree, same `project_name`, each passing its `tracking_backend`. They do not scaffold. `identity_index` is per `run_group`: two names in one group share one HashManager index Directory. `artifacts_directory` is per `(run_group, name)`. ExclusiveDirLock for occupancy is the engine's lock on that index, not a getter here.
 
 ---
 
 ## Tensions
 
-1. **`.tracking-backend` vs constructor.** Scaffold writes a default. Each process names `tracking_backend` at `from_start`.
-
-2. **Marker is `name` only.** Digital Lab currently also stores `package`. That key is not this contract; `from_start` rejects extra keys.
-
-3. **Identity lock timeout = checkpoint lock timeout.** One key.
-
-4. **`run_group` is path join, not occupancy.** Two groups are two HashManager Directories. Uniqueness of `(name, hash)` is per group.
-
-5. **CLI owns cwd.** `scaffold` assumes `root` already exists. `setup-project` CREATE’s a new child of cwd, then calls `scaffold`. An existing child is `FileExistsError`. CREATE then scaffold fail: delete the child. No `--package`: marker is `name` only.
+- **Tracking backend is a constructor argument and a scaffolded file.** `.tracking-backend` records what `setup-project` wrote. `from_start` does not read that file; the process passes `tracking_backend`. Two processes on the same tree can open different backends.
+- **The marker is a name, not a Digital Lab package version.** Two checkouts that disagree on layout shape can still attach to the same tree.
+- **Lock timeout is checkpoint.json's field, used as HashManager's timeout.** Occupancy wait and checkpoint wait share that number. Poll interval is `LOCK_POLL_SECONDS`, separate.
+- **`setup-project` owns cwd.** The CLI does not take a parent path. Python `scaffold` takes an already-created `root`.
+- **`identity_index` and `artifacts_directory` allow missing.** Creating those Directories is the engine's claim, not these getters.
+- **MLflow JSON admits `filesystem` and `postgres`.** `from_start` parses them and then errors: only sqlite database + filesystem artifacts are wired.

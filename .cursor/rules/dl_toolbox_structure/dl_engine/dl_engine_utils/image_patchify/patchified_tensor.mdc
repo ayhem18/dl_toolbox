@@ -1,26 +1,139 @@
 ---
-description: PatchifiedTensor is layout × original_channels × patch_size plus a batched tensor. Sequence unflatten takes Y_patches and X_patches.
+description: PatchifiedTensor is PatchifiedTensorSpec plus a batched tensor. PatchLayout × original_channels × patch_size. from_tensor requires spec. convert maps layouts. SEQUENCE to grid is unflatten(Y_patches, X_patches).
 globs: **/image_patchify/patchified_tensor.py,**/image_patchify/spec.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_patchified_tensor.py,**/tests/dl_engine/dl_engine_utils/image_patchify/test_spec.py
 alwaysApply: false
 ---
 
 # PatchifiedTensor
 
-`PatchifiedTensor` = `PatchifiedTensorSpec` + batched `torch.Tensor`. Spec is `PatchLayout` × `original_channels` × `patch_size` (`P > 1`, square). Layout is a claim.
+## Context
 
-| Layout | Payload |
+ViT-style models, MAE, and anything that trains on non-overlapping patches keep reconstructing the same three arrangements of one image: the spatial tensor, a grid of patch vectors, a sequence of those vectors. Every dataset that does `einops.rearrange` and then remembers the layout in a comment is reconstructing an entity.
+
+`PatchifiedTensor` is that entity: a `PatchifiedTensorSpec` plus a batched `torch.Tensor`. Spec is three questions: how the payload is arranged (`PatchLayout`), how many channels the original image had (`original_channels`), how big a square patch is (`patch_size`, `P > 1`). Spatial size lives on the tensor. Grid size (`Y_patches`, `X_patches`) also lives on the tensor, except on `SEQUENCE`, where those two numbers are gone from the shape. Getting them back is a named convert: `unflatten(*, Y_patches, X_patches)`. Putting them on the spec would be a stale claim after a flatten.
+
+Layout is a claim. A rank-4 tensor cannot tell you whether it is spatial or a patch grid. `from_tensor` requires `spec`. `convert(*, spec)` maps one legal spec to another. `SEQUENCE` → grid is not unique without `Y_patches` and `X_patches`, so it is not `convert`.
+
+PatchifiedMask is the same layouts for a binary patch-constant mask. It is a separate entity.
+
+---
+
+## Terminology
+
+Image: `.cursor/rules/dl_toolbox_structure/base/input_output/images.mdc`. Spatial size: `Y_dim`, `X_dim`.
+
+| Term | Meaning |
 |---|---|
-| `SPATIAL` | `(B, C_org, Y_dim, X_dim)` |
-| `PATCH_GRID` | `(B, C_org·P·P, Y_patches, X_patches)` |
-| `SEQUENCE` | `(B, Y_patches·X_patches, C_org·P·P)` |
+| `PatchifiedTensor` | `PatchifiedTensorSpec` plus a batched `tensor` |
+| `spec` | the layout / channel / patch-size claim |
+| `tensor` | the contiguous batched `torch.Tensor`. Spatial size lives here |
+| `PatchifiedTensorSpec` | `layout` × `original_channels` × `patch_size` |
+| `PatchLayout` | how the payload is arranged |
+| `PatchLayout.SPATIAL` | `(B, C_org, Y_dim, X_dim)` |
+| `PatchLayout.PATCH_GRID` | `(B, C_org·P·P, Y_patches, X_patches)` |
+| `PatchLayout.SEQUENCE` | `(B, Y_patches·X_patches, C_org·P·P)` |
+| `original_channels` | `C_org`, ≥ 1. Channel count of the spatial image |
+| `patch_size` | `P`, integer > 1. Square patch |
+| `patch_vector_size` | `C_org · P · P`, derived |
+| `Y_patches` / `X_patches` | grid counts. On the payload except on SEQUENCE, where they are `unflatten` arguments |
+| `from_tensor` | tensor source. Caller passes `spec` |
+| `convert` | map this PatchifiedTensor onto a target `spec` with the same `C_org` and `P` |
+| `unflatten` | `SEQUENCE` → `PATCH_GRID`. Caller passes `Y_patches` and `X_patches` |
+| `validate_patchified_tensor` | payload matches spec |
 
-- Tensor: `PatchifiedTensor.from_tensor(tensor=..., spec=...)`.
-- Convert: `convert(spec=...)` for `SPATIAL` ↔ `PATCH_GRID` and both → `SEQUENCE`. Same `C_org` and `P`.
-- `SEQUENCE` → grid: `unflatten(Y_patches=..., X_patches=...)` → `PATCH_GRID`. Then convert to `SPATIAL`.
+---
 
-```python
-image = PatchifiedTensor.from_tensor(tensor=spatial, spec=spatial_spec)
-grid = image.convert(spec=grid_spec)
-sequence = image.convert(spec=sequence_spec)
-grid = sequence.unflatten(Y_patches=y_patches, X_patches=x_patches)
+## Input Specification
+
+`PatchifiedTensorSpec` is `layout` (`PatchLayout`) × `original_channels` (int ≥ 1) × `patch_size` (int > 1). Every combination of those is legal. `patch_vector_size` is derived.
+
+`PatchifiedTensor` is that spec plus `tensor`: a contiguous batched tensor whose rank and trailing sizes match the layout:
+
 ```
+SPATIAL      (B, C_org, Y_dim, X_dim)
+             Y_dim and X_dim divisible by P
+PATCH_GRID   (B, C_org·P·P, Y_patches, X_patches)
+SEQUENCE     (B, Y_patches·X_patches, C_org·P·P)
+```
+
+`B ≥ 1`. Layout is a claim. `validate_patchified_tensor` checks the payload against the spec; it does not invent spatial vs grid from the numbers.
+
+`from_tensor` takes `tensor` and `spec`. Both required.
+
+`convert` takes `spec` (target). `original_channels` and `patch_size` must match this spec. `SEQUENCE` as the source of `convert` is an error: that map is `unflatten`.
+
+`unflatten` takes `Y_patches` and `X_patches` (ints ≥ 1). This spec's layout is `SEQUENCE`. Product `Y_patches · X_patches` equals the sequence length.
+
+---
+
+## Main functionalities
+
+### `PatchifiedTensor.from_tensor(*, tensor, spec)`
+
+**input:** `tensor`, `spec`.
+
+**assumptions on the input:** Input Specification. `spec` is the layout claim the tensor cannot supply.
+
+**steps:**
+
+```
+tensor = tensor.contiguous()
+validate_patchified_tensor(tensor, spec=spec)
+return PatchifiedTensor(spec=spec, tensor=tensor)
+```
+
+**side effects:** none.
+
+**outputs:** a PatchifiedTensor.
+
+### `convert(*, spec)`
+
+**input:** this PatchifiedTensor, target `spec`.
+
+**assumptions on the input:** this object is already valid. Target `spec` has the same `original_channels` and `patch_size`. This layout is `SPATIAL` or `PATCH_GRID`.
+
+**steps:**
+
+```
+if spec == this spec: return PatchifiedTensor with the same tensor
+if this layout is SEQUENCE: error (call unflatten)
+grid = this as PATCH_GRID
+if target is PATCH_GRID: return that grid
+if target is SPATIAL: fold grid back to (B, C_org, Y_dim, X_dim)
+if target is SEQUENCE: flatten grid to (B, Y_patches·X_patches, C_org·P·P)
+```
+
+**side effects:** none.
+
+**outputs:** a PatchifiedTensor with the target spec.
+
+### `unflatten(*, Y_patches, X_patches)`
+
+**input:** this PatchifiedTensor, `Y_patches`, `X_patches`.
+
+**assumptions on the input:** this layout is `SEQUENCE`. `Y_patches · X_patches` equals the sequence length.
+
+**steps:**
+
+```
+reshape SEQUENCE to PATCH_GRID with those two counts
+return PatchifiedTensor(spec=PATCH_GRID × same C_org × same P, tensor=that grid)
+```
+
+**side effects:** none.
+
+**outputs:** a `PATCH_GRID` PatchifiedTensor. Convert to `SPATIAL` is a later `convert`.
+
+---
+
+## Secondary functionalities
+
+`validate_patchified_tensor(tensor, *, spec)` is the payload match: rank, `C_org` / `P` sizes, spatial dims divisible by `P` on `SPATIAL`.
+
+`require_patch_size` / `require_original_channels` / `require_patch_count` are the integer checks `PatchifiedTensorSpec` and `unflatten` use.
+
+---
+
+## Tensions
+
+- **`SEQUENCE` loses the grid.** `Y_patches` and `X_patches` are not recoverable from the tensor. `unflatten` is the named inverse. A spec field for those counts would be stale after a flatten, or it would make `SEQUENCE` a different product.

@@ -11,11 +11,17 @@ from dl_toolbox.base.file_management.directory import (
     DirectorySpec,
 )
 from dl_toolbox.base.file_management.file import File
-from dl_toolbox.base.input_output.json_io import read
+from dl_toolbox.base.input_output.json_io import read_object
 from dl_toolbox.project_layout import ProjectLayout, TrackingBackend
 from dl_toolbox.project_layout.cli import main
 from dl_toolbox.project_layout.names import MARKER_FILENAME, TRACKING_BACKEND_FILENAME
 from tests.base.base_support import N_TRIALS, random_generating_process_name
+
+
+def _existing_project(path: Path) -> Directory:
+    return Directory.from_absolute(
+        path=path, policy=DirectoryParsePolicy.MUST_EXIST
+    )
 
 
 def test_cli_setup_project_uses_cwd(
@@ -36,27 +42,25 @@ def test_cli_setup_project_uses_cwd(
         )
         assert code == 0
         captured = capsys.readouterr()
-        root = cwd / name
-        assert str(root.resolve()) in captured.out
-        assert (root / MARKER_FILENAME).is_file()
-        marker = read(
-            file=File.from_under(
-                root=Directory.from_absolute(
-                    path=root, policy=DirectoryParsePolicy.MUST_EXIST
-                ),
-                relative_path=MARKER_FILENAME,
-            )
+        root_path = cwd / name
+        assert str(root_path.resolve()) in captured.out
+        root = _existing_project(root_path)
+        marker = read_object(
+            file=File.from_under(root=root, relative_path=MARKER_FILENAME)
         )
         assert marker == {"name": name}
         layout = ProjectLayout.from_start(
-            start=Directory.from_absolute(
-                path=root, policy=DirectoryParsePolicy.MUST_EXIST
-            ),
+            start=root,
             project_name=name,
             tracking_backend=TrackingBackend.TENSORBOARD,
         )
-        assert layout.root.path == root.resolve()
+        assert layout.root.path == root_path.resolve()
         assert layout.tracking_backend == TrackingBackend.TENSORBOARD
+        assert (
+            layout.hash_manager.lock_timeout_seconds
+            == layout.lock_timeout_seconds
+        )
+        assert layout.hash_manager.lock_poll_seconds == ProjectLayout.LOCK_POLL_SECONDS
         again = main(
             [
                 "setup-project",
@@ -80,27 +84,38 @@ def test_cli_setup_project_tracking_backend_mlflow(
     )
     assert code == 0
     capsys.readouterr()
-    root = tmp_path / name
-    assert (root / TRACKING_BACKEND_FILENAME).read_text(encoding="utf-8") == (
+    root = _existing_project(tmp_path / name)
+    backend_file = File.from_under(root=root, relative_path=TRACKING_BACKEND_FILENAME)
+    assert backend_file.path.read_text(encoding="utf-8") == (
         TrackingBackend.MLFLOW + "\n"
     )
-    logging_dir = root / "project_level_configs" / "logging"
-    assert (logging_dir / "mlflow.json").is_file()
-    assert (logging_dir / "tensorboard.json").is_file()
-    assert not (logging_dir / "wandb.json").exists()
-    assert not (root / "storage" / "runs").exists()
-    assert (root / "storage").is_dir()
-    assert (root / "scripts").is_dir()
-    assert (root / "experiments").is_dir()
-    assert (root / "run_recipes").is_dir()
+    logging_dir = Directory.from_under(
+        root=root,
+        relative_path="project_level_configs/logging",
+        policy=DirectoryParsePolicy.MUST_EXIST,
+    )
+    File.from_under(root=logging_dir, relative_path="mlflow.json")
+    File.from_under(root=logging_dir, relative_path="tensorboard.json")
+    with pytest.raises(FileNotFoundError):
+        File.from_under(root=logging_dir, relative_path="wandb.json")
+    runs = Directory.from_under(
+        root=root,
+        relative_path="storage/runs",
+        policy=DirectoryParsePolicy.ALLOW_MISSING,
+    )
+    assert runs.spec == DirectorySpec.MISSING
+    for dirname in ("storage", "scripts", "experiments", "run_recipes"):
+        Directory.from_under(
+            root=root,
+            relative_path=dirname,
+            policy=DirectoryParsePolicy.MUST_EXIST,
+        )
     layout = ProjectLayout.from_start(
-        start=Directory.from_absolute(
-            path=root, policy=DirectoryParsePolicy.MUST_EXIST
-        ),
+        start=root,
         project_name=name,
         tracking_backend=TrackingBackend.MLFLOW,
     )
-    assert layout.mlflow_db_path() == root / "storage" / "mlflow" / "tracking.db"
+    assert layout.mlflow_db_path() == root.path / "storage" / "mlflow" / "tracking.db"
     assert layout.mlflow_artifact_root().spec == DirectorySpec.MISSING
 
 
@@ -112,7 +127,10 @@ def test_cli_requires_tracking_backend(
     with pytest.raises(SystemExit) as raised:
         main(["setup-project", name])
     assert raised.value.code == 2
-    assert not (tmp_path / name).exists()
+    missing = Directory.from_absolute(
+        path=tmp_path / name, policy=DirectoryParsePolicy.ALLOW_MISSING
+    )
+    assert missing.spec == DirectorySpec.MISSING
 
 
 def test_cli_rejects_package_and_wandb(
@@ -135,7 +153,10 @@ def test_cli_rejects_package_and_wandb(
     with pytest.raises(SystemExit) as wandb_exit:
         main(["setup-project", name, "--tracking-backend", "wandb"])
     assert wandb_exit.value.code == 2
-    assert not (tmp_path / name).exists()
+    missing = Directory.from_absolute(
+        path=tmp_path / name, policy=DirectoryParsePolicy.ALLOW_MISSING
+    )
+    assert missing.spec == DirectorySpec.MISSING
 
 
 def test_cli_rejects_nested_project_name(
@@ -153,7 +174,10 @@ def test_cli_rejects_nested_project_name(
     assert code == 1
     err = capsys.readouterr().err
     assert "basename" in err
-    assert not (tmp_path / "nested").exists()
+    missing = Directory.from_absolute(
+        path=tmp_path / "nested", policy=DirectoryParsePolicy.ALLOW_MISSING
+    )
+    assert missing.spec == DirectorySpec.MISSING
 
 
 def test_cli_removes_directory_if_scaffold_fails(
@@ -174,4 +198,7 @@ def test_cli_removes_directory_if_scaffold_fails(
     assert code == 1
     err = capsys.readouterr().err
     assert "scaffold exploded" in err
-    assert not (tmp_path / name).exists()
+    missing = Directory.from_absolute(
+        path=tmp_path / name, policy=DirectoryParsePolicy.ALLOW_MISSING
+    )
+    assert missing.spec == DirectorySpec.MISSING

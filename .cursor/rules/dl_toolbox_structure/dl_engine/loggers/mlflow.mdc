@@ -1,156 +1,397 @@
 ---
-description: MLflow entity is the tracking instance and its runs. setup create|require binds a run_id via MlflowClient; close does not set_terminated.
+description: MlflowLogger is the tracking instance and its runs. setup create|require binds a run_id via MlflowClient. close leaves the run RUNNING. log_artifact, log_model.
 globs: **/dl_engine/loggers/mlflow.py,**/tests/dl_engine/loggers/test_mlflow.py
 alwaysApply: false
 ---
 
 # MLflow logger
 
-External-state functionality. The entity is an MLflow **instance** (backend store + artifact store) and the **runs** in it. The UI is a byproduct. We talk to `MlflowClient`, not to sqlite or artifact files directly.
+## Context
 
-Fluent “active experiment / active run” are not part of this algorithm. Every step names `experiment_name` / `run_name` / `run_id`.
+Logger's Context (`.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`) is why fit and inspect share one call surface. This contract is the MLflow side of that surface: an MLflow **instance** (backend store + artifact store) and the **runs** in it.
 
-The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+The UI is a byproduct. We talk to `MlflowClient`. Every step names `experiment_name` / `run_name` / `run_id`. MLflow assigns `run_id`. This class makes `(experiment_name, run_name) → run_id` a function by refusing a second run with the same name in the same experiment.
 
-`log_artifact` / `log_model` are on this class, not on `Logger`. Fit, inspect, and lr_finder do not call them.
+`stream` is required by Logger. The entity algorithm is `create` versus `require`. This class validates `stream` and then ignores it for the run.
+
+`log_artifact` and `log_model` write the artifact store and a PyTorch flavor on this class. An engine that constructed `MlflowLogger` may call them. Fit and inspect use `log_image` / `log_text` / `log_table` for what every backend must show.
+
+`close` unbinds this process. The run stays `RUNNING` (or whatever it was). Who sets `FINISHED` is the engine, when it decides no more logging.
+
+Optional extra is `require(package="mlflow")` (extras contract, `.cursor/rules/dl_toolbox_structure/base/packaging/require.mdc`).
+
+### What MlflowLogger needs in order to operate
+
+1. `backend_store_uri`, `artifact_store_uri`: the instance
+2. `experiment_name`, `run_name`: the name map
+3. `tags`: applied on `create`
+4. `stream` and `existence` at `setup`, as Logger
+5. process flag `open`: this process is bound to a `run_id`. Starts false. Not stored in MLflow
+
+### What MlflowLogger can do
+
+- **construct:** pin URIs, names, and create-tags. No network bind yet.
+- **setup create:** resolve or create the experiment, refuse an existing namesake, `create_run`, bind that `run_id`.
+- **setup require:** the experiment and exactly one run exist, the run is active and not terminal, bind that `run_id`.
+- **log_params / log_tags / log_scalars:** backend store, via `log_batch`.
+- **log_image / log_text / log_table:** artifact store (table is `log_text` of `table_as_json`).
+- **log_artifact / log_model:** artifact store / PyTorch flavor, bound `run_id`.
+- **close:** unbind `run_id`. The run stays.
+
+---
+
+## Terminology
+
+Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. Extra: `.cursor/rules/dl_toolbox_structure/base/packaging/require.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `MlflowLogger` | Logger whose entity is an MLflow instance and the runs in it |
+| `backend_store_uri` | tracking store (sqlite URI in the default layout) |
+| `artifact_store_uri` | artifact root |
+| `experiment_name` | MLflow experiment |
+| `run_name` | MLflow run name. The name map is `(experiment_name, run_name) → run_id` |
+| `run_id` | MLflow's id for that run. Readable after `setup` |
+| `MlflowClient` | vendor client pinned to `backend_store_uri` |
+| `tags` | `Mapping[str, str]` applied on `create` |
+| `lifecycle_stage` | `active` or `deleted` |
+| `status` | `RUNNING` / `FINISHED` / `FAILED` / `KILLED` / … |
+| terminal | `status` in `{FINISHED, FAILED, KILLED}` |
+| `open` | this process is bound to a `run_id` and may call `log_*` |
+| `log_artifact` | copy a local file into the artifact store under the bound run |
+| `log_model` | write a PyTorch flavor under the bound run |
+| `local_path` | absolute path of an existing file, for `log_artifact` |
+| `artifact_path` | destination path under the run, for `log_artifact` / `log_model` |
+| lookup | 0 / 1 / 2+ runs named `run_name` in the experiment |
+| `bounded_mapping` | string map with MLflow key/value length limits |
+
+Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `table_as_json`) are Logger's Terminology.
+
+`lifecycle_stage` and `status` are different fields. Terminal is a `status` set.
 
 ---
 
 ## Input Specification
 
-An MLflow instance is already constructed: `MlflowClient` pinned to `(backend_store_uri, artifact_store_uri)`.
-
-Configuration of a toolbox run: `experiment_name`, `run_name` (and tags on create).
-
-MLflow assigns `run_id`. We do not hash it. We **make** `(experiment_name, run_name) → run_id` a function by refusing a second run with the same name in the same experiment.
-
-Lookup:
+`MlflowLogger` is constructed with:
 
 ```
-experiment = get_experiment_by_name(experiment_name)
-runs = search_runs(experiment, name = run_name)
+backend_store_uri     non-empty str
+artifact_store_uri     non-empty str
+experiment_name        non-empty str
+run_name               non-empty str
+tags                   Mapping[str, str]  (empty mapping is allowed)
 ```
 
-- 0 rows → no such run
-- 1 row → that `run_id`
-- 2+ rows → the map is broken (created outside this algorithm). Error. Do not pick one.
+All required. Construction leaves the instance unchanged.
 
-`lifecycle_stage` is `active` | `deleted`. `status` is `RUNNING` | `FINISHED` | `FAILED` | `KILLED` | …. Do not mix them. Terminal means status ∈ {FINISHED, FAILED, KILLED}.
+`setup` takes `stream` and `existence` as Logger. `stream` is parsed and unused for the entity.
 
-Process flag `open`: this process is bound to a `run_id` and may call log. Starts false. Not stored in MLflow.
+`open` starts false. `run_id` is bound after a successful `setup`.
 
-`stream` (fit / inspect) does not change the MLflow entity. It is an engine label for who is calling. The logger algorithm is only `create` vs `require`. The `Logger` interface still requires `stream`; this class validates it and ignores it for the entity.
+Lookup of `(experiment_name, run_name)`:
 
-Synchronization of “one live fit, one live inspect” is the engine. Not these algorithms.
+```
+0 rows   → no such run
+1 row    → that run_id
+2+ rows  → the name map is broken. Error. Do not pick one.
+```
+
+`log_*` payloads are Logger's Input Specification, plus MLflow length limits on params and tags (`bounded_mapping`). Empty `values` / empty `params` / empty `tags`: no write.
+
+`log_artifact` takes `local_path` (absolute path that is a file) and `artifact_path` (non-empty `str`).
+
+`log_model` takes `model` (a PyTorch module) and `artifact_path` (non-empty `str`).
+
+Scalars / params / tags go to the backend store. Image / text / table / artifact / model go to the artifact store.
 
 ---
 
-## `setup(create)`
+## Main functionalities
 
-**Assume:** instance constructed. `open` is false. `experiment_name`, `run_name` given.
+### `MlflowLogger(*, backend_store_uri, artifact_store_uri, experiment_name, run_name, tags)`
+
+pin the instance and the name map.
+
+**input:** `backend_store_uri`, `artifact_store_uri`, `experiment_name`, `run_name`, `tags`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+store those five
+open = false
+run_id unbound
+```
+
+**side effects:** none. No network bind.
+
+**outputs:** an MlflowLogger that is not yet bound.
+
+### `setup(*, stream, existence)` with `LogExistence.CREATE`
+
+create the run that this name map will point at.
+
+**input:** `stream`, `existence`.
+
+**assumptions on the input:** Logger Input Specification. `open` is false. Lookup of `(experiment_name, run_name)` is 0 rows (after the experiment exists).
+
+**steps:**
 
 ```
 if open: error
+parse_log_stream(stream)
+parse_log_existence(existence)
 
-resolve experiment by name
-  missing → create_experiment (artifact location = artifact_store_uri)
+client = MlflowClient for backend_store_uri
+experiment_id = resolve experiment by name
+    missing → create_experiment(experiment_name, artifact_location=artifact_store_uri)
+existing = lookup (experiment_name, run_name)
+if existing is not empty: error
 
-lookup (experiment_name, run_name)
-  1 or more → error
-      # do not attach. attach is require.
-      # this is what makes the name map a function.
-
-create_run(experiment, run_name, tags)
-# MLflow: lifecycle_stage=active, status=RUNNING, new run_id
+run = create_run(experiment_id, run_name, tags)
+# lifecycle_stage=active, status=RUNNING, new run_id
 
 open = true
 bind that run_id
 ```
 
-**Entity after:** exactly one run with that name. Status `RUNNING`. This process may log.
+**side effects:** exactly one run with that name. Status `RUNNING`. This process may log. Create of a namesake is an error: reuse is `require`.
 
-If the run already exists: **raise**. Create does not reuse. Require is the reuse path.
+**outputs:** none.
 
----
+### `setup(*, stream, existence)` with `LogExistence.REQUIRE`
 
-## `setup(require)`
+bind this process to the run another process created.
 
-**Assume:** instance constructed. `open` is false. A create already succeeded for this `(experiment_name, run_name)` (or an equivalent run exists).
+**input:** `stream`, `existence`.
+
+**assumptions on the input:** Logger Input Specification. `open` is false. A create already succeeded for this `(experiment_name, run_name)` (or an equivalent run exists). The run is not deleted and not terminal.
+
+**steps:**
 
 ```
 if open: error
+parse_log_stream(stream)
+parse_log_existence(existence)
 
-resolve experiment by name
-  missing → error
+client = MlflowClient for backend_store_uri
+experiment = get_experiment_by_name(experiment_name)
+if experiment is missing: error
 
-lookup (experiment_name, run_name)
+run = lookup (experiment_name, run_name)
   0 → error
   2+ → error
-  1 → run_id
+  1 → that run
 
-if lifecycle_stage == deleted: error
+if lifecycle_stage is deleted: error
 if status is terminal: error
-    # do not reactivate.
-    # terminal is an engine decision. reviving it here would hide that.
 
 open = true
 bind that run_id
 ```
 
-**Entity after:** unchanged. This process may log to the same run another process created.
+**side effects:** entity unchanged. This process may log to the same run.
 
----
+**outputs:** none.
 
-## `log_*`
+### `log_params(params)` / `log_tags(tags)` / `log_scalars(values, *, step)`
 
-**Assume:** `open` is true. Bound `run_id`. We do not re-check status on every log (setup already did). If the engine terminated the run under us, that is an engine bug.
+Logger's `log_*` to the backend store.
+
+**input:** Logger payloads.
+
+**assumptions on the input:** `open` is true. Bound `run_id`. Params and tags pass `bounded_mapping`. Scalar keys are non-empty `str`. Status is not re-checked (setup already did).
+
+**steps:**
 
 ```
-if not open: error
-client.log_*(run_id, ...)
+require_logger_open(open)
+params / tags: bounded_mapping, then client.log_batch(run_id, ..., synchronous=True)
+               params in chunks of 100
+scalars: one log_batch of Metric(key, value, now_ms, step)
+empty mapping: return
 ```
 
-Scalars / params / tags → backend store. Image / text / table / artifact / model → artifact store.
+**side effects:** those keys are on the run in the backend store.
 
-`log_artifact` and `log_model` are the same `if not open` then `client` / flavor write to the bound `run_id`. They are not `Logger` methods.
+**outputs:** none.
 
----
+### `log_image(tag, image, *, step)` / `log_text(tag, text, *, step)` / `log_table(tag, rows, *, step)`
 
-## `close()`
+Logger's `log_*` to the artifact store.
 
-**Assume:** this process may or may not be `open`.
+**input:** Logger payloads.
+
+**assumptions on the input:** `open` is true. Bound `run_id`. `tag` is a non-empty `str`.
+
+**steps:**
+
+```
+require_logger_open(open)
+log_image: client.log_image(run_id, numpy image map of image, key=tag, step=step, synchronous=True)
+log_text:  client.log_text(run_id, text, artifact filename from tag and step)
+log_table: log_text(tag, table_as_json(rows), step=step)
+```
+
+**side effects:** those artifacts are on the run.
+
+**outputs:** none.
+
+### `log_artifact(*, local_path, artifact_path)`
+
+copy a local file into the artifact store under the bound run.
+
+**input:** `local_path`, `artifact_path`.
+
+**assumptions on the input:** `open` is true. `local_path` is an absolute path that is a file. `artifact_path` is a non-empty `str`.
+
+**steps:**
+
+```
+require_logger_open(open)
+client.log_artifact(run_id, local_path, artifact_path)
+```
+
+**side effects:** that file is under the run in the artifact store.
+
+**outputs:** none.
+
+### `log_model(*, model, artifact_path)`
+
+write a PyTorch flavor under the bound run.
+
+**input:** `model`, `artifact_path`.
+
+**assumptions on the input:** `open` is true. Bound `run_id`. `artifact_path` is a non-empty `str`.
+
+**steps:**
+
+```
+require_logger_open(open)
+require(package="mlflow")
+set tracking URI to backend_store_uri
+mlflow.pytorch.log_model(
+    model,
+    name=artifact_path,
+    run_id=run_id,
+    pip_requirements=["torch"],
+    serialization_format="pickle",
+)
+```
+
+**side effects:** a PyTorch flavor is under the run in the artifact store.
+
+**outputs:** none.
+
+### `close()`
+
+unbind this process.
+
+**input:** this MlflowLogger.
+
+**assumptions on the input:** none extra. If `open` is false, return.
+
+**steps:**
 
 ```
 open = false
 unbind run_id
-# do not set_terminated
-# do not delete the run
-# do not close other processes' access
 ```
 
-**Entity after:** unchanged. The run stays `RUNNING` (or whatever it was). Other processes that `require` still can log.
+**side effects:** this object may not call `log_*` until a later `setup`. The run stays `RUNNING` (or whatever it was). Other processes that `require` still can log.
 
-`close` is process-local: this logger object stops logging. It is not a lifecycle transition of the run.
+**outputs:** none.
 
-Who sets `FINISHED`: the engine, when it decides no more logging (fit done and inspect not needed, or inspect finished, or crash policy). Leftover `RUNNING` in the UI after a crash is that policy, not this logger.
-
-Idempotent: `close` when `open` is false is a no-op.
-
-`setup` after `close` in the same process is a new bind (create or require again), not “resume the flag”.
+`setup` after `close` is a new bind (create or require again), not "resume the flag".
 
 ---
 
-## Translation (class)
+## Secondary functionalities
 
-| Algorithm | Method |
-|---|---|
-| instance constructed | `__init__(backend_store_uri, artifact_store_uri, experiment_name, run_name, tags)` — no network bind yet |
-| `setup(create)` / `setup(require)` | `setup(*, stream, existence)` — `stream` required by `Logger`, unused for the MLflow entity; `existence` is `create` or `require`, required, no default |
-| process flag | private `open`; `log_*` check it |
-| `close()` | `close()` |
-| artifact / model | `log_artifact` / `log_model` on this class only |
+### lookup `(experiment_name, run_name)`
 
-No `set_terminated` in this class. No directory lock. No “active run” on the fluent API.
+**Assume:** `MlflowClient`, experiment id.
+
+```
+runs = search_runs(experiment, name = run_name, max_results=2)
+0 → no such run
+1 → that run
+2+ → error: multiple runs named run_name in experiment_name
+```
+
+**After:** at most one run. Disk / store unchanged besides the query.
+
+### resolve experiment on create
+
+**Assume:** `MlflowClient`, `experiment_name`, `artifact_store_uri`.
+
+```
+existing = get_experiment_by_name(experiment_name)
+if existing is missing:
+    return create_experiment(experiment_name, artifact_location=artifact_store_uri)
+return existing.experiment_id
+```
+
+**After:** an experiment id this process can `create_run` against.
+
+### `bounded_mapping(payload, label, *, key_max, value_max)`
+
+**Assume:** `payload` is a mapping.
+
+```
+every key is a non-empty str; every value is str
+key length ≤ key_max, value length ≤ value_max
+else LoggerError
+```
+
+Params: `key_max=250`, `value_max=6000`. Tags: `key_max=250`, `value_max=5000`.
+
+**After:** a `dict[str, str]` MLflow will accept. Store unchanged.
+
+### artifact filename from `tag` and `step`
+
+**Assume:** `tag` is a non-empty `str`. `step` is an `int`. Suffix is `.txt` for `log_text`.
+
+```
+split tag on /
+drop empty / `.` / `..` segments
+last kept segment → {segment}_step{step}.txt
+prefix segments stay as a posix relative directory
+```
+
+**After:** a relative artifact path. Store unchanged.
+
+### numpy image map
+
+**Assume:** `image` is the array `log_image` received.
+
+```
+array = numpy asarray of image
+if rank 3 and first dim in {1, 3, 4} and last dim not in {1, 3, 4}:
+    transpose to (Y_dim, X_dim, C)
+return array
+```
+
+**After:** HWC (or rank 2) array, what `client.log_image` takes.
+
+### client
+
+**Assume:** URIs stored on this instance.
+
+```
+require(package="mlflow")
+if artifact_store_uri is a local absolute path: mkdir parents
+if backend_store_uri is sqlite:/// and the db path is local absolute:
+    mkdir parent of the db file
+set tracking URI
+return MlflowClient(tracking_uri=backend_store_uri)
+```
+
+**After:** a client this process can call. Local parents exist when those URIs are local paths.
+
+`run_id` after `setup` is that bound id. `log_model` reads it.
 
 ---
 
@@ -158,6 +399,10 @@ No `set_terminated` in this class. No directory lock. No “active run” on the
 
 Create once. Every other process `require`. They share one `run_id`, so the UI shows one row.
 
-Two processes both `create`: the second hits “run already exists” if the first committed; if they race, MLflow may accept two namesakes and lookup later errors on 2+. The engine is what must prevent that race. The logger does not.
+---
 
-Require of a terminal run: error. If inspect must log after fit has “finished”, the engine must not have terminated yet, or the engine reactivates **before** calling `setup(require)`. The logger does not guess.
+## Tensions
+
+- **Two processes both `create`:** if the first has committed, the second errors. If they race, MLflow may accept two namesakes and later lookup errors on 2+. The name map is a function only after a successful create. The engine is what must prevent the race.
+- **`close` leaves the run as it was.** After a crash the UI still shows `RUNNING`; that is engine policy. `require` of a terminal run errors, so inspect that must log after fit depends on the engine not having terminated yet (or reactivating before `setup(require)`).
+- **`stream` is required by Logger and unused for this entity.** Filename suffix is a TensorBoard fact. The shared `setup` signature is the reason; this class validates `stream` and then ignores it for the run.

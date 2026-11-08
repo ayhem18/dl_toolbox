@@ -2,12 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from dl_toolbox.base.input_output.json_io import flatten
+from dl_toolbox.base.input_output.json_io import flatten_object
 from dl_toolbox.dl_engine.loggers.logger import (
-    EXISTENCE_CREATE,
-    EXISTENCE_REQUIRE,
-    STREAM_FIT,
-    STREAM_INSPECT,
+    LogExistence,
+    LogStream,
     LoggerError,
 )
 from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
@@ -38,9 +36,9 @@ def _client(logger: MlflowLogger):
 def test_create_logs_and_close_leaves_running(tmp_path: Path) -> None:
     pytest.importorskip("mlflow.tracking")
     logger = _logger(tmp_path)
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     run_id = logger.run_id
-    logger.log_params(flatten({"name": "dummy_conv", "model": {"name": "unet"}}))
+    logger.log_params(flatten_object({"name": "dummy_conv", "model": {"name": "unet"}}))
     logger.log_tags({"stage": "train"})
     logger.log_scalars({"lr_finder/lr": 1e-3, "lr_finder/loss": 1.25}, step=0)
     logger.log_text("note", "curve", step=0)
@@ -68,10 +66,10 @@ def test_require_attaches_to_the_same_run(tmp_path: Path) -> None:
 
     fit = _logger(tmp_path)
     inspect = _logger(tmp_path)
-    fit.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    fit.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     try:
         fit.log_scalars({"loss": 0.5}, step=1)
-        inspect.setup(stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE)
+        inspect.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
         try:
             assert inspect.run_id == fit.run_id
             inspect.log_image(
@@ -100,11 +98,11 @@ def test_require_after_fit_close_still_logs(tmp_path: Path) -> None:
     pytest.importorskip("mlflow.tracking")
     fit = _logger(tmp_path, tags={})
     inspect = _logger(tmp_path, tags={})
-    fit.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    fit.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     fit.log_scalars({"loss": 0.25}, step=0)
     run_id = fit.run_id
     fit.close()
-    inspect.setup(stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE)
+    inspect.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
     try:
         inspect.log_text("inspection/late", "after-fit", step=8)
         assert inspect.run_id == run_id
@@ -120,31 +118,31 @@ def test_require_after_fit_close_still_logs(tmp_path: Path) -> None:
 def test_create_when_run_exists_raises(tmp_path: Path) -> None:
     pytest.importorskip("mlflow.tracking")
     first = _logger(tmp_path)
-    first.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    first.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     first.close()
     second = _logger(tmp_path)
     with pytest.raises(LoggerError, match="already exists"):
-        second.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+        second.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
 
 
 def test_require_before_create_raises(tmp_path: Path) -> None:
     pytest.importorskip("mlflow.tracking")
     logger = _logger(tmp_path)
     with pytest.raises(LoggerError, match="does not exist"):
-        logger.setup(stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE)
+        logger.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
 
 
 def test_require_of_terminated_run_raises(tmp_path: Path) -> None:
     pytest.importorskip("mlflow.tracking")
     fit = _logger(tmp_path)
-    fit.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    fit.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     run_id = fit.run_id
     fit.close()
     client = _client(_logger(tmp_path))
     client.set_terminated(run_id)
     inspect = _logger(tmp_path)
     with pytest.raises(LoggerError, match="terminal"):
-        inspect.setup(stream=STREAM_INSPECT, existence=EXISTENCE_REQUIRE)
+        inspect.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
 
 
 def test_log_before_setup_raises(tmp_path: Path) -> None:
@@ -160,7 +158,7 @@ def test_log_artifact(tmp_path: Path) -> None:
     logger = _logger(tmp_path, tags={})
     payload = tmp_path / "payload.txt"
     payload.write_text("hello", encoding="utf-8")
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     try:
         logger.log_artifact(local_path=payload, artifact_path="extras")
         run_id = logger.run_id
@@ -177,7 +175,7 @@ def test_log_model(tmp_path: Path) -> None:
     import torch
 
     logger = _logger(tmp_path, tags={})
-    logger.setup(stream=STREAM_FIT, existence=EXISTENCE_CREATE)
+    logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
     try:
         logger.log_model(model=torch.nn.Linear(2, 1), artifact_path="model")
         run_id = logger.run_id

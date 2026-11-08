@@ -1,4 +1,4 @@
-"""Downstream Logger: setup / log_* / close. Store URIs are not on these methods."""
+"""Logger: setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from dl_toolbox.base.parsing.parse_utils import parse_one_of
+from dl_toolbox.base.parsing.parse_utils import one_of_message, parse_one_of
 
 
 class LogStream:
@@ -18,12 +18,6 @@ class LogStream:
 class LogExistence:
     CREATE = "create"
     REQUIRE = "require"
-
-
-STREAM_FIT = LogStream.FIT
-STREAM_INSPECT = LogStream.INSPECT
-EXISTENCE_CREATE = LogExistence.CREATE
-EXISTENCE_REQUIRE = LogExistence.REQUIRE
 
 
 class LoggerError(ValueError):
@@ -41,7 +35,7 @@ def parse_log_stream(stream: object) -> str:
         allowed=(LogStream.FIT, LogStream.INSPECT),
         label="stream",
         error_type=LoggerError,
-        error_message="{label} must be {allowed}, got {value!r}",
+        error_message=one_of_message,
     )
 
 
@@ -51,7 +45,7 @@ def parse_log_existence(existence: object) -> str:
         allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
         label="existence",
         error_type=LoggerError,
-        error_message="{label} must be {allowed}, got {value!r}",
+        error_message=one_of_message,
     )
 
 
@@ -71,7 +65,7 @@ class Logger(ABC):
 
     @abstractmethod
     def log_tags(self, tags: Mapping[str, str]) -> None:
-        """Record run tags. Backends without tags may store them as text."""
+        """Record run tags."""
 
     @abstractmethod
     def log_scalars(self, values: Mapping[str, float], *, step: int) -> None:
@@ -88,7 +82,7 @@ class Logger(ABC):
     def log_table(
         self, tag: str, rows: Sequence[Mapping[str, Any]], *, step: int
     ) -> None:
-        """Record a table at step. TensorBoard stores JSON text."""
+        """Record a table at step."""
 
     @abstractmethod
     def log_text(self, tag: str, text: str, *, step: int) -> None:
@@ -96,4 +90,4 @@ class Logger(ABC):
 
     @abstractmethod
     def close(self) -> None:
-        """Unbind this process. Idempotent. Does not finish the vendor run."""
+        """Unbind this process. Idempotent."""

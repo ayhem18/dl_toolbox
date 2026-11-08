@@ -1,102 +1,385 @@
 ---
-description: Downstream Logger is setup/log_*/close. Fit and inspect never pass store URIs. log_artifact and log_model are not on this interface.
+description: Logger is setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close. LogStream is fit|inspect. LogExistence is create|require.
 globs: **/dl_engine/loggers/logger.py,**/tests/dl_engine/loggers/test_logger.py
 alwaysApply: false
 ---
 
-# Logger interface (downstream)
+# Logger
 
-External-state functionality. This is what fit, inspect, and lr_finder call. Backend constructors and vendor objects are not here.
+## Context
 
-A `Logger` is already built. Downstream never passes `log_dir`, URIs, or tags into these methods.
+Among the dl_toolbox objectives is to iterate on experiments by looking at more than a few aggregate numbers. Fit logs the scalars you need to decide (checkpoint, early stop) and the run config. Inspect logs images, tables, text — the artifacts that let you form a hypothesis from more than those aggregates. Those two processes share disk, not a process. They still need to show up as one row in a tracking UI, so you can see fit metrics next to inspect panels.
 
-Named constants, no defaults.
+The tracking store is TensorBoard's event tree or MLflow's instance (`.cursor/rules/dl_toolbox_structure/dl_engine/loggers/tensorboard.mdc`, `mlflow.mdc`). What fit and inspect actually call, once that object exists, is the same list of operations: `setup`, `log_params`, `log_tags`, `log_scalars`, `log_image`, `log_text`, `log_table`, `close`.
 
-```
-LogStream     = fit | inspect
-LogExistence  = create | require
-```
+A Logger is already built. The constructor took the store and the run name; those arguments live on TensorBoardLogger and MlflowLogger. Downstream passes `stream` and `existence` into `setup`, then payloads into `log_*`. Nested configuration becomes `Mapping[str, str]` through `flatten_object` (JSON contract, `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`). That flatten is the caller's step, then `log_params`.
 
-W&B is not in this folder.
+### What a Logger needs in order to operate
 
----
+1. already constructed (store and name bound on the backend)
+2. `stream`: `LogStream.FIT` or `LogStream.INSPECT`
+3. `existence`: `LogExistence.CREATE` or `LogExistence.REQUIRE`
+4. process flag `open`: this process is bound and may call `log_*`. Starts false. Not stored in the vendor
 
-## What the caller is allowed to do
+### What a Logger can do
 
-```
-logger.setup(*, stream, existence)
-logger.log_params(params)                          # Mapping[str, str]
-logger.log_tags(tags)                              # Mapping[str, str]
-logger.log_scalars(values, *, step)                # Mapping[str, float], step required
-logger.log_image(tag, image, *, step)
-logger.log_text(tag, text, *, step)
-logger.log_table(tag, rows, *, step)
-logger.close()
-```
+- **setup:** bind this process so `log_*` is legal. Both `stream` and `existence` required.
+- **log_params / log_tags:** run-level string maps, no `step`.
+- **log_scalars:** every scalar for one step. `step` required.
+- **log_image / log_text / log_table:** one tagged blob at a `step`.
+- **close:** unbind this process. The vendor run stays. Another process can still `require` and log.
 
-`log_scalar(tag, value, *, step)` is `log_scalars({tag: value}, step=step)`. Not a second algorithm.
+Fit, rank 0, calls `setup` with `LogStream.FIT` and `LogExistence.CREATE`. Inspect calls `setup` with `LogStream.INSPECT` and `LogExistence.REQUIRE`. Other DDP ranks skip `setup`. Fit and inspect each `close` their own logger object.
 
-`flatten` (JSON contract) is what the caller uses for nested config → `Mapping[str, str]`. It is not a logger method.
+How `setup` mutates the event tree or the MLflow run is those contracts. This one is the operations.
+
+An engine that constructed `MlflowLogger` may also call `log_artifact` / `log_model` on that class (MLflow contract). Fit and inspect use `log_image` / `log_text` / `log_table` for what every backend must show in the UI. Files the inspect process writes under the run's artifacts directory stay on disk.
 
 ---
 
-## `setup(*, stream, existence)`
+## Terminology
 
-Binds **this process** so `log_*` is legal. Both arguments required.
+JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`. parse_one_of: `.cursor/rules/dl_toolbox_structure/base/parsing/parse_utils.mdc`. TensorBoard, MLflow: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/tensorboard.mdc`, `mlflow.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `Logger` | the call surface after a backend object exists |
+| `LogStream` | who is calling `setup` |
+| `LogStream.FIT` | `fit` |
+| `LogStream.INSPECT` | `inspect` |
+| `LogExistence` | whether this process creates the vendor run or attaches to one |
+| `LogExistence.CREATE` | `create` |
+| `LogExistence.REQUIRE` | `require` |
+| `LoggerError` | used before setup, after close, or with an illegal argument |
+| `open` | this process is bound and may call `log_*`. Process-local |
+| `setup` | bind this process so `log_*` is legal |
+| `log_params` | record flattened string parameters |
+| `log_tags` | record run tags |
+| `log_scalars` | record every scalar for one `step` |
+| `log_scalar` | `log_scalars` with a one-key map |
+| `log_image` | record one image at `step` |
+| `log_text` | record a text blob at `step` |
+| `log_table` | record a table at `step` |
+| `close` | unbind this process. Idempotent |
+| `params` | `Mapping[str, str]` for `log_params` |
+| `tags` | `Mapping[str, str]` for `log_tags` |
+| `values` | `Mapping[str, float]` for `log_scalars` |
+| `step` | integer step on scalars / image / text / table |
+| `tag` | non-empty name of one image, text, or table |
+| `image` | array the backend maps for `log_image` |
+| `rows` | sequence of mappings; `log_table` sends them as text |
+| `text` | a `str` for `log_text` |
+| `parse_log_stream` | membership of `stream` in `LogStream.FIT` / `LogStream.INSPECT` |
+| `parse_log_existence` | membership of `existence` in `LogExistence.CREATE` / `LogExistence.REQUIRE` |
+| `require_logger_open` | error unless `open` |
+| `table_as_json` | `rows` → JSON array text |
+
+`LogStream.FIT` and the other three values live on those types. Callers import the type.
+
+---
+
+## Input Specification
+
+A `Logger` is already constructed. Store URIs, `log_dir`, `run_name`, experiment name, and create-tags were constructor arguments of the backend.
+
+`setup` takes `stream` and `existence`. Both required.
+
+```
+stream       LogStream.FIT | LogStream.INSPECT
+existence    LogExistence.CREATE | LogExistence.REQUIRE
+```
+
+Membership is `parse_one_of` with `error_type=LoggerError` and `error_message=one_of_message`.
+
+`open` starts false. It is a flag on this object. It is not stored in the vendor.
+
+`log_params` takes `params`: `Mapping[str, str]`. Nested config became that mapping through `flatten_object`.
+
+`log_tags` takes `tags`: `Mapping[str, str]`.
+
+`log_scalars` takes `values`: `Mapping[str, float]`, and `step`: `int`. Both required. Empty `values` is allowed (no write).
+
+`log_scalar` takes `tag`, `value`, `step`. It is `log_scalars({tag: value}, step=step)`.
+
+`log_image` takes `tag` (non-empty `str`), `image`, `step`. The layout and scale of `image` are the backend map (TensorBoard / MLflow secondary).
+
+`log_text` takes `tag`, `text` (`str`), `step`.
+
+`log_table` takes `tag`, `rows` (`Sequence[Mapping]`), `step`. The text is `table_as_json(rows)`.
+
+`log_params` and `log_tags` have no `step`.
+
+`close` takes nothing besides this Logger.
+
+---
+
+## Main functionalities
+
+### `setup(*, stream, existence)`
+
+bind this process so `log_*` is legal.
+
+**input:** `stream`, `existence`.
+
+**assumptions on the input:** Input Specification. `open` is false.
+
+**steps:**
+
+```
+if open: error
+parse_log_stream(stream)
+parse_log_existence(existence)
+backend bind for that stream and existence
+open = true
+```
+
+The bind is TensorBoard `setup` or MLflow `setup`.
+
+**side effects:** this process may call `log_*`. The vendor entity change is the backend contract.
+
+**outputs:** none.
+
+### `log_params(params)`
+
+record flattened string parameters.
+
+**input:** `params`.
+
+**assumptions on the input:** `open` is true. `params` is `Mapping[str, str]`.
+
+**steps:**
+
+```
+require_logger_open(open)
+backend write of params
+```
+
+**side effects:** those keys are on the vendor run, as the backend writes them.
+
+**outputs:** none.
+
+### `log_tags(tags)`
+
+record run tags.
+
+**input:** `tags`.
+
+**assumptions on the input:** `open` is true. `tags` is `Mapping[str, str]`.
+
+**steps:**
+
+```
+require_logger_open(open)
+backend write of tags
+```
+
+**side effects:** those tags are on the vendor run, as the backend writes them.
+
+**outputs:** none.
+
+### `log_scalars(values, *, step)`
+
+record every scalar for one step in a single backend call.
+
+**input:** `values`, `step`.
+
+**assumptions on the input:** `open` is true. `values` is `Mapping[str, float]`. Keys are non-empty `str`. `step` is an `int`.
+
+**steps:**
+
+```
+require_logger_open(open)
+if values is empty: return
+backend write of every pair at step
+```
+
+**side effects:** those scalars are on the vendor run at `step`.
+
+**outputs:** none.
+
+`log_scalar(tag, value, *, step)` is:
+
+```
+log_scalars({tag: value}, step=step)
+```
+
+### `log_image(tag, image, *, step)`
+
+record one image at step.
+
+**input:** `tag`, `image`, `step`.
+
+**assumptions on the input:** `open` is true. `tag` is a non-empty `str`. `step` is an `int`. `image` is an array the backend map accepts.
+
+**steps:**
+
+```
+require_logger_open(open)
+backend write of that image at tag, step
+```
+
+**side effects:** that image is on the vendor run at `step`.
+
+**outputs:** none.
+
+### `log_text(tag, text, *, step)`
+
+record a text blob at step.
+
+**input:** `tag`, `text`, `step`.
+
+**assumptions on the input:** `open` is true. `tag` is a non-empty `str`. `text` is a `str`. `step` is an `int`.
+
+**steps:**
+
+```
+require_logger_open(open)
+backend write of that text at tag, step
+```
+
+**side effects:** that text is on the vendor run at `step`.
+
+**outputs:** none.
+
+### `log_table(tag, rows, *, step)`
+
+record a table at step.
+
+**input:** `tag`, `rows`, `step`.
+
+**assumptions on the input:** `open` is true. `tag` is a non-empty `str`. `rows` is a sequence of mappings. `step` is an `int`.
+
+**steps:**
+
+```
+log_text(tag, table_as_json(rows), step=step)
+```
+
+**side effects:** that JSON array text is on the vendor run as text at `step`.
+
+**outputs:** none.
+
+### `close()`
+
+unbind this process.
+
+**input:** this Logger.
+
+**assumptions on the input:** none extra. If `open` is false, return.
+
+**steps:**
+
+```
+if not open: return
+backend unbind
+open = false
+```
+
+The vendor run stays. Other processes that `require` still can log. Fit and inspect each `close` their own object.
+
+**side effects:** this object may not call `log_*` until a later `setup`. The vendor entity after unbind is the backend contract.
+
+**outputs:** none.
+
+`setup` after `close` on the same object is a new bind, not "resume the flag".
+
+---
+
+## Secondary functionalities
+
+### `parse_log_stream(stream)`
+
+**input:** `stream`.
+
+**assumptions on the input:** none extra.
+
+**steps:**
+
+```
+return parse_one_of(
+    stream,
+    allowed=(LogStream.FIT, LogStream.INSPECT),
+    label="stream",
+    error_type=LoggerError,
+    error_message=one_of_message,
+)
+```
+
+**side effects:** none.
+
+**outputs:** `LogStream.FIT` or `LogStream.INSPECT`.
+
+### `parse_log_existence(existence)`
+
+**input:** `existence`.
+
+**assumptions on the input:** none extra.
+
+**steps:**
+
+```
+return parse_one_of(
+    existence,
+    allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
+    label="existence",
+    error_type=LoggerError,
+    error_message=one_of_message,
+)
+```
+
+**side effects:** none.
+
+**outputs:** `LogExistence.CREATE` or `LogExistence.REQUIRE`.
+
+### `require_logger_open(open)`
+
+**input:** `open`.
+
+**steps:**
+
+```
+if not open: raise LoggerError
+```
+
+**side effects:** none.
+
+**outputs:** none. After a successful call, `log_*` may proceed.
+
+### `table_as_json(rows)`
+
+**input:** `rows`.
+
+**assumptions on the input:** `rows` is a sequence of mappings.
+
+**steps:**
+
+```
+payload = [dict(row) for row in rows]
+return json.dumps(payload, indent=2, ensure_ascii=True, default=str)
+```
+
+**side effects:** none.
+
+**outputs:** a `str`. It is a JSON *array* of objects.
+
+---
+
+## What this implies for the engine
 
 | Caller | Call |
 |---|---|
-| fit, rank 0 | `setup(stream=fit, existence=create)` |
-| inspect | `setup(stream=inspect, existence=require)` |
+| fit, rank 0 | `setup(stream=LogStream.FIT, existence=LogExistence.CREATE)` |
+| inspect | `setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)` |
 
-DDP ranks other than 0 do not call `setup`. That is the caller, not the logger.
+Other DDP ranks skip `setup`. That is the caller.
 
-Illegal if already open. Backend algorithms: TensorBoard `tensorboard.mdc`, MLflow `mlflow.mdc`. Downstream does not branch on backend.
+Fit: `log_params` once, `log_text` of the run config at `step=0`, `log_scalars` each epoch. Inspect: `log_image` / `log_table` / `log_text` at `step=epoch`. Tag namespace `inspection/...` versus fit metrics is the caller's.
 
----
-
-## `log_*`
-
-Illegal if not open. Downstream does not re-check vendor state.
-
-Fit: `log_params` once, `log_text` of the run config at `step=0`, `log_scalars` each epoch.
-
-Inspect: `log_image` / `log_table` / `log_text` at `step=epoch`. Tag namespace `inspection/...` vs fit metrics is the caller’s.
-
-No `log_artifact` / `log_model` on this interface.
-
-Those two calls are MLflow artifact-store operations (and the input to Model Registry). They live on `MlflowLogger`. An engine that chose MLflow may call them because it already knows the backend. Fit, inspect, and lr_finder do not.
-
-Inspect files that every backend must show in the UI go through `log_image` / `log_text` / `log_table`. Files that stay on disk under `inspection_runs/` are not logging.
+One live fit and one live inspect is the engine. These operations do not lock the vendor run.
 
 ---
 
-## `close()`
+## Tensions
 
-Process-local. Idempotent. Does not finish, delete, or lock the vendor run. Other processes that `require` still can log.
-
-Fit and inspect each `close` their own logger object.
-
----
-
-## Not on this interface
-
-- `__init__` — backend-specific (TB: `log_dir`, `run_name`; MLflow: URIs, `experiment_name`, `run_name`, tags).
-- `run_id` / `tracking_uri` — MLflow internals. Engine does not read them from `Logger`.
-- Manager objects.
-- Locks, “one live fit / one live inspect” — engine.
-
----
-
-## Translation (ABC)
-
-```
-setup(*, stream, existence)
-log_params(params)
-log_tags(tags)
-log_scalars(values, *, step)
-log_image(tag, image, *, step)
-log_text(tag, text, *, step)
-log_table(tag, rows, *, step)
-close()
-```
+- **`log_image` leaves layout and scale unnamed.** Each backend infers them from the array (TensorBoard: channel-axis size and `max > 1`; MLflow: whether the first axis looks like channels). The same array can land as different layouts on the two backends. A float tensor already in `[0, 1]` with a stray value above 1 is scaled on TensorBoard.
+- **`table_as_json` is a JSON array.** `parse_object` is the object. Those blobs do not round-trip through the JSON contract. JSON already names the array gap; Logger owns the table behavior that hits it.

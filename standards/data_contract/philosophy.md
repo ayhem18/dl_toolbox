@@ -28,7 +28,7 @@ Experiment tracking (models, losses, seeds, run comparison) is later context. It
 
 A collection that **points at** another collection (a hash already on it) exposes an instance method that calls that other class’s `load`. Consumers do not guess the Python class. `related_collections()` returns a dict of zero-argument callables; calling one entry is what loads. Collections with exactly one parent also have `parent_collection()`. `FrameCollection.related_collections()` is `{}`. A lock has one callable per filled slot, keyed by class constants on `Lock`. `Collection.load` remains the reconstruction path. Do not add `get()`.
 
-**Process.** The only place work happens. The user specifies a strategy and args; the oracle returns the class that implements the steps. Instantiation does not take `generating_process_name`. `process(generating_process_name=...)` is one execution of that class. The process writes payload **if this process has bytes**, using relative paths it owns under the collection’s artifact directory. It constructs entities and the collection in memory, asks the collection for its configuration document and for the collection kind’s configuration folder, and writes that file. Then it writes its own configuration. Where that process configuration belongs is a property of that process *kind*, not of one execution. A `generating_process_name` is one execution of that process. It is not process identity.
+**Process.** The only place work happens. The user specifies a strategy and args; the oracle returns the class that implements the steps. Instantiation does not take `generating_process_name`. `process(generating_process_name=...)` is one execution of that class. The process writes payload **if this process has bytes**, using relative paths it owns under the collection’s artifact directory. It constructs entities and the collection in memory, asks the collection for its configuration document and for the collection kind’s configuration folder, and writes that file. Then it writes its own configuration. Where that process configuration belongs is a property of that process *kind*, not of one execution. A `generating_process_name` is one execution of that process. It is HashManager’s `human_readable_name`. It is not process identity.
 
 If a function is two of these at once, it will be hard to debug. If you can name which of the three you are holding, the design is readable.
 
@@ -48,22 +48,22 @@ The home of each configuration is a property of that *kind*, not of one instance
 | Configuration | Question it answers | Home (property of the kind) |
 |---|---|---|
 | **Collection** | What is this frozen set? Consumers `load` this file. | The collection kind’s folder / `{hash-prefix}.json` (optional `{generating_process_name}.json` alias) |
-| **Process** | Which strategy ran, with which signature, under which `generating_process_name`? | The process kind’s pair under [`HashManager`](../exp_mng_engine/identity/identity.md): `{human_readable_dirname}/{name}.json` and `{hashes_dirname}/{hash-prefix}.json` (defaults `human_readable/` and `hashes/`) |
+| **Process** | Which strategy ran, with which signature, under which `generating_process_name`? | The process kind’s identity index: [`HashManager`](../../.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc) `{human_readable_dir_name}/{name}.json` and `{hash_dir_name}/{prefix}.json` |
 
-The collection configuration is the identity the in-memory collection already has. The process configuration stores `generating_process_signature` plus the `generating_process_name` of that execution. They are not interchangeable.
+The collection configuration is the identity the in-memory collection already has. The process configuration is a HashManager index document: keys `name` and `hash`, plus `generating_process_signature` as `extra`. `name` is that execution’s `generating_process_name`. They are not interchangeable.
 
 Write order:
 
 1. The oracle maps strategy plus args to a class. `generating_process_name` is not an oracle argument.
-2. `process(generating_process_name=...)` claims the `generating_process_name` and the generating-process signature. It does not write the process configuration yet.
+2. `process(generating_process_name=...)` asks HashManager to `create_identity_index` on the process-kind directory, then `lookup` the pair. The pair must be `BOTH_FREE`. It does not `create_pair` yet.
 3. If this collection is file-backed, the process calls `Collection.artifacts_dir(generating_process_name)` and creates that directory without overwrite.
 4. The process writes payload (if any) under that directory. Relative paths are its decision. It passes those relative paths into the data-entity constructors.
 5. It constructs the entities and the collection in memory. The collection joins relative paths to `artifacts_dir(generating_process_name)` and indexes the files.
 6. The collection produces its configuration document (`to_dict`). That document stores `generating_process_name` as context. It is not identity.
 7. The process asks the collection class for `configs_dir` and writes the collection configuration.
-8. The process writes its own configuration. That file is the completion record.
+8. The process writes its own configuration with HashManager `create_pair` (`extra` is `generating_process_signature`). That pair is the completion record.
 
-An incomplete run deletes leftover payload, the collection configuration it started, and any process-configuration files. If only the collection configuration exists, the run did not finish. Writing the process configuration before payload would mark an unfinished execution as complete. Do not do it.
+An incomplete run deletes leftover payload, the collection configuration it started, and the process pair (`drop_pair`). If only the collection configuration exists, the run did not finish. Writing the process pair before payload would mark an unfinished execution as complete. Do not do it.
 
 Bytes live under the collection’s artifact directory for that `generating_process_name`. A configuration filename is a short hash prefix; the document stores the full hash. Putting a hash in byte paths is the chicken-and-egg (hash needs paths, paths need the hash directory). Do not do it.
 
@@ -79,16 +79,13 @@ The process has one write helper for collection configurations. The collection h
 
 ### 4. A generating_process_name is one execution
 
-Unique per generating process. The process claims **the `generating_process_name` and the generating-process configuration** (`generating_process_signature`). After payload (if any) and the collection configuration are on disk, it writes the same process-configuration document through [`HashManager`](../exp_mng_engine/identity/identity.md) — the same exclusive pair training runs use. Folder names come from `project_level_configs/identity.json`, not from constants in the process class. Defaults:
+Unique per generating process. The process claims **the `generating_process_name` and the generating-process configuration** (`generating_process_signature`) with HashManager `lookup`. After payload (if any) and the collection configuration are on disk, it writes the process pair with `create_pair`. Folder names and `prefix_len` live on the HashManager instance (from `project_level_configs/identity.json`), not as constants in the process class.
 
-- `human_readable/{generating_process_name}.json`
-- `hashes/{hash-prefix}.json`
+`configuration_hash` is HashManager `hash_payload` of `generating_process_signature`. The hash-file basename is that digest’s prefix. `generating_process_name` is not in that hash. Reusing a finished `generating_process_name` is `NAME_TAKEN`. Reusing a finished configuration under a new `generating_process_name` is `HASH_TAKEN`. `process()` has no overwrite flag that steals a `generating_process_name`.
 
-`configuration_hash` is the hash of `generating_process_signature`. The filename is that hash’s prefix, not the full digest. `generating_process_name` is not in that hash. Reusing a finished `generating_process_name` is an error. Reusing a finished configuration under a new `generating_process_name` is an error. `process()` has no overwrite flag that steals a `generating_process_name`.
+A separate helper may delete a finished freeze so a later `process()` can claim those files: `remove_named_freeze` calls HashManager `drop_pair`, then deletes the collection alias and hashed collection file, and a payload directory the caller already resolved from `Collection.artifacts_dir(generating_process_name)`. `process_hash_occupant` is HashManager `lookup` of that hash: `HASH_TAKEN` (or `BOTH_MATCH`) yields the stored `name`. Those helpers are not `process()`. They do not read an artifact path from the collection document.
 
-A separate helper may delete a finished freeze so a later `process()` can claim those files: `remove_named_freeze` removes the process pair, the collection alias and hashed collection file, and a payload directory the caller already resolved from `Collection.artifacts_dir(generating_process_name)`. `process_hash_occupant` returns which `generating_process_name` currently holds a process hash. Those helpers are not `process()`. They do not read an artifact path from the collection document.
-
-Availability is decided by reading those files, not by the filename alone: the document’s `generating_process_name`, `hash`, and `generating_process_signature` must agree. That document is the process configuration. The collection configuration is a different document. Its home belongs to the collection kind.
+Availability is HashManager pair state, not the filename alone. The index document keys are `name` and `hash`; `generating_process_signature` is `extra`. The collection configuration is a different document in the collection kind’s folder.
 
 ### 5. Identity
 
