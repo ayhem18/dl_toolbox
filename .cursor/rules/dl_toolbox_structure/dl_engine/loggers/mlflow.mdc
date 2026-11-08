@@ -16,7 +16,7 @@ The class is a translation of the algorithms below. If the code does something t
 
 ---
 
-## Given
+## Input Specification
 
 An MLflow instance is already constructed: `MlflowClient` pinned to `(backend_store_uri, artifact_store_uri)`.
 

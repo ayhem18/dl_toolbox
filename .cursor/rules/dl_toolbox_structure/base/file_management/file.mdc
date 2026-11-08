@@ -1,24 +1,138 @@
 ---
-description: File is an existing absolute regular file. Parse from absolute, Directory+relative, or parent walk. parent() is the named convert.
+description: File is an existing absolute regular file. Parse from absolute, Directory+relative, or parent walk. parent() converts to Directory.
 globs: **/base/file_management/file.py,**/tests/base/file_management/test_file.py
 alwaysApply: false
 ---
 
 # File
 
-Code: `base/file_management/file.py`.
+## Context
 
-`File` is an existing absolute regular file. Existence is an invariant, not a spec field. Native payload is `pathlib.Path`. Never `Path.cwd()`.
+`read_object`, image decode, a recipe on disk: the native object is `pathlib.Path`. What has to be true, and what call sites keep re-checking, is that the path exists *now* as a regular file, and that it is absolute.
 
-- Absolute: `File.from_absolute(path=...)`.
-- Root + relative: `File.from_under(root=directory, relative_path=...)`. `root` is a Directory that exists. No `..`.
-- Parent walk: `File.from_parent_walk(start=..., basename=...)`. `start` is File or Directory (exists).
-- Convert: `file.parent()` → Directory that exists.
+`File` is that claim as an object. Existence is an invariant, not a spec field: there is no missing File. The native payload is `pathlib.Path`. Later code holds a File. It does not hold a Path and remember "I checked is_file" in a comment.
 
-Write is not File parse. Bytes land under a Directory; the result after write is a File.
+Write is a different question. Bytes land under a Directory (`write_object`, ImageIO `write`). After that write, the result is a File. File parse does not create the bytes.
 
-```python
-file = File.from_absolute(path=absolute_file)
-file = File.from_under(root=directory, relative_path="payload/a.npy")
-directory = file.parent()
+`read_object` takes a File. `File.parent()` is the named convert into a Directory that exists. HashManager reads index documents through JSON, which takes File.
+
+The path is absolute and caller-owned.
+
+---
+
+## Terminology
+
+Directory: `.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `File` | an existing absolute regular file |
+| `path` | that absolute `pathlib.Path` |
+| `from_absolute` | parse from an absolute path that is already a file |
+| `from_under` | parse from a Directory that exists plus a posix-relative path that is already a file |
+| `from_parent_walk` | walk ancestors until `basename` is a file |
+| `parent` | named convert: this file's parent Directory (exists) |
+| `root` | the Directory that exists, for `from_under` |
+| `relative_path` | posix-relative, no `..` |
+| `start` | File or Directory that exists, for `from_parent_walk` |
+| `basename` | the file name to find while walking parents |
+
+---
+
+## Input Specification
+
+A `File` is `path`: an absolute `pathlib.Path` that exists as a regular file. If the path is a directory, error. If it is missing, `FileNotFoundError`.
+
+`from_absolute` takes `path` (absolute Path or str).
+
+`from_under` takes `root` (Directory, spec `EXISTS`) and `relative_path` (posix-relative, no `..`). The joined path is already a file.
+
+`from_parent_walk` takes `start` (File, or Directory that exists) and `basename`.
+
+`parent()` takes nothing besides the File.
+
+---
+
+## Main functionalities
+
+### `File.from_absolute(*, path)`
+
+**input:** `path`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
 ```
+absolute = abs_path(path)
+if absolute is a file: return File(path=absolute)
+if absolute exists as a directory: error (must be a file)
+error: file must exist
+```
+
+**side effects:** none.
+
+**outputs:** a File.
+
+### `File.from_under(*, root, relative_path)`
+
+**input:** `root`, `relative_path`.
+
+**assumptions on the input:** `root` is a Directory that exists. `relative_path` stays under `root` and names an existing file.
+
+**steps:**
+
+```
+absolute = join_under(root.path, relative_path)
+return from_absolute(path=absolute)
+```
+
+**side effects:** none.
+
+**outputs:** a File.
+
+### `File.from_parent_walk(*, start, basename)`
+
+**input:** `start`, `basename`.
+
+**assumptions on the input:** `start` is a File, or a Directory that exists.
+
+**steps:**
+
+```
+walk_from = start.parent().path if start is File else start.path
+found = walk ancestors from walk_from until basename is a file
+return from_absolute(path=found)
+```
+
+**side effects:** none.
+
+**outputs:** a File.
+
+### `file.parent()`
+
+**input:** this File.
+
+**assumptions on the input:** the File exists, so its parent directory exists.
+
+**steps:**
+
+```
+return Directory.from_absolute(path=file.path.parent, policy=MUST_EXIST)
+```
+
+**side effects:** none.
+
+**outputs:** a Directory that exists.
+
+---
+
+## Secondary functionalities
+
+`write_object` / ImageIO `write` produce a File. Those algorithms live on JSON and ImageIO. After they succeed, `File.from_absolute` is how the result is held.
+
+---
+
+## Tensions
+
+- `join_under` (used by `from_under`) requires the joined path to already be a file. A missing relative path is `FileNotFoundError` at join, not a File with a missing spec. That is the invariant: there is no missing File.

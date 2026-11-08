@@ -22,12 +22,12 @@ class IdentityConfigParser:
         require_exact_keys(obj, _KEYS, label="identity.json")
         manager = HashManager(
             prefix_len=obj["prefix_len"],
-            human_readable_dirname=obj["human_readable_dirname"],
-            hashes_dirname=obj["hashes_dirname"],
+            human_readable_dir_name=obj["human_readable_dirname"],
+            hash_dir_name=obj["hashes_dirname"],
         )
         self._prefix_len = manager.prefix_len
-        self._human_readable_dirname = manager.human_readable_dirname
-        self._hashes_dirname = manager.hashes_dirname
+        self._human_readable_dirname = manager.human_readable_dir_name
+        self._hashes_dirname = manager.hash_dir_name
 
     @property
     def prefix_len(self) -> int:
@@ -59,11 +59,11 @@ def identity_from_pydantic(payload: object) -> IdentityConfigParser:
     document = IdentityDocument.model_validate(payload)
     manager = HashManager(
         prefix_len=document.prefix_len,
-        human_readable_dirname=document.human_readable_dirname,
-        hashes_dirname=document.hashes_dirname,
+        human_readable_dir_name=document.human_readable_dirname,
+        hash_dir_name=document.hashes_dirname,
     )
     parsed = IdentityConfigParser.__new__(IdentityConfigParser)
     parsed._prefix_len = manager.prefix_len
-    parsed._human_readable_dirname = manager.human_readable_dirname
-    parsed._hashes_dirname = manager.hashes_dirname
+    parsed._human_readable_dirname = manager.human_readable_dir_name
+    parsed._hashes_dirname = manager.hash_dir_name
     return parsed

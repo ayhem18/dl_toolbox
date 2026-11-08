@@ -39,7 +39,7 @@ W&B is not a backend of this layout.
 
 `storage/runs` and `storage/run_artifacts` may still be missing after scaffold. The engine CREATE’s the identity-index Directory on claim.
 
-Not this entity: HashManager `claim` / `lookup`, fit recipes, GPU picking, experiment builder code.
+Not this entity: HashManager `create_pair` / `lookup`, fit recipes, GPU picking, experiment builder code.
 
 ---
 

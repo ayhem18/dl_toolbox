@@ -1,103 +1,112 @@
 ---
-description: Optional extras. require(*, package) looks up the extra or dist from the import map. Call sites do not pass extra and do not read pyproject.toml.
+description: Optional extras. require(*, package) looks up the extra or dist from IMPORT_HINTS. Call sites name the import.
 globs: **/base/packaging/**/*.py,**/tests/base/packaging/**/*.py
 alwaysApply: false
 ---
 
 # Optional extras
 
-External-state functionality (procedural). The entity is **this process's imports** against the extras declared for `dl-toolbox`.
+## Context
 
-We talk to `importlib.import_module`. We do not install packages. A missing import is an error with an install hint, not `None`.
+dl_toolbox has a small hard set of imports (pydantic, torch in the dl extra, …) and a larger set of things a project might use: MLflow, TensorBoard, wandb, OpenCV, sklearn. Those live in `[project.optional-dependencies]`. A logger or an Image backend that `import mlflow` at module top will crash a process that never asked for MLflow.
 
-Downstream does not `try: importlib.import_module`. Logger is not a package manager. Call sites do not read `pyproject.toml`.
+`require` is the gate: given an import name, either that module is importable in this process, or the error tells you which extra (or which pip dist) to add. Call sites name the import they need (`mlflow`, `torch.utils.tensorboard`, `sklearn`). They do not pass the extra, and they do not read `pyproject.toml`. The map from import name to hint is this contract.
 
-The functions are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
-
-Named constants, no defaults.
+We talk to `importlib.import_module`. A missing import is an error with an install hint.
 
 ---
 
-## Input specification
+## Terminology
 
-`require` takes one argument:
+| Term | Meaning |
+|---|---|
+| `package` | import name (`mlflow`, `torch.utils.tensorboard`, `sklearn`) |
+| `Extra` | an optional-dependencies extra of `dl-toolbox` |
+| `Extra.DL` | `dl` |
+| `Extra.GEOMETRY` | `geometry` |
+| `Extra.TENSORBOARD` | `tensorboard` |
+| `Extra.WANDB` | `wandb` |
+| `Extra.MLFLOW` | `mlflow` |
+| `HintKind.EXTRA` | hint is `dl-toolbox[{extra}]` |
+| `HintKind.DIST` | hint is `uv add {dist}` (no extra for that import) |
+| `IMPORT_HINTS` | map from `package` to `(HintKind, extra or dist)` |
+| `require` | import that package, or raise `ImportError` with the hint |
+| hint | the extra or dist `IMPORT_HINTS` stores for that package |
 
-- `package` — import name (`mlflow`, `torch.utils.tensorboard`, `sklearn`)
+`Extra` matches `[project.optional-dependencies]`.
 
-The extra (or pip dist) is not an input. This contract owns the map from import name to hint. Call sites name the import they need.
-
-```
-Extra = dl | geometry | tensorboard | wandb | mlflow
-```
-
-`Extra` matches `[project.optional-dependencies]`. Hard dependencies (pydantic, tqdm) are not extras and are not in the map. Do not `require` them.
-
-A **hint** is either an `Extra` (`dl-toolbox[{extra}]`) or a **dist** (`uv add {dist}`) when there is no extra.
+A hint is either an Extra (`uv add 'dl-toolbox[{extra}]'` / `pip install 'dl-toolbox[{extra}]'`) or a dist (`uv add {dist}`) when the import is a standalone pip name.
 
 ---
 
-## Import map
+## Input Specification
 
-Each optional import name appears once. If a dist sits in several extras, the map names the extra whose **job** is that package (`torch` → `dl`, not `tensorboard`).
+`require` takes one argument: `package`, a non-empty import name that is a key of `IMPORT_HINTS`.
+
+The extra (or pip dist) is not an input. This contract owns the map. Call sites name the import they need.
 
 ```
-cv2                     → extra geometry
-lightning               → extra dl
+IMPORT_HINTS
+cv2                     → Extra.GEOMETRY
+lightning               → Extra.DL
 matplotlib              → dist matplotlib
-mlflow                  → extra mlflow
+mlflow                  → Extra.MLFLOW
 sklearn                 → dist scikit-learn
-tensorboard             → extra tensorboard
-torch                   → extra dl
-torch.utils.tensorboard → extra tensorboard
-wandb                   → extra wandb
+tensorboard             → Extra.TENSORBOARD
+torch                   → Extra.DL
+torch.utils.tensorboard → Extra.TENSORBOARD
+wandb                   → Extra.WANDB
 ```
 
-Do not parse `pyproject.toml` at runtime. The map is code. Adding an optional import means adding a row here first.
+Each optional import name appears once. If a dist sits in several extras, the map names the extra whose **job** is that package (`torch` → `Extra.DL`). Adding an optional import means adding a row here first. The map is code.
 
 ---
 
-## `require(*, package)`
+## Main functionalities
 
-**Assume:** `package` is a non-empty import name.
+### `require(*, package)`
+
+**input:** `package`.
+
+**assumptions on the input:** `package` is a non-empty import name in `IMPORT_HINTS`.
+
+**steps:**
 
 ```
-if package not in map: error
-
-hint = map[package]
-
+if package not in IMPORT_HINTS: error
+kind, hint = IMPORT_HINTS[package]
 try:
     return importlib.import_module(package)
 except ImportError:
-    if hint is Extra:
+    if kind is HintKind.EXTRA:
         raise ImportError
             "{package} is required and is not installed.
-             uv add 'dl-toolbox[{extra}]'
-             pip install 'dl-toolbox[{extra}]'"
-    if hint is dist:
+             uv add 'dl-toolbox[{hint}]'
+             pip install 'dl-toolbox[{hint}]'"
+    if kind is HintKind.DIST:
         raise ImportError
             "{package} is required and is not installed.
-             uv add {dist}"
+             uv add {hint}"
 ```
 
-**After:** that module is importable in this process. Disk / venv unchanged.
+**side effects:** none on disk / venv. The process's imports may now include that module.
 
-Do not say “this logger”. Do not catch `AttributeError` here. A missing `SummaryWriter` on an imported module is a broken extra, not this algorithm.
+**outputs:** the imported module.
 
-Do not add `require_sklearn` / `require_matplotlib` as new algorithms. They are `require(package="sklearn")` / `require(package="matplotlib")`.
+A missing `SummaryWriter` on an already-imported `torch.utils.tensorboard` is a broken extra. TensorBoard owns that check, after `require` succeeded.
+
+`require(package="sklearn")` and `require(package="matplotlib")` are this algorithm. There is one `require`.
 
 ---
 
-## Translation (functions)
+## Secondary functionalities
 
-| Algorithm | Function |
-|---|---|
-| import map | `IMPORT_HINTS` |
-| missing optional → hint from the map | `require(*, package)` |
+`IMPORT_HINTS` is the map. `require` is the only public call.
 
 ---
 
 ## Tensions
 
-- TensorBoard today catches `AttributeError` on `SummaryWriter`. That stays at the TensorBoard translation, after `require` succeeded, or it becomes a TensorBoard error — not a third packaging function.
-- Whether matplotlib / sklearn become extras (map rows change from dist to extra) is a pyproject decision, not a third algorithm.
-- The map can drift from `pyproject.toml` (a dist listed in an extra but missing from the map, or the reverse). Runtime-reading pyproject would make the hint follow the file and would make call sites still not think about extras; it would also couple import names to pip names (`cv2` vs `opencv-python-headless`, `sklearn` vs `scikit-learn`). The map above is the chosen side: import names, one hint, owned here.
+- TensorBoard today catches `AttributeError` on `SummaryWriter`. That stays at the TensorBoard translation, after `require` succeeded, or it becomes a TensorBoard error.
+- Whether matplotlib / sklearn become extras (map rows change from dist to extra) is a pyproject decision.
+- The map can drift from `pyproject.toml` (a dist listed in an extra but missing from the map, or the reverse). Runtime-reading pyproject would make the hint follow the file; it would also couple import names to pip names (`cv2` vs `opencv-python-headless`, `sklearn` vs `scikit-learn`). The map above is the chosen side: import names, one hint, owned here.

@@ -168,8 +168,8 @@ class ProjectLayout:
         )
         hash_manager = HashManager(
             prefix_len=identity.prefix_len,
-            human_readable_dirname=identity.human_readable_dirname,
-            hashes_dirname=identity.hashes_dirname,
+            human_readable_dir_name=identity.human_readable_dirname,
+            hash_dir_name=identity.hashes_dirname,
         )
         checkpoint = _checkpoint_document(
             read(
@@ -307,7 +307,7 @@ class ProjectLayout:
         self, *, run_group: tuple[str, ...], name: str
     ) -> Directory:
         _require_run_group(run_group)
-        checked = self._hash_manager.assert_name(name)
+        checked = self._hash_manager.validate_human_readable_name(name)
         relative = _join_relative(
             (STORAGE_DIRNAME, RUN_ARTIFACTS_DIRNAME) + run_group + (checked,)
         )

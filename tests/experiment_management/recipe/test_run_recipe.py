@@ -15,8 +15,8 @@ from tests.experiment_management.em_support import tiny_recipe
 def _hash_manager() -> HashManager:
     return HashManager(
         prefix_len=12,
-        human_readable_dirname="human_readable",
-        hashes_dirname="hashes",
+        human_readable_dir_name="human_readable",
+        hash_dir_name="hashes",
     )
 
 

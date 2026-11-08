@@ -1,22 +1,194 @@
 ---
-description: Photometric Image is ImageSpec plus array. File IO is ImageIO; OpenCVImageIO is the backend. Ndarray parse requires spec.
+description: Image is ImageSpec plus array. ColorMode × SampleType × Layout. from_array requires spec. OpenCVImageIO.read/write assign native spec. convert(*, spec, strict).
 globs: **/base/input_output/images/**/*.py,**/base/input_output/image_io.py,**/tests/base/input_output/test_image*.py
 alwaysApply: false
 ---
 
-# Images
+# Image
 
-Code: `base/input_output/images/` (`image.py`, `image_spec.py`, `io.py`).
+## Context
 
-`Image` = `ImageSpec` + ndarray. Spec is `ColorMode` × `SampleType` × `Layout` (`YXC` / `CYX`).
+Datasets, patchify, visualization: the itch is `cv2.imread` in every loader, then a comment that the array is BGR uint8, then a silent `/ 255` somewhere else. RGB vs BGR is not in the pixels. Spatial size is. The object the rest of the package can hold is a photometric **Image**: an `ImageSpec` plus a numpy array.
 
-- Ndarray: `Image.from_array(array=..., spec=...)`.
-- File: `OpenCVImageIO().read(path=...)` / `.write(image=..., path=...)`. The backend assigns native spec (gray uint8 or BGR uint8 YXC). Caller does not pass spec on read.
-- Convert stays on `Image.convert(spec=..., strict=...)`.
+Spec is three questions whose product is the photometric state: `ColorMode` (gray / bgr / rgb), `SampleType` (uint8 `[0, 255]` or float32 `[0, 1]`), `Layout` (YXC or CYX). Spatial size is `Y_dim` and `X_dim` on the array, not on the spec. Gray is shape `(Y_dim, X_dim)` under both layouts.
 
-```python
-image = Image.from_array(array=array, spec=spec)
-io = OpenCVImageIO()
-image = io.read(path=absolute_path)
-io.write(image=image, path=absolute_png)
+Two sources. An ndarray cannot tell you RGB vs BGR: `Image.from_array` requires `spec`. A file can: `OpenCVImageIO.read` assigns the native spec (gray uint8 or BGR uint8 YXC). The caller does not pass spec on read.
+
+`Image.convert(*, spec, strict)` is the named map from one legal spec to another. `strict` is part of the map. Silent color swap and silent `/ 255` are this convert, or they are a bug.
+
+File IO is `ImageIO`. `OpenCVImageIO` is the backend. Write converts to that backend's native spec, then encodes. Optional OpenCV is `require(package="cv2")` (Extra.GEOMETRY) at the process that uses this backend.
+
+---
+
+## Terminology
+
+Directory, File: `.cursor/rules/dl_toolbox_structure/base/file_management/`. Spatial size: `Y_dim`, `X_dim`.
+
+| Term | Meaning |
+|---|---|
+| `Image` | `ImageSpec` plus a numpy `array` |
+| `spec` | the photometric claim |
+| `array` | the ndarray. C-contiguous. Spatial size lives here |
+| `ImageSpec` | `color_mode` × `sample_type` × `layout` |
+| `ColorMode` | meaning of the channel axis. Channel count is derived |
+| `ColorMode.GRAY` | gray, rank 2, `n_channels` 0 |
+| `ColorMode.BGR` | BGR, 3 channels |
+| `ColorMode.RGB` | RGB, 3 channels |
+| `SampleType` | dtype and closed value range as one part |
+| `SampleType.UINT8` | uint8, `[0, 255]` |
+| `SampleType.FLOAT32_UNIT` | float32, `[0, 1]` |
+| `Layout` | channel placement for rank-3 arrays |
+| `Layout.YXC` | `(Y_dim, X_dim, C)` |
+| `Layout.CYX` | `(C, Y_dim, X_dim)` |
+| `from_array` | ndarray source. Caller passes `spec` |
+| `convert` | map this Image onto a target `spec` |
+| `strict` | part of `convert`. Required, no default |
+| `ImageIO` | path ↔ Image. Spec assignment and encode constraints belong here |
+| `OpenCVImageIO` | OpenCV file backend |
+| `OpenCVImageIO.GRAY_NATIVE` | gray, uint8, YXC — OpenCV native gray |
+| `OpenCVImageIO.BGR_NATIVE` | BGR, uint8, YXC — OpenCV native color |
+| `read` | file source. Backend assigns spec |
+| `write` | Image → path. Backend converts to native spec, then encodes |
+| `validate_array` | payload matches spec |
+
+---
+
+## Input Specification
+
+`ImageSpec` is `color_mode` (`ColorMode`) × `sample_type` (`SampleType`) × `layout` (`Layout`). Every combination of those named constants is legal. Channel count is derived from `ColorMode` (0 gray, 3 color). Gray array shape is `(Y_dim, X_dim)`. Color YXC is `(Y_dim, X_dim, 3)`. Color CYX is `(3, Y_dim, X_dim)`.
+
+`Image` is that spec plus `array`: a C-contiguous ndarray, non-empty, finite, dtype and value range matching `sample_type`, shape matching `color_mode` and `layout`. Color mode is a claim. `validate_array` checks the payload against the spec; it does not invent RGB vs BGR from the pixels.
+
+`from_array` takes `array` and `spec`. Both required.
+
+`convert` takes `spec` (target) and `strict` (`bool`). Both required.
+
+`OpenCVImageIO.read` takes `path` (absolute Path or str). The path is a file.
+
+`OpenCVImageIO.write` takes `image` and `path`. Suffix is `.png` / `.bmp` / `.tif` / `.tiff`.
+
+---
+
+## Main functionalities
+
+### `Image.from_array(*, array, spec)`
+
+**input:** `array`, `spec`.
+
+**assumptions on the input:** Input Specification. `spec` is the photometric claim the ndarray cannot supply.
+
+**steps:**
+
 ```
+array = np.ascontiguousarray(array)
+validate_array(array, spec=spec)
+return Image(spec=spec, array=array)
+```
+
+**side effects:** none.
+
+**outputs:** an Image.
+
+### `image.convert(*, spec, strict)`
+
+**input:** this Image, target `spec`, `strict`.
+
+**assumptions on the input:** this Image is already valid. `spec` is a legal `ImageSpec`. `strict` is a `bool`.
+
+**steps:**
+
+```
+if spec == this spec: return Image with the same array
+working = to YXC
+working = convert color in YXC (see maps below)
+working = convert sample type
+working = from YXC into spec.layout
+return Image(spec=spec, array=contiguous working)
+```
+
+Color maps, in YXC:
+
+```
+bgr ↔ rgb: reverse the channel axis
+gray → bgr or rgb, strict=False: stack the plane onto 3 channels
+gray → bgr or rgb, strict=True: error (no color map)
+color → gray: error (luma vs mean vs one channel is not a unique map)
+```
+
+Sample maps:
+
+```
+uint8 → float32_unit: / 255
+float32_unit → uint8: rint, clip to [0, 255]
+```
+
+**side effects:** none.
+
+**outputs:** an Image whose spec is the target. Same photometric content under that map, or an error.
+
+### `OpenCVImageIO.read(*, path)`
+
+**input:** `path`.
+
+**assumptions on the input:** `path` is an existing file.
+
+**steps:**
+
+```
+absolute = abs_path(path)
+decoded = cv2.imread(UNCHANGED)
+array = contiguous decoded
+spec = GRAY_NATIVE if rank 2 uint8
+      else BGR_NATIVE if (Y_dim, X_dim, 3) uint8
+validate_array(array, spec=spec)
+return Image(spec=spec, array=array)
+```
+
+The backend assigns spec. The caller does not pass one.
+
+**side effects:** none on disk.
+
+**outputs:** an Image in OpenCV native spec.
+
+### `OpenCVImageIO.write(*, image, path)`
+
+**input:** `image`, `path`.
+
+**assumptions on the input:** `image` is an Image. `path` has a writable suffix (`.png` / `.bmp` / `.tif` / `.tiff`).
+
+**steps:**
+
+```
+suffix = path suffix lowercased
+if suffix is .jpg / .jpeg: error (lossy; jpg → array → jpg compresses again)
+if suffix not in writable: error
+native_spec = GRAY_NATIVE if image is gray else BGR_NATIVE
+native = image.convert(spec=native_spec, strict=True)
+mkdir parent of path (parents, exist_ok)
+cv2.imwrite(path, native.array)
+return path
+```
+
+**side effects:** a file at `path`. Parent folders may be created here.
+
+**outputs:** that absolute path.
+
+---
+
+## Secondary functionalities
+
+### `validate_array(array, *, spec)`
+
+Payload matches spec: ndarray, non-empty, C-contiguous, finite, dtype and closed range of `sample_type`, shape of `color_mode` × `layout`. Color mode is a claim.
+
+### Native spec
+
+`OpenCVImageIO.GRAY_NATIVE` / `BGR_NATIVE` are the file-source and file-encode specs. Write always converts to one of those with `strict=True` before encode.
+
+---
+
+## Tensions
+
+- Color → gray is not a unique map. Until a reduction is named, `convert` errors.
+- `OpenCVImageIO.write` mkdirs the parent with `exist_ok`. Directory parse (`CREATE`) is the other way to make a parent. Two stories for the same mkdir.
+- OpenCV file source v1 is uint8 gray or BGR YXC. Other dtypes / channel counts from `IMREAD_UNCHANGED` error at read.

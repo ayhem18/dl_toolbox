@@ -1,40 +1,72 @@
 ---
-description: JSON object is a dict. parse_object, dump(*, form), flatten, read File, write under Directory. JsonTextForm is dump encoding, not an input kind.
+description: JSON object is a dict. parse_object, dump_object(*, form), flatten_object, read_object File, write_object under Directory. JsonTextForm is dump_object encoding.
 globs: **/base/input_output/json_io.py,**/tests/base/input_output/test_json_io.py
 alwaysApply: false
 ---
 
 # JSON
 
-External-state functionality (procedural). The entity is a **JSON object**: a `dict` with non-empty `str` keys and JSON-compatible values (`dict`, `list`, `str`, `int`, `float`, `bool`, `None`; `tuple` counts as `list`). Not a File. Not a JSON array. Not a numpy array, Path, or pydantic model (dump the model first).
+## Context
 
-We talk to `json.loads` / `json.dumps`. Disk is File / Directory. Downstream does not call `json.dumps` / a third reader.
+dl_toolbox talks to a lot of `.json` files: project-level configs, fit recipes, identity index documents, logger params. The thing we actually hold in Python is a **JSON object**: a `dict` with non-empty `str` keys and JSON-compatible values (`dict`, `list`, `str`, `int`, `float`, `bool`, `None`; a `tuple` counts as a `list`).
 
-The functions are a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+We talk to `json.loads` / `json.dumps`. Disk is the File and Directory contracts (`.cursor/rules/dl_toolbox_structure/base/file_management/file.mdc`, `directory.mdc`). HashManager's index documents, `identity.json`, and recipe parsers all go through this module so a third reader does not appear next to `json.dumps`.
 
-Named constants, no defaults.
+There are five behaviors: `parse_object` (text into that object), `dump_object` (that object to text in a named form), `flatten_object` (dotted string leaves for logger params), `read_object` (a File), `write_object` (under a Directory). `JsonTextForm` is how `dump_object` and `write_object` emit text.
 
----
-
-## Input specification
-
-`parse_object` / `dump` / `flatten` take that object, or text that must decode to that object.
-
-`read` takes a **File** (exists, UTF-8). `write` takes a **Directory** that exists and a relative name (same rule as `File.from_under`: no `..`). JSON does not mkdir. Creating a missing parent is Directory parse (`CREATE`). After `write`, the result is a File.
-
-`JsonTextForm` is **not** a kind of JSON object and **not** a kind of input. It is how `dump` and `write` emit text:
-
-```
-JsonTextForm = document | canonical | ascii_pretty
-```
-
-`parse_object`, `read`, and `flatten` do not take a form. Callers name a form only when they create text or a file.
+Identity hashing calls `dump_object(..., form=JsonTextForm.CANONICAL)`. Config files call `write_object(..., form=JsonTextForm.DOCUMENT)` under a Directory that already exists. Logger params call `flatten_object`. Logger text calls `dump_object(..., form=JsonTextForm.ASCII_PRETTY)`. Pydantic `model_dump(mode="json")` is a source *into* the object, then `dump_object` / `write_object`.
 
 ---
 
-## `parse_object(text)`
+## Terminology
 
-**Assume:** `text` is a `str`.
+Directory, File: `.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`, `file.mdc`.
+
+| Term | Meaning |
+|---|---|
+| JSON object | a `dict` with non-empty `str` keys and JSON-compatible values |
+| `payload` | that object, as passed to `dump_object` / `flatten_object` / `write_object` |
+| `text` | a `str` that must decode to a JSON object (`parse_object`) |
+| `JsonTextForm` | how `dump_object` / `write_object` emit text |
+| `JsonTextForm.DOCUMENT` | indent-2, UTF-8, trailing newline. Key order is `dict` order |
+| `JsonTextForm.CANONICAL` | `sort_keys=True`, compact separators, ASCII. Stable for hashing |
+| `JsonTextForm.ASCII_PRETTY` | indent-2, ASCII |
+| `JsonTextForm.FORMS` | those three, in that order. `dump_object` membership |
+| `form` | one of those three, required whenever text or a file is created |
+| `parse_object` | text → JSON object |
+| `dump_object` | JSON object → `str` in a named form |
+| `flatten_object` | JSON object → dotted `Mapping[str, str]` of leaves |
+| `read_object` | File → JSON object |
+| `write_object` | Directory + relative `name` + payload + form → File |
+| `file` | a File that exists, UTF-8 |
+| `directory` | a Directory that exists |
+| `name` | relative path under that Directory, no `..` (same rule as `File.from_under`) |
+
+---
+
+## Input Specification
+
+`parse_object` takes `text`: a `str`.
+
+`dump_object` / `flatten_object` take `payload`: a JSON object. `dump_object` also takes `form`: a `JsonTextForm`. Required, no default.
+
+`read_object` takes `file`: a File (exists, UTF-8).
+
+`write_object` takes `directory` (Directory that exists), `name` (relative, no `..`), `payload` (JSON object), `form` (`JsonTextForm`). Required, no default. `write_object` does not mkdir. Creating a missing parent is Directory parse (`DirectoryParsePolicy.CREATE`). After `write_object`, the result is a File.
+
+`parse_object`, `read_object`, and `flatten_object` do not take a form. Callers name a form only when they create text or a file.
+
+---
+
+## Main functionalities
+
+### `parse_object(text)`
+
+**input:** `text`.
+
+**assumptions on the input:** `text` is a `str`.
+
+**steps:**
 
 ```
 value = json.loads(text)
@@ -43,36 +75,42 @@ if any key is not a non-empty str: error
 return value
 ```
 
-**After:** a JSON object in memory. Disk unchanged.
+**side effects:** none. Disk unchanged.
 
-A JSON array is not this entity. Do not parse `[1, 2, 3]` here.
+**outputs:** a JSON object in memory.
 
----
+### `dump_object(payload, *, form)`
 
-## `dump(object, *, form)`
+**input:** `payload`, `form`.
 
-**Assume:** `object` is a JSON object. `form` is a `JsonTextForm`. Required, no default.
+**assumptions on the input:** `payload` is a JSON object. `form` is a `JsonTextForm`.
+
+**steps:**
 
 ```
-if form is document:
-    json.dumps(object, indent=2, ensure_ascii=False) + "\n"
-if form is canonical:
-    json.dumps(object, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-if form is ascii_pretty:
-    json.dumps(object, indent=2, ensure_ascii=True)
+if form is JsonTextForm.DOCUMENT:
+    json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+if form is JsonTextForm.CANONICAL:
+    json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+if form is JsonTextForm.ASCII_PRETTY:
+    json.dumps(payload, indent=2, ensure_ascii=True)
 ```
 
-**After:** a `str`. Disk unchanged. `canonical` of the same object is stable. `document` is not (`dict` order).
+**side effects:** none. Disk unchanged.
 
----
+**outputs:** a `str`. `canonical` of the same object is stable. `document` is not (`dict` order).
 
-## `flatten(object)`
+### `flatten_object(payload)`
 
-**Assume:** `object` is a JSON object.
+**input:** `payload`.
+
+**assumptions on the input:** `payload` is a JSON object.
+
+**steps:**
 
 ```
 result = {}
-walk(object, prefix=""):
+walk(payload, prefix=""):
     for key, value:
         if key is not a non-empty str: error
         name = prefix + key
@@ -89,29 +127,37 @@ walk(object, prefix=""):
 return result
 ```
 
-**After:** `Mapping[str, str]`. Nested dicts became dotted keys. Leaves are strings. `{"a": 1}` and `{"a": "1"}` both yield `{"a": "1"}`. Lossy. Do not unflatten.
+**side effects:** none.
 
----
+**outputs:** `Mapping[str, str]`. Nested dicts became dotted keys. Leaves are strings. `{"a": 1}` and `{"a": "1"}` both yield `{"a": "1"}`. Lossy.
 
-## `read(*, file)`
+### `read_object(*, file)`
 
-**Assume:** `file` is a File (exists, UTF-8).
+**input:** `file`.
+
+**assumptions on the input:** `file` is a File (exists, UTF-8).
+
+**steps:**
 
 ```
 text = UTF-8 contents of file
 return parse_object(text)
 ```
 
-**After:** a JSON object. File unchanged.
+**side effects:** none. File unchanged.
 
----
+**outputs:** a JSON object.
 
-## `write(*, directory, name, object, form)`
+### `write_object(*, directory, name, payload, form)`
 
-**Assume:** `directory` is a Directory that exists. `name` is a relative path with no `..` (same rule as `File.from_under`). `object` is a JSON object. `form` is a `JsonTextForm`. Required, no default.
+**input:** `directory`, `name`, `payload`, `form`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
 
 ```
-text = dump(object, form=form)
+text = dump_object(payload, form=form)
 path = join under directory / name
 tmp = path with name path.name + ".tmp"
 write UTF-8 text to tmp
@@ -119,31 +165,21 @@ tmp.replace(path)
 return File.from_absolute(path)
 ```
 
-**After:** a File whose contents are that dump. Directory unchanged. No mkdir.
+**side effects:** a File whose contents are that `dump_object`. Directory unchanged. No mkdir. Parent existence is Directory.
 
-File has no write method. JSON still performs the bytes. Parent existence is Directory, not JSON.
+**outputs:** that File.
 
 ---
 
-## Translation (functions)
+## Secondary functionalities
 
-| Algorithm | Function |
-|---|---|
-| parse object from text | `parse_object(text)` |
-| dump | `dump(payload, *, form)` |
-| flatten | `flatten(payload)` |
-| file read | `read(*, file)` |
-| file write | `write(*, directory, name, payload, form)` |
+The JSON-object check (`dict`, non-empty `str` keys) is the same check `parse_object`, `dump_object`, `flatten_object`, and `write_object` use.
 
-Identity hashing calls `dump(..., form=canonical)`. Config files call `write(..., form=document)` under a Directory that already exists (or that the caller parsed with `CREATE`). Logger params call `flatten`. Logger text calls `dump(..., form=ascii_pretty)`.
-
-Pydantic `model_dump(mode="json")` is a source into the object, then `dump` / `write`. `table_as_json` is a list, not this entity.
-
-Path-holding modules that have not become File/Directory yet parse at this boundary (`File.from_absolute`, Directory `CREATE`) and then call `read` / `write`. They do not dump themselves.
+The bytes of a JSON file are written here: temp file, then replace. File parse is how the result is held.
 
 ---
 
 ## Tensions
 
-- A reversible flatten (JSON-literal leaves) is a different convert. Not these algorithms. Do not add a flag on `flatten`.
-- `table_as_json` / JSON arrays need their own behaviors if we keep them. Do not stretch `parse_object`.
+- A reversible flatten (JSON-literal leaves) is a different convert. Do not add a flag on `flatten_object`.
+- JSON arrays (`table_as_json`, `[1, 2, 3]`) need their own behaviors if we keep them. `parse_object` is the object.

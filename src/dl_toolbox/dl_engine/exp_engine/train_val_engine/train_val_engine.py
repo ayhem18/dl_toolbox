@@ -29,7 +29,8 @@ from dl_toolbox.base.file_management.directory import (
     DirectorySpec,
 )
 from dl_toolbox.base.file_management.exclusive_lock import ExclusiveDirLock
-from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.base.hashing.hash_manager import HashManager, PairState
+from dl_toolbox.base.parsing.parse_utils import parse_one_of
 from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.checkpointer import (
     InspectableCheckpointer,
 )
@@ -71,10 +72,6 @@ class IdentityOverwritePolicy:
     OFF = "off"
     OVERWRITE_NAME = "overwrite_name"
 
-
-_PURPOSES = frozenset({EnginePurpose.FIT, EnginePurpose.INSPECT})
-_OVERWRITE_POLICIES = frozenset({IdentityOverwritePolicy.OFF, IdentityOverwritePolicy.OVERWRITE_NAME})
-
 class TrainValEngine(ABC):
     """
     The experiment engine for runs/ experiments with both Train and Validation split. 
@@ -92,7 +89,7 @@ class TrainValEngine(ABC):
     """
 
     def __init__(self, *, purpose: str) -> None:
-        self._purpose = parse_purpose(purpose) # TODO: this is a pattern and can probably be added to the parsing package
+        self._purpose = parse_purpose(purpose) 
         self._identity_ready = False
         self._claimed_fit = False
 
@@ -218,20 +215,20 @@ class TrainValEngine(ABC):
             poll_seconds=IDENTITY_LOCK_POLL_SECONDS,
         ):
             lookup = manager.lookup(
-                index, name=name, configuration_hash=configuration_hash
+                index, human_readable_name=name, hash=configuration_hash
             )
 
-            if lookup.state == HashManager.HASH_TAKEN:
+            if lookup.state == PairState.HASH_TAKEN:
                 raise FileExistsError(
                     "configuration hash already saved as another name in this group"
                 )
 
-            if lookup.state == HashManager.BOTH_MATCH:
+            if lookup.state == PairState.BOTH_MATCH:
                 raise FileExistsError(
                     f"already claimed name {name!r} with this configuration hash"
                 )
 
-            if lookup.state == HashManager.BOTH_FREE:
+            if lookup.state == PairState.BOTH_FREE:
                 self._claim_free_pair(
                     manager=manager,
                     index=index,
@@ -241,22 +238,22 @@ class TrainValEngine(ABC):
                 )
                 return
 
-            # at this point, the only valid value for lookup.state is HashManager.NAME_TAKEN
+            # at this point, the only valid value for lookup.state is PairState.NAME_TAKEN
 
-            # the logic below is for the case of lookup.state = HashManager.NAME_TAKEN            
+            # the logic below is for the case of lookup.state = PairState.NAME_TAKEN            
             if force != IdentityOverwritePolicy.OVERWRITE_NAME:
                 raise FileExistsError(
                     f"name {name!r} already exists with a different "
                     "configuration hash"
                 )
-            manager.release_name(index, name=name)
+            manager.drop_pair(index, human_readable_name=name)
             artifacts = self.get_artifacts_directory()
             if artifacts.path.exists():
                 shutil.rmtree(artifacts.path)
-            manager.claim(
+            manager.create_pair(
                 index,
-                name=name,
-                configuration_hash=configuration_hash,
+                human_readable_name=name,
+                hash=configuration_hash,
                 extra=payload,
             )
             Directory.from_absolute(
@@ -284,9 +281,9 @@ class TrainValEngine(ABC):
                 )
                 continue
             lookup = manager.lookup(
-                index, name=name, configuration_hash=configuration_hash
+                index, human_readable_name=name, hash=configuration_hash
             )
-            if lookup.state == HashManager.BOTH_MATCH:
+            if lookup.state == PairState.BOTH_MATCH:
                 artifacts = self.get_artifacts_directory()
                 if artifacts.spec == DirectorySpec.EXISTS:
                     self._identity_ready = True
@@ -297,23 +294,23 @@ class TrainValEngine(ABC):
                     message=f"artifacts directory does not exist: {artifacts.path}",
                 )
                 continue
-            if lookup.state == HashManager.BOTH_FREE:
+            if lookup.state == PairState.BOTH_FREE:
                 _raise_or_wait_missing(
                     retry=retry,
                     deadline=deadline,
                     message=f"fit identity pair is not claimed: {name!r}",
                 )
                 continue
-            if lookup.state == HashManager.NAME_TAKEN:
+            if lookup.state == PairState.NAME_TAKEN:
                 raise FileExistsError(
                     f"name {name!r} already exists with a different "
                     "configuration hash"
                 )
-            if lookup.state == HashManager.HASH_TAKEN:
+            if lookup.state == PairState.HASH_TAKEN:
                 raise FileExistsError(
                     "configuration hash already saved under a different name"
                 )
-            raise ValueError(f"unknown occupancy {lookup.state!r}")
+            raise ValueError(f"unknown pair state {lookup.state!r}")
 
     def _claim_free_pair(
         self,
@@ -328,10 +325,10 @@ class TrainValEngine(ABC):
             raise FileExistsError(
                 f"orphan artifacts directory exists: {artifacts.path}"
             )
-        manager.claim(
+        manager.create_pair(
             index,
-            name=name,
-            configuration_hash=configuration_hash,
+            human_readable_name=name,
+            hash=configuration_hash,
             extra=payload,
         )
         Directory.from_absolute(
@@ -440,19 +437,23 @@ class TrainValEngine(ABC):
 
 
 def parse_purpose(value: object) -> str:
-    if not isinstance(value, str) or value not in _PURPOSES:
-        raise ValueError(
-            f"purpose must be {EnginePurpose.FIT!r} or {EnginePurpose.INSPECT!r}, got {value!r}"
-        )
-    return value
+    return parse_one_of(
+        value,
+        allowed=(EnginePurpose.FIT, EnginePurpose.INSPECT),
+        label="purpose",
+        error_type=ValueError,
+        error_message="{label} must be {allowed}, got {value!r}",
+    )
 
 
 def parse_force(value: object) -> str:
-    if not isinstance(value, str) or value not in _OVERWRITE_POLICIES:
-        raise ValueError(
-            f"overwrite policy must be {IdentityOverwritePolicy.OFF!r} or {IdentityOverwritePolicy.OVERWRITE_NAME!r}, got {value!r}"
-        )
-    return value
+    return parse_one_of(
+        value,
+        allowed=(IdentityOverwritePolicy.OFF, IdentityOverwritePolicy.OVERWRITE_NAME),
+        label="overwrite policy",
+        error_type=ValueError,
+        error_message="{label} must be {allowed}, got {value!r}",
+    )
 
 
 def is_ddp_worker() -> bool:

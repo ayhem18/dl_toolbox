@@ -1,0 +1,153 @@
+---
+description: ExclusiveDirLock is process-exclusive via atomic mkdir of path. timeout_seconds and poll_seconds required. acquire / release / context manager. Crash leaves the directory. ExclusiveLockTimeoutError.
+globs: **/base/file_management/exclusive_lock.py,**/tests/base/file_management/test_exclusive_lock.py
+alwaysApply: false
+---
+
+# ExclusiveDirLock
+
+## Context
+
+Two processes can try to write the same catalog, or the same HashManager identity index, at the same time. A lock file you `open()` is not exclusive on every OS in the same way. A directory created with `mkdir()` is: one process succeeds, the others see that the path already exists.
+
+`ExclusiveDirLock` is that protocol. The lock *is* the existence of `path` as a directory. While a process holds it, `path` is a directory. When it releases, that directory is gone. A crash while holding the lock leaves `path` behind; the next acquire waits until `timeout_seconds`, then errors.
+
+This is not a Directory you keep for later work. Directory parse (`CREATE`) is `mkdir(parents=True, exist_ok=True)`: it makes a folder you will use. ExclusiveDirLock's `mkdir` is the opposite claim: the path must *not* already exist, and success means you now own the lock. HashManager's `identity.lock` is this object (`HashManager.IDENTITY_LOCK_NAME`). The identity-index root already exists before HashManager acquires; ExclusiveDirLock does not mkdir that root.
+
+We talk to `pathlib.Path.mkdir` / `rmdir`. The wait loop is `timeout_seconds` and `poll_seconds` on the instance. Both are required.
+
+---
+
+## Terminology
+
+Directory: `.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`. HashManager lock path: `.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `ExclusiveDirLock` | the lock: atomic mkdir of `path` |
+| `path` | absolute Path of the lock directory. Present as a directory only while held (or after a crash) |
+| `timeout_seconds` | wait this long for mkdir to succeed. `> 0` |
+| `poll_seconds` | sleep this long between mkdir tries. `> 0` |
+| `ExclusiveLockTimeoutError` | mkdir did not succeed before `timeout_seconds` |
+| `acquire` | take the lock: mkdir `path`, or wait, or error |
+| `release` | drop the lock: rmdir `path` |
+| held | this instance has acquired and not yet released |
+
+---
+
+## Input Specification
+
+`ExclusiveDirLock` is constructed with:
+
+```
+path               absolute Path or str (caller-owned; `abs_path`)
+timeout_seconds    float > 0
+poll_seconds       float > 0
+```
+
+All three required. No defaults.
+
+The parent of `path` already exists as a directory. `acquire` does not mkdir parents. A missing parent is `FileNotFoundError` from mkdir.
+
+`path` is not a File. If it exists as a file, mkdir fails.
+
+A second `acquire` on the same instance, while held, is an error.
+
+---
+
+## Main functionalities
+
+### `ExclusiveDirLock(path, *, timeout_seconds, poll_seconds)`
+
+**input:** `path`, `timeout_seconds`, `poll_seconds`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+store abs_path(path), timeout_seconds, poll_seconds
+held = False
+```
+
+**side effects:** none. Disk unchanged.
+
+**outputs:** an ExclusiveDirLock that does not yet hold the lock.
+
+### `acquire()`
+
+**input:** this ExclusiveDirLock.
+
+**assumptions on the input:** this instance is not held. Parent of `path` exists.
+
+**steps:**
+
+```
+if held: error (lock already held)
+deadline = now + timeout_seconds
+loop:
+    try:
+        path.mkdir()          # no exist_ok, no parents
+        held = True
+        return
+    except FileExistsError:
+        if now >= deadline:
+            raise ExclusiveLockTimeoutError
+        sleep poll_seconds
+```
+
+**side effects:** `path` exists as a directory. This instance is held.
+
+**outputs:** none.
+
+### `release()`
+
+**input:** this ExclusiveDirLock.
+
+**assumptions on the input:** none extra. If this instance is not held, return.
+
+**steps:**
+
+```
+if not held: return
+held = False
+try:
+    path.rmdir()
+except FileNotFoundError:
+    return
+```
+
+**side effects:** `path` is gone, or was already gone. This instance is not held.
+
+**outputs:** none.
+
+### context manager
+
+**input:** this ExclusiveDirLock.
+
+**steps:**
+
+```
+enter: acquire()
+exit:  release()
+```
+
+**side effects:** same as acquire then release.
+
+**outputs:** this ExclusiveDirLock (held for the `with` block).
+
+---
+
+## Secondary functionalities
+
+`path` is made absolute with `abs_path` (same helper File and Directory use). Relative `path` is an error at construction.
+
+`ExclusiveLockTimeoutError` is a `TimeoutError`. The message names `path`.
+
+---
+
+## Tensions
+
+- A crash while held leaves `path` as a directory. The next acquire waits until `timeout_seconds`. There is no steal, no pid file, no stale-lock break.
+- `release` when this instance is not held is a no-op. A crash-release and a double-release look the same from the outside.
+- Two instances on the same `path`: the second waits. That is the protocol. HashManager constructs one ExclusiveDirLock per call from `directory / IDENTITY_LOCK_NAME`.

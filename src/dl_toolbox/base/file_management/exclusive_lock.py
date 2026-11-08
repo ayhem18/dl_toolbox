@@ -24,7 +24,7 @@ class ExclusiveDirLock:
         path: Path | str,
         *,
         timeout_seconds: float,
-        poll_seconds: float = 0.05,
+        poll_seconds: float,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError(f"timeout_seconds must be > 0, got {timeout_seconds}")
@@ -38,7 +38,6 @@ class ExclusiveDirLock:
     def acquire(self) -> None:
         if self._held:
             raise RuntimeError(f"lock already held: {self._path}")
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + self._timeout_seconds
         while True:
             try:

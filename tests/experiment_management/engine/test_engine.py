@@ -43,8 +43,8 @@ def _engine(tmp_path: Path) -> ExpEngine:
     return ExpEngine(
         identity_manager=HashManager(
             prefix_len=12,
-            human_readable_dirname="human_readable",
-            hashes_dirname="hashes",
+            human_readable_dir_name="human_readable",
+            hash_dir_name="hashes",
         ),
         logging_manager=PlaceholderManager(log_dir=tmp_path / "logs"),
         checkpoint_manager=CheckpointManager(lock_timeout_seconds=5.0),
@@ -184,8 +184,8 @@ def test_session_copies_accumulate_and_scheduler(tmp_path: Path) -> None:
     engine = ExpEngine(
         identity_manager=HashManager(
             prefix_len=12,
-            human_readable_dirname="human_readable",
-            hashes_dirname="hashes",
+            human_readable_dir_name="human_readable",
+            hash_dir_name="hashes",
         ),
         logging_manager=PlaceholderManager(log_dir=tmp_path / "logs"),
         checkpoint_manager=CheckpointManager(lock_timeout_seconds=5.0),

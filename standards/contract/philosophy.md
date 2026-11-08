@@ -105,4 +105,4 @@ The inverse belongs here too: entity → source (`ImageIO.write`). Per-source co
 - The class is a translation of those algorithms.
 - Later code uses the interface; it does not re-scan vendor state to decide what a call means.
 
-Image meets the Python-object gate. Loggers under `dl_engine/loggers/` meet the functionality gate. Path work is not one folder-contract. File and Directory are separate contracts. ExclusiveDirLock is still a draft (`standards/contract/proposals/file_management.md`). A Python-object feature `.mdc` is written only when the six objects exist in code. A functionality feature `.mdc` is written only when the algorithms exist in the `.mdc` and the class in code is a translation.
+Image meets the Python-object gate. Loggers under `dl_engine/loggers/` meet the functionality gate. Path work is not one folder-contract. File, Directory, and ExclusiveDirLock are separate contracts. A Python-object feature `.mdc` is written only when the six objects exist in code. A functionality feature `.mdc` is written only when the algorithms exist in the `.mdc` and the class in code is a translation.

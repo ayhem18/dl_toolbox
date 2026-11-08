@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from dl_toolbox.base.file_management.join import resolve_under_project
 from dl_toolbox.base.file_management.parent_walk import find_named_directory
 from dl_toolbox.base.file_management.paths import abs_path
+from dl_toolbox.base.parsing.parse_utils import one_of_message, parse_one_of
 
 if TYPE_CHECKING:
     from dl_toolbox.base.file_management.file import File
@@ -21,10 +22,13 @@ class DirectorySpec:
     """What is true of the directory **now**."""
 
     def __init__(self, *, name: str) -> None:
-        if name not in ("exists", "missing"):
-            raise ValueError(
-                f"directory spec must be 'exists' or 'missing', got {name!r}"
-            )
+        name = parse_one_of(
+            name,
+            allowed=("exists", "missing"),
+            label="directory spec",
+            error_type=ValueError,
+            error_message=one_of_message,
+        )
         self._name = name
 
     @property
@@ -49,11 +53,13 @@ class DirectoryParsePolicy:
     """How a Directory is obtained. Not stored on the entity."""
 
     def __init__(self, *, name: str) -> None:
-        if name not in ("must_exist", "create", "allow_missing"):
-            raise ValueError(
-                "directory parse policy must be 'must_exist', 'create', or "
-                f"'allow_missing', got {name!r}"
-            )
+        name = parse_one_of(
+            name,
+            allowed=("must_exist", "create", "allow_missing"),
+            label="directory parse policy",
+            error_type=ValueError,
+            error_message=one_of_message,
+        )
         self._name = name
 
     @property

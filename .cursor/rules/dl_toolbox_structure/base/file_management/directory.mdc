@@ -1,25 +1,137 @@
 ---
-description: Directory is an absolute path plus missing|exists. Parse policy must_exist|create|allow_missing is not stored.
+description: Directory is an absolute path plus DirectorySpec missing|exists. DirectoryParsePolicy must_exist|create|allow_missing is parse, not stored.
 globs: **/base/file_management/directory.py,**/tests/base/file_management/test_directory.py
 alwaysApply: false
 ---
 
 # Directory
 
-Code: `base/file_management/directory.py`.
+## Context
 
-`Directory` = `DirectorySpec` (`missing` | `exists`) + absolute `pathlib.Path`. Role is directory. Never `Path.cwd()`.
+Almost every later contract names a folder: HashManager's identity index, `write_object` under a parent, a run's artifacts, a logger store. The native object is `pathlib.Path`. What people forget, and then re-check at every call site, is whether that path exists *right now*, and whether it is a directory.
 
-Parse policy is not spec: `DirectoryParsePolicy` is `must_exist` | `create` | `allow_missing`. After `create`, spec is `exists`.
+`Directory` is that claim as an object: an absolute `pathlib.Path` plus a `DirectorySpec` (`missing` or `exists`). Later code holds a Directory. It does not hold a Path and remember "I mkdir'd this" in a comment.
 
-- Absolute: `Directory.from_absolute(path=..., policy=...)`.
-- Root + relative: `Directory.from_under(root=..., relative_path=..., policy=...)`. `root` is a Directory that exists. No `..`.
-- Parent walk: `Directory.from_parent_walk(start=..., basename=...)`. Result exists. `start` is File or Directory (exists).
-- Convert into Directory: `File.parent()`.
+How you obtained it is parse, not spec. `DirectoryParsePolicy` is `must_exist` | `create` | `allow_missing`. After `create`, the living object is a Directory whose spec is `exists`. Putting `CREATE` on the spec would be a stale claim: the folder exists now.
 
-```python
-dest = Directory.from_absolute(path=absolute_dir, policy=DirectoryParsePolicy.CREATE)
-cache = Directory.from_under(
-    root=project, relative_path="cache/run", policy=DirectoryParsePolicy.ALLOW_MISSING
-)
+The path is absolute and caller-owned. Role is directory.
+
+`write_object` requires a Directory that exists. HashManager `create_identity_index` uses `DirectoryParsePolicy.CREATE` for a missing identity-index root. `File.parent()` is a convert into Directory (that exists).
+
+---
+
+## Terminology
+
+File: `.cursor/rules/dl_toolbox_structure/base/file_management/file.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `Directory` | absolute `pathlib.Path` plus `DirectorySpec` |
+| `path` | that absolute Path |
+| `DirectorySpec` | what is true of the directory **now** |
+| `DirectorySpec.MISSING` | the path does not exist |
+| `DirectorySpec.EXISTS` | the path exists as a directory |
+| `DirectoryParsePolicy` | how a Directory is obtained. Not stored on the entity |
+| `DirectoryParsePolicy.MUST_EXIST` | the path must already be a directory |
+| `DirectoryParsePolicy.CREATE` | if missing, mkdir (parents ok); result exists |
+| `DirectoryParsePolicy.ALLOW_MISSING` | missing is allowed; spec is missing |
+| `from_absolute` | parse from an absolute path |
+| `from_under` | parse from a Directory that exists plus a posix-relative path |
+| `from_parent_walk` | walk ancestors until `basename` is a directory |
+| `root` | the Directory that exists, for `from_under` |
+| `relative_path` | posix-relative, no `..` |
+| `start` | File or Directory that exists, for `from_parent_walk` |
+| `basename` | the directory name to find while walking parents |
+| `policy` | a `DirectoryParsePolicy`, required on parse, not kept on the result |
+
+---
+
+## Input Specification
+
+A `Directory` is `path` (absolute `pathlib.Path`) plus `spec` (`DirectorySpec`). If the path exists, it is a directory and spec is `EXISTS`. If it does not exist, spec is `MISSING`. Those two combinations are the legal ones.
+
+`from_absolute` takes `path` (absolute Path or str) and `policy` (`DirectoryParsePolicy`). Required, no default.
+
+`from_under` takes `root` (Directory, spec `EXISTS`), `relative_path` (posix-relative, no `..`), `policy`. `root` already exists. The join stays under `root`.
+
+`from_parent_walk` takes `start` (File, or Directory with spec `EXISTS`) and `basename`. The result exists.
+
+After `DirectoryParsePolicy.CREATE`, spec is `DirectorySpec.EXISTS`.
+
+---
+
+## Main functionalities
+
+### `Directory.from_absolute(*, path, policy)`
+
+**input:** `path`, `policy`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
 ```
+absolute = abs_path(path)
+if absolute exists as a directory: return Directory(path=absolute, spec=EXISTS)
+if policy is MUST_EXIST: error (must exist)
+if policy is CREATE:
+    mkdir parents, exist_ok
+    return Directory(path=absolute, spec=EXISTS)
+if policy is ALLOW_MISSING:
+    return Directory(path=absolute, spec=MISSING)
+```
+
+If the path exists as a file: error (must be a directory).
+
+**side effects:** `CREATE` may mkdir. The other policies do not.
+
+**outputs:** a Directory.
+
+### `Directory.from_under(*, root, relative_path, policy)`
+
+**input:** `root`, `relative_path`, `policy`.
+
+**assumptions on the input:** `root` is a Directory that exists. `relative_path` stays under `root` (no `..`).
+
+**steps:**
+
+```
+absolute = resolve under root / relative_path
+return from_absolute(path=absolute, policy=policy)
+```
+
+**side effects:** same as `from_absolute` for that policy.
+
+**outputs:** a Directory.
+
+### `Directory.from_parent_walk(*, start, basename)`
+
+**input:** `start`, `basename`.
+
+**assumptions on the input:** `start` is a File, or a Directory that exists. `basename` is the directory name to find.
+
+**steps:**
+
+```
+walk_from = start.parent().path if start is File else start.path
+found = walk ancestors from walk_from until basename is a directory
+return from_absolute(path=found, policy=MUST_EXIST)
+```
+
+**side effects:** none.
+
+**outputs:** a Directory that exists.
+
+---
+
+## Secondary functionalities
+
+`File.parent()` is the named convert from File into a Directory that exists. It lives on File.
+
+Construction of `Directory(path=..., spec=...)` validates that spec matches the path (exists as a directory, or missing).
+
+---
+
+## Tensions
+
+- `CREATE` uses `mkdir(parents=True, exist_ok=True)`. Two processes can both CREATE the same path. That is enough for an empty folder. HashManager's identity index is a stricter mark (`.dir_index`); it does not relax this parse.

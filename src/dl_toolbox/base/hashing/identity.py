@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from dl_toolbox.base.input_output.json_io import JsonTextForm, dump
+from dl_toolbox.base.input_output.json_io import JsonTextForm, dump_object
 
 DEFAULT_ARTIFACT_PREFIX_LEN = 12
 SHA256_HEX_LENGTH = 64
@@ -46,7 +46,7 @@ def hash_file(path: Path) -> str:
 
 def hash_payload(payload: object) -> str:
     """Full SHA-256 of the canonical JSON. Do not truncate this digest."""
-    return hash_text(dump(payload, form=JsonTextForm.CANONICAL))
+    return hash_text(dump_object(payload, form=JsonTextForm.CANONICAL))
 
 
 def is_full_sha256(text: str) -> bool:

@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from dl_toolbox.base.parsing.parse_utils import parse_one_of
+
 
 class LogStream:
     FIT = "fit"
@@ -23,9 +25,6 @@ STREAM_INSPECT = LogStream.INSPECT
 EXISTENCE_CREATE = LogExistence.CREATE
 EXISTENCE_REQUIRE = LogExistence.REQUIRE
 
-_LOG_STREAMS = frozenset({LogStream.FIT, LogStream.INSPECT})
-_LOG_EXISTENCES = frozenset({LogExistence.CREATE, LogExistence.REQUIRE})
-
 
 class LoggerError(ValueError):
     """Logger is used before setup, after close, or with an illegal argument."""
@@ -37,20 +36,23 @@ def require_logger_open(is_open: bool) -> None:
 
 
 def parse_log_stream(stream: object) -> str:
-    if not isinstance(stream, str) or stream not in _LOG_STREAMS:
-        raise LoggerError(
-            f"stream must be {LogStream.FIT!r} or {LogStream.INSPECT!r}, got {stream!r}"
-        )
-    return stream
+    return parse_one_of(
+        stream,
+        allowed=(LogStream.FIT, LogStream.INSPECT),
+        label="stream",
+        error_type=LoggerError,
+        error_message="{label} must be {allowed}, got {value!r}",
+    )
 
 
 def parse_log_existence(existence: object) -> str:
-    if not isinstance(existence, str) or existence not in _LOG_EXISTENCES:
-        raise LoggerError(
-            "existence must be "
-            f"{LogExistence.CREATE!r} or {LogExistence.REQUIRE!r}, got {existence!r}"
-        )
-    return existence
+    return parse_one_of(
+        existence,
+        allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
+        label="existence",
+        error_type=LoggerError,
+        error_message="{label} must be {allowed}, got {value!r}",
+    )
 
 
 def table_as_json(rows: Sequence[Mapping[str, Any]]) -> str:

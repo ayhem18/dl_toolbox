@@ -23,7 +23,7 @@ class RunRecipeParser:
         obj = parse_mapping(payload, label="recipe")
         require_exact_keys(obj, _KEYS, label="recipe")
         self._recipe = RunRecipe(
-            human_readable_name=hash_manager.assert_name(obj["human_readable_name"]),
+            human_readable_name=hash_manager.validate_human_readable_name(obj["human_readable_name"]),
             dl_toolbox_config=parse_mapping(
                 obj["dl_toolbox_config"], label="dl_toolbox_config"
             ),

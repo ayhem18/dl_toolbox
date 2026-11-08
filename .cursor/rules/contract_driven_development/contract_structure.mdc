@@ -1,0 +1,58 @@
+---
+description: Feature contract .mdc section order: Context, Terminology, Input Specification, Main functionalities, Secondary functionalities. Never name a section Given.
+alwaysApply: true
+---
+
+# Contract structure
+
+A feature `.mdc` under `.cursor/rules/dl_toolbox_structure/` and the module docstring of the code it describes should tell the same story. Do not keep an agent version and a human version.
+
+Every feature contract uses these headings, in this order: Context, Terminology, Input Specification, Main functionalities, Secondary functionalities. Then Tensions when there is an unresolved problem. The feature file uses the headings. It does not explain the headings. What the headings are for is this file.
+
+## Context
+
+The first section is **Context**. It answers: why would anyone care about this aspect of the project to begin with.
+
+It is meant to be read by humans. It is verbose, imperfect, and not concise on purpose. Do not compress it into a telegram ("Exclusive (name, hash) JSON index. Layout on the class; Directory per call.").
+
+It may refer to the Context section of another contract instead of repeating that other why. If that other contract has no Context yet, say so and state only the reason *this* contract talks to it.
+
+HashManager is the current example: `.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc`.
+
+## Terminology
+
+After Context, a **Terminology** section. It names the words this contract uses, in the language of the Context.
+
+Those words **are** the identifiers in code: class names, parameters, attributes, constants. Do not keep a mapping column from “term” to “what the code actually says”. If the code cannot use the word, rename the code (or revise the term) until they match.
+
+It may refer to the Terminology section of another contract for words that belong there (Directory, File, JSON object). This section only names what is specific to this contract.
+
+A new public type, constant family, or heading in the rest of the contract must come from this Terminology (or from Context). If you need a noun that is not there, stop and add it here first — or propose names and wait. Do not invent a parallel vocabulary in the algorithms.
+
+## Input Specification
+
+After Terminology, **Input Specification**. The constructed object, the arguments the behaviors take, the invariants those arguments must satisfy.
+
+Never name this section `Given`. `Given` is not a heading in a feature `.mdc`. JSON already uses this section (`.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`). HashManager is the current full example.
+
+## Main functionalities
+
+The official behaviors a caller uses to do the job of this contract. HashManager: `create_identity_index`, `lookup`, `create_pair`, `drop_pair`.
+
+A main functionality may refer to a secondary one by name (`validate_human_readable_name`, `hash_payload`) instead of inlining it.
+
+When it fits, describe each main functionality as:
+
+- **input**
+- **assumptions on the input**
+- **steps**
+- **side effects**
+- **outputs**
+
+This is a suggestion, not a template every behavior must fill. Skip a heading that does not apply (lookup has no disk side effect; say so, or omit **side effects**). Do not invent empty sections. The Context one-liner still comes first so a reader can skip the rest.
+
+The detailed steps stay in this language. They are not a second story.
+
+## Secondary functionalities
+
+Helpers the main functionalities call. They have algorithms too. They are not a second story. HashManager: `hash_payload`, `validate_human_readable_name`, `pair_state`, digest / prefix, exclusive lock.

@@ -114,8 +114,8 @@ def _make_identity_manager(project_root: Path) -> HashManager:
     parsed = IdentityConfigParser(read_json(path))
     return HashManager(
         prefix_len=parsed.prefix_len,
-        human_readable_dirname=parsed.human_readable_dirname,
-        hashes_dirname=parsed.hashes_dirname,
+        human_readable_dir_name=parsed.human_readable_dirname,
+        hash_dir_name=parsed.hashes_dirname,
     )
 
 

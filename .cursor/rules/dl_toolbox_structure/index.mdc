@@ -18,7 +18,7 @@ Working on a contract (three proposal shapes, keywords, procedure): `DL_projects
 
 - `.cursor/rules/python_preferences.mdc` — no parameter defaults; large signatures become config objects
 - `.cursor/rules/terminology_preferences.mdc` — spatial dims are `Y_dim` / `X_dim`, never height/width
-- `.cursor/rules/contract_driven_development.mdc` — three proposal shapes (entity, functionality class, functionality procedural)
+- `.cursor/rules/contract_driven_development/` — `contract_definition.mdc` (three shapes), `contract_structure.mdc` (Context, Terminology, Input Specification, Main / Secondary functionalities; never Given), `contract_writing_instructions.mdc` (dos and don'ts)
 
 ## Tree
 
@@ -30,6 +30,7 @@ src/dl_toolbox/
       image_io.py
       json_io.py           CONTRACT  .cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc
     parsing/
+      parse_utils.py       CONTRACT  .cursor/rules/dl_toolbox_structure/base/parsing/parse_utils.mdc
     hashing/
       hash_manager.py    CONTRACT  .cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc
       identity.py        digest primitives; not a second identity API
@@ -38,7 +39,7 @@ src/dl_toolbox/
     file_management/
       file.py              CONTRACT  .cursor/rules/dl_toolbox_structure/base/file_management/file.mdc
       directory.py         CONTRACT  .cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc
-      exclusive_lock.py    draft     standards/contract/proposals/file_management.md
+      exclusive_lock.py    CONTRACT  .cursor/rules/dl_toolbox_structure/base/file_management/exclusive_lock.mdc
     geometry/
     image_processing/
   data_contract/           design still in standards/data_contract/

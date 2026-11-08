@@ -22,7 +22,7 @@ Lightning calls **callbacks first, then the module**, for the same hook name. `I
 
 ---
 
-## Given
+## Input Specification
 
 ```
 fit(

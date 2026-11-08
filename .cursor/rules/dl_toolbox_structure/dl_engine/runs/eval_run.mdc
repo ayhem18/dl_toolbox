@@ -16,7 +16,7 @@ The procedures in code are a translation of the algorithms below. If the code do
 
 ---
 
-## Given
+## Input Specification
 
 ```
 evaluate(

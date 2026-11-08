@@ -238,7 +238,7 @@ def parse_fit_recipe(
         )
     dump(experiment_config, form=JsonTextForm.CANONICAL)
     seed = parse_non_negative_int(payload["seed"], label="seed")
-    name = hash_manager.assert_name(
+    name = hash_manager.validate_human_readable_name(
         parse_non_empty_str(payload["human_readable_name"], label="human_readable_name")
     )
     run_group = ProjectLayout.parse_run_group(payload["run_group"])

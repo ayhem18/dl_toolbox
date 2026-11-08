@@ -10,7 +10,7 @@ External-state functionality. Home: `src/dl_toolbox/dl_engine/exp_engine/train_v
 
 The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
 
-This is not a second occupancy tree. Occupancy is TrainValEngine. The project tree is ProjectLayout (CONTRACT). This class answers: how recipe JSON, constructor fields, and project **code** become the remaining TrainValEngine getters.
+This is not a second pair-state tree. PairState is TrainValEngine. The project tree is ProjectLayout (CONTRACT). This class answers: how recipe JSON, constructor fields, and project **code** become the remaining TrainValEngine getters.
 
 `experiment_management` is removed. `DefaultExpEngine` / `default_layout` / `DlToolboxConfigManager` / `dl_toolbox_config` do not survive.
 
@@ -26,7 +26,7 @@ Not this entity: walking parents to the marker (ProjectLayout.from_start), HashM
 
 ---
 
-## Given
+## Input Specification
 
 ```
 DefaultLayoutTrainValEngine(
@@ -65,7 +65,7 @@ JSON object. Exact keys. No `dl_toolbox_config` wrapper.
 
 | Key | Role |
 |---|---|
-| `human_readable_name` | Fit identity name **inside the group**. Logger `run_name`. Last artifacts folder. HashManager.assert_name (basename, no `/`). |
+| `human_readable_name` | Fit identity name **inside the group**. Logger `run_name`. Last artifacts folder. HashManager.validate_human_readable_name (basename, no `/`). |
 | `run_group` | Sequence of basenames. `[]` is `storage/runs` and `storage/run_artifacts/{name}`. `["learning_rate_grid", "less_than10"]` is `storage/runs/learning_rate_grid/less_than10` and `storage/run_artifacts/learning_rate_grid/less_than10/{name}`. Parsed by `ProjectLayout.parse_run_group`. In the identity payload. |
 | `seed` | int. `apply_seed`. In the identity payload. |
 | `trainer` | `max_epochs`, `accelerator`, `devices`, `precision`, `enable_progress_bar`, `accumulate_grad_batches`. **Not** `strategy` (derived). **Not** early stopping (its own key). In the identity payload. |

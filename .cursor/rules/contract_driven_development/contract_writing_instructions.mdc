@@ -1,0 +1,96 @@
+---
+description: Dos and don'ts for writing a dl_toolbox feature contract .mdc. Do not define by negation. Do not mention removed names. Do not repeat the contract-folder rules. Tensions are unresolved problems.
+alwaysApply: true
+---
+
+# Contract writing instructions
+
+These are dos and don'ts for a feature `.mdc`. Copy the failure mode, not a shorter paraphrase of it.
+
+## Do not define by what the thing is not
+
+State what the contract *is*, what it assumes, and what it does. A "What this is not" list is not a section.
+
+If a fact matters, put it in **Context** (why this exists, what story it is part of) or in **assumptions / secondary functionalities** (what must be true for the algorithms to make sense, including helpers this contract actually uses).
+
+Secondary functionalities and assumptions should be explicit. They are how a later testing pass can stress the contract without the main agent re-deriving the whole file. Digest primitives under HashManager are the example: HashManager *does* hash a JSON object, *does* take a prefix of that digest as a filename stem, *does* use one `prefix_len` on the instance for every stem and every "does this name look like a hash" check. Write that. Do not write "digest primitives are not HashManager".
+
+**Bad** (HashManager, removed):
+
+```
+### What this is not
+
+Digest primitives (`hash_file`, stem helpers), run artifacts, payload directories, logger stores, `ExclusiveDirLock`, what object was hashed, `identity.json` parsing, `force` / orphan folders / resume. Those belong to other contracts or to the engine. HashManager does not lock. Two processes that both saw the pair as free can both write.
+```
+
+That paragraph mixes four different kinds of leftover into one negation. Split them:
+
+- Digest / prefix / `hash_payload`: **secondary functionalities / assumptions**. Make them testable statements.
+- The directory layout, that HashManager is the identity of a `.json` file, that each call names a Directory: **Context**.
+- That `drop_pair` then `create_pair` take two locks, and that run management is used with multiple processes: **Tensions** (see below).
+
+## Do not repeat the contract-folder rules in the feature `.mdc`
+
+`contract_definition.mdc`, `contract_structure.mdc`, and this file are always on. The feature `.mdc` is HashManager, or JSON, or Image. It does not re-teach what a contract is, what Context is for, what Terminology is for, why Secondary functionalities exist, or that code must match the algorithms.
+
+A reader (human or agent) who has this folder does not need the same paragraph at the top of every feature file. Repeating it costs space, drifts, and makes HashManager look special when the sentence is true of every functionality class.
+
+**Bad** (HashManager, opening — this is `contract_definition.mdc`, not HashManager):
+
+```
+External-state functionality (class). The class in code is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+
+Named constants, no defaults.
+```
+
+**Bad** (HashManager, Secondary functionalities — this is this file's reason for the section, not a HashManager fact):
+
+```
+Those are part of this contract's assumptions. A later test pass can stress them without re-deriving lookup and claim.
+```
+
+**Good:** the HashManager file starts at Context. Secondary functionalities state the digest / `prefix_len` / stem facts. No sentence about testing, translation, or "what a section does".
+
+If a heading already has a meaning in `contract_structure.mdc`, do not open that heading with a definition of the heading.
+
+## Never name a section Given
+
+The heading is **Input Specification**. Not Given. Not Assume. Not Preconditions.
+
+**Bad:**
+
+```
+## Given
+```
+
+`Given` is banned as a section title in every feature `.mdc`, including files that still have it. When you touch such a file, rename the heading. Do not add a new `Given`.
+
+## Do not mention a previous state of the contract
+
+The `.mdc` describes the contract as it is now. It does not record what was renamed, deleted, or rejected.
+
+There used to be an `IdentityManager`. That name and the design around it were removed from the package. A reader of HashManager does not need to know that. "There is no `IdentityManager`" spends space on a ghost and teaches the next edit to keep talking about it.
+
+The same rule applies to any removed type, old folder name, or previous algorithm. If the code no longer has it, the contract does not mention it. YAML `description` lines are included: they are how the agent attaches to the file; do not park dead names there either.
+
+**Bad:**
+
+```
+There is no `IdentityManager`.
+```
+
+```
+description: ... No lock, no artifacts, no IdentityManager.
+```
+
+**Good:** the HashManager Context talks about the pair `(human_readable_name, hash)` of a `.json` file. That is the current object. IdentityManager does not appear.
+
+## Tensions are unresolved problems
+
+A **Tensions** section is a signal: the contract might be under-specified, or it might break on a use-case that is already known to be real.
+
+It is not a dump of "also we don't do X". It is not a list of other modules. It is not history.
+
+**Good tension:** HashManager `drop_pair` then `create_pair` are two lock acquisitions. The engine overwrite-name path needs both. Another process can see the pair as free in the gap. That is an unresolved problem at the time of writing the contract, and it belongs under Tensions.
+
+**Not a tension:** "digest primitives are not HashManager" (that is an assumption to state positively, or it is out of scope and then it is simply omitted). "There is no IdentityManager" (history). "Does not mkdir artifacts or logger stores" (if the Context already says HashManager only owns the identity index, repeating the rest of the project as absences is defining by negation).

@@ -1,0 +1,199 @@
+---
+description: JSON-object key checks and scalar membership. require_key, require_exact_keys, expected_vs_actual, parse_one_of. error_message is a callable; one_of_message is the usual sentence.
+globs: **/base/parsing/parse_utils.py,**/tests/base/parsing/test_parse_utils.py,**/tests/base/parsing/test_parse_one_of.py
+alwaysApply: false
+---
+
+# parse_utils
+
+## Context
+
+dl_toolbox talks to a lot of `.json` files: project-level configs, fit recipes, inspect recipes, logger stores. Someone has to look at an object in memory and say whether it is even the right shape before a pydantic model, HashManager, or an engine getter takes over.
+
+Three of those questions are about the object as a bag of keys:
+
+- Is this key here? (`require_key`) — used when you need the value, and if it is missing the error should list the keys that *were* there.
+- Are these exactly the keys, no extra, no missing? (`require_exact_keys`) — identity.json, fit recipe, inspect recipe. The label in the error is the document the human thinks they are editing.
+- I already know this is the wrong kind of thing; give me the usual "expected … got type=repr" error (`expected_vs_actual`). It builds the exception. The caller raises it.
+
+The fourth question is not about keys. Purpose is `fit` or `inspect`. Overwrite policy is `off` or `overwrite_name`. Pair state is `both_free` / `both_match` / `name_taken` / `hash_taken`. A log stream is `fit` or `inspect`. The check is always: is the given input one of those values. The sentence is always the same shape: this noun must be A or B, got X. The exception class is not always `ValueError` (Logger uses `LoggerError`). `parse_one_of` is that check: membership, the sentence, the exception class.
+
+The sentence is a callable (`error_message`). After membership fails, `parse_one_of` builds `allowed_text` (`'a' or 'b'`, or `'a', 'b', or 'c'`) and calls `error_message` with `value`, `allowed`, `label`, and `allowed_text`. That callable returns the `str` that goes on `error_type`. `one_of_message` is the usual sentence: `{label} must be {allowed_text}, got {value!r}`. A call site that needs a different sentence passes a different callable. Both are required arguments: `error_type` and `error_message`. No default.
+
+Copying `if value not in allowed: raise ...` means every call site rebuilds the "A or B" list by hand. Adding a third allowed value is a silent miss in the message.
+
+Pydantic is a hard dependency and owns documents. A call site that is really parsing a config object with several fields should be a model, then a named layer for extra rules. `require_exact_keys` on those documents is the older pattern this file still serves. That overlap is a tension, not a reason to pretend this file does not exist.
+
+---
+
+## Terminology
+
+JSON object: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `payload` | a JSON object (a `dict`) whose keys are being checked |
+| `key` | one key that must be present |
+| `keys` | the exact set of keys `payload` must have |
+| `label` | the noun in the error (`identity.json`, `fit recipe`, `purpose`, `pair state`) |
+| `value` | the scalar being checked by `parse_one_of`, or the value `require_key` returns |
+| `allowed` | the sequence of valid values for `parse_one_of`, in the order they appear in the error sentence |
+| `allowed_text` | `allowed` written as `'a' or 'b'`, or `'a', 'b', or 'c'` |
+| `error_type` | the exception class `parse_one_of` raises |
+| `error_message` | callable. After a miss, called with `value`, `allowed`, `label`, `allowed_text`; returns the `str` for `error_type` |
+| `one_of_message` | the usual `error_message`: `{label} must be {allowed_text}, got {value!r}` |
+| `where` | the noun in `expected_vs_actual` (`kind`, …) |
+| `expected` | the text naming what should have been there |
+| `actual` | the object that was there |
+| `require_key` | return `payload[key]`, or error listing the keys that were present |
+| `require_exact_keys` | `payload`'s keys are exactly `keys` |
+| `expected_vs_actual` | build a `ValueError`: expected this, got type=repr |
+| `parse_one_of` | if `value` is in `allowed`, return it; otherwise raise `error_type` with `error_message`'s string |
+
+---
+
+## Input Specification
+
+`require_key` / `require_exact_keys`:
+
+```
+payload    a Mapping (JSON object at the call site)
+key        str
+keys       a Sequence of str; the exact key set
+label      str (the document or field name in the error)
+```
+
+`expected_vs_actual`:
+
+```
+where      str
+expected   str (already worded; this function does not repr it)
+actual     any object (the error includes type(actual).__name__ and actual!r)
+```
+
+`parse_one_of`:
+
+```
+value            any object
+allowed          a non-empty Sequence that is not a str or bytes
+label            non-empty str
+error_type       a type that is an exception class (subclass of BaseException)
+error_message    a callable; the usual callable is one_of_message
+```
+
+No parameter has a default. `one_of_message` is written at the call site when the usual sentence is the one you want. Logger keeps `LoggerError` and can pass a different callable.
+
+`parse_one_of` membership is `value in allowed`. A non-str `value` against a sequence of strs fails membership; there is no separate `isinstance` check.
+
+`require_exact_keys` compares sets: order of `keys` is the order printed as `expected` in the error (`tuple(keys)`). Extra or missing keys both fail.
+
+`error_message` is called with keyword arguments `value`, `allowed`, `label`, `allowed_text`. It returns a `str`.
+
+---
+
+## Main functionalities
+
+### `require_key(payload, key, *, label)`
+
+**input:** `payload`, `key`, `label`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+if key is not in payload:
+    raise ValueError("{label}: expected key {key!r}; got keys {sorted(payload)}")
+return payload[key]
+```
+
+**side effects:** none.
+
+**outputs:** the value at `key`.
+
+### `require_exact_keys(payload, keys, *, label)`
+
+**input:** `payload`, `keys`, `label`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+expected = tuple(keys)
+if set(payload) != set(expected):
+    raise ValueError("{label} keys must be {expected}, got {sorted(payload)}")
+```
+
+**side effects:** none.
+
+**outputs:** none. After the call, `payload` has exactly those keys.
+
+### `expected_vs_actual(where, *, expected, actual)`
+
+**input:** `where`, `expected`, `actual`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+return ValueError("{where}: expected {expected}; got {type(actual).__name__}={actual!r}")
+```
+
+**side effects:** none.
+
+**outputs:** a `ValueError`. The caller raises it.
+
+### `parse_one_of(value, *, allowed, label, error_type, error_message)`
+
+**input:** `value`, `allowed`, `label`, `error_type`, `error_message`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+if allowed is a str or bytes, or is not a Sequence: TypeError
+if allowed is empty: ValueError
+if error_type is not a subclass of BaseException: TypeError
+if error_message is not callable: TypeError
+if value is in allowed: return value
+allowed_text = repr of each item, joined with "or" (two items) or commas and ", or" (three or more); one item is just that repr
+message = error_message(value=value, allowed=allowed, label=label, allowed_text=allowed_text)
+if message is not a str: TypeError
+raise error_type(message)
+```
+
+**side effects:** none.
+
+**outputs:** `value` unchanged, or an exception of `error_type`.
+
+---
+
+## Secondary functionalities
+
+### `one_of_message(*, value, allowed, label, allowed_text)`
+
+**input:** `value`, `allowed`, `label`, `allowed_text`.
+
+**assumptions on the input:** `allowed_text` is already the joined reprs. `allowed` is the sequence `parse_one_of` checked.
+
+**steps:**
+
+```
+return "{label} must be {allowed_text}, got {value!r}"
+```
+
+**side effects:** none.
+
+**outputs:** that `str`.
+
+Joining `allowed` for `allowed_text` is part of the `parse_one_of` steps.
+
+---
+
+## Tensions
+
+- These utilities are needed every once in a while when a Pydantic model is overkill. Reinforcing the old pattern is using mainly the ad hoc parsing methods without Pydantic models.
+- `expected_vs_actual` always builds `ValueError` and does not raise. `parse_one_of` raises, and the class is an argument. Two error styles in one file.

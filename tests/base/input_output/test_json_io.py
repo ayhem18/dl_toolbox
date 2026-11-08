@@ -13,11 +13,11 @@ from dl_toolbox.base.file_management.directory import (
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.input_output.json_io import (
     JsonTextForm,
-    dump,
-    flatten,
+    dump_object,
+    flatten_object,
     parse_object,
-    read,
-    write,
+    read_object,
+    write_object,
 )
 
 from tests.base.base_support import N_TRIALS, random_generating_process_name, random_json_object
@@ -34,20 +34,20 @@ def test_written_object_round_trips_and_leaves_no_tmp(
         directory = _existing_directory(tmp_path / f"nested_{i}")
         payload = random_json_object(rng)
         payload["generating_process_name"] = random_generating_process_name(rng)
-        written = write(
+        written = write_object(
             directory=directory,
             name="config.json",
             payload=payload,
             form=JsonTextForm.DOCUMENT,
         )
-        assert read(file=written) == payload
+        assert read_object(file=written) == payload
         assert not written.path.with_name(written.path.name + ".tmp").exists()
 
 
 def test_cyrillic_is_written_as_utf8_glyphs(tmp_path: Path) -> None:
     directory = _existing_directory(tmp_path)
     relative = "Сортированные снимки/Мерник/04 TR-SFCC-ZEPP-DRT-11386.DCM"
-    written = write(
+    written = write_object(
         directory=directory,
         name="members.json",
         payload={"dcm_file_path": relative, "members": {relative: {}}},
@@ -56,7 +56,7 @@ def test_cyrillic_is_written_as_utf8_glyphs(tmp_path: Path) -> None:
     text = written.path.read_text(encoding="utf-8")
     assert "Сортированные снимки" in text
     assert "\\u0421" not in text
-    assert read(file=written)["dcm_file_path"] == relative
+    assert read_object(file=written)["dcm_file_path"] == relative
 
 
 def test_non_objects_are_rejected(tmp_path: Path, rng: random.Random) -> None:
@@ -72,7 +72,7 @@ def test_non_objects_are_rejected(tmp_path: Path, rng: random.Random) -> None:
         path = directory.path / f"bad_{i}.json"
         path.write_text(json.dumps(sample) + "\n", encoding="utf-8")
         with pytest.raises(ValueError, match="JSON object"):
-            read(file=File.from_absolute(path=path))
+            read_object(file=File.from_absolute(path=path))
     for i in range(N_TRIALS):
         path = directory.path / f"rand_bad_{i}.json"
         path.write_text(json.dumps(rng.randint(0, 1000)) + "\n", encoding="utf-8")
@@ -80,20 +80,25 @@ def test_non_objects_are_rejected(tmp_path: Path, rng: random.Random) -> None:
             parse_object(path.read_text(encoding="utf-8"))
 
 
-def test_dump_forms() -> None:
+def test_dump_object_forms() -> None:
     payload = {"b": 1, "a": "я"}
-    document = dump(payload, form=JsonTextForm.DOCUMENT)
+    document = dump_object(payload, form=JsonTextForm.DOCUMENT)
     assert document.endswith("\n")
     assert "я" in document
-    canonical = dump(payload, form=JsonTextForm.CANONICAL)
+    canonical = dump_object(payload, form=JsonTextForm.CANONICAL)
     assert canonical == '{"a":"\\u044f","b":1}'
-    pretty = dump(payload, form=JsonTextForm.ASCII_PRETTY)
+    pretty = dump_object(payload, form=JsonTextForm.ASCII_PRETTY)
     assert "\\u044f" in pretty
     assert pretty.startswith("{")
 
 
-def test_flatten_nested_bools_lists_and_none() -> None:
-    params = flatten(
+def test_dump_object_rejects_unknown_form() -> None:
+    with pytest.raises(ValueError, match="form must be"):
+        dump_object({"a": 1}, form="pretty")
+
+
+def test_flatten_object_nested_bools_lists_and_none() -> None:
+    params = flatten_object(
         {
             "name": "dummy_conv",
             "model": {"name": "unet_resnet34", "params": {"pretrained": False}},
@@ -107,15 +112,15 @@ def test_flatten_nested_bools_lists_and_none() -> None:
     assert params["runtime.devices"] == "1"
     assert params["runtime.workers"] == "null"
     assert params["tags"] == '["a", "b"]'
-    assert flatten({"a": 1}) == flatten({"a": "1"})
+    assert flatten_object({"a": 1}) == flatten_object({"a": "1"})
 
 
-def test_write_does_not_mkdir(tmp_path: Path) -> None:
+def test_write_object_does_not_mkdir(tmp_path: Path) -> None:
     missing = Directory.from_absolute(
         path=tmp_path / "absent", policy=DirectoryParsePolicy.ALLOW_MISSING
     )
     with pytest.raises(ValueError, match="must exist"):
-        write(
+        write_object(
             directory=missing,
             name="config.json",
             payload={"k": 1},

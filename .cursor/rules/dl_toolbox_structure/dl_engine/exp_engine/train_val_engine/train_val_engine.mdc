@@ -102,14 +102,14 @@ Identity before seed: a failed claim must not have seeded, and identity does not
 Identity of the **fit run**:
 
 ```
-name = get_run_name()                          # recipe label, HashManager.assert_name
+name = get_run_name()                          # recipe label, HashManager.validate_human_readable_name
 payload = get_identity_payload()               # JSON object; name is not in it
 configuration_hash = HashManager.hash_payload(payload)
 ```
 
 `payload` is what makes two recipes the same run. Project-level store URIs are not in it. Inspect recipe is not in it. Logger tags / MLflow experiment name are not in it.
 
-`get_identity_index()` is the HashManager Directory for **this run’s group**, not a single global `storage/runs`. Occupancy is per that Directory. The same `name` in two groups is two runs.
+`get_identity_index()` is the HashManager Directory for **this run’s group**, not a single global `storage/runs`. PairState is per that Directory. The same `name` in two groups is two runs.
 
 Two multiprocessing stories. Do not mix them.
 
@@ -148,7 +148,7 @@ HashManager does not mkdir the index root and does not lock. This method does bo
 ```
 CREATE get_identity_index() if missing            # Directory parse CREATE (parents ok)
 ExclusiveDirLock(identity-index / identity.lock) for the whole tree plus mkdir
-lookup(index, name, configuration_hash)
+lookup(index, human_readable_name, hash)
 ```
 
 Evaluate in this order. Catalog status is not consulted. Resume is not a branch. `get_artifacts_directory()` is the run folder for this group + name.
@@ -157,9 +157,9 @@ Evaluate in this order. Catalog status is not consulted. Resume is not a branch.
 HASH_TAKEN  → FileExistsError. Force ignored. Cannot steal another run’s hash in this group.
 BOTH_MATCH  → FileExistsError. Force ignored. Resume is not this method.
 BOTH_FREE   → if artifacts directory exists: FileExistsError (orphan). Force ignored.
-              else HashManager.claim(..., extra=identity payload); mkdir artifacts directory (no overwrite)
+              else HashManager.create_pair(..., extra=identity payload); mkdir artifacts directory (no overwrite)
 NAME_TAKEN  → Force.off: FileExistsError
-              Force.overwrite_name: release_name; rmtree artifacts directory if present;
+              Force.overwrite_name: drop_pair; rmtree artifacts directory if present;
               then claim + mkdir as BOTH_FREE. Logger stores are not touched.
 ```
 
@@ -181,7 +181,7 @@ loop:
     if identity-index Directory is missing:
         if not a DDP worker or now past deadline: FileNotFoundError (run does not exist)
         wait; continue
-    lookup(index, name, configuration_hash)
+    lookup(index, human_readable_name, hash)
     BOTH_MATCH  → require get_artifacts_directory() exists
                   else if not a DDP worker or now past deadline: FileNotFoundError
                   else wait; continue
@@ -314,7 +314,7 @@ No `exp_engine/common/` and no run-agnostic engine class. TrainOnly copies this 
 
 1. **Zero-arg methods move CLI into the constructor.** `force`, inspect selector, eval device, evaluate_fn are construction-time. Purpose `fit` | `inspect` keeps train CLI from needing inspect fields. One class, two purposes — not a fourth engine.
 
-2. **Two independent trains vs DDP.** Occupancy handles two shells. DDP workers attach. Worker attach **retries** `BOTH_FREE` until timeout so torchrun does not lose the race to rank 0’s claim. Lightning default spawn does not need the retry; the retry is still the algorithm.
+2. **Two independent trains vs DDP.** PairState handles two shells. DDP workers attach. Worker attach **retries** `BOTH_FREE` until timeout so torchrun does not lose the race to rank 0’s claim. Lightning default spawn does not need the retry; the retry is still the algorithm.
 
 3. **No inspect process uniqueness.** The itch was “two inspect shells on the same run.” That is a process lock, not a train-hash or epoch key. This engine does not implement it. Overlapping inspects corrupt the vendor inspect stream (TensorBoard / MLflow writers on the same run). A polling script that re-inspects the same epoch also double-writes `step=epoch`. Skip logic, if any, belongs in the script.
 
@@ -336,4 +336,4 @@ No `exp_engine/common/` and no run-agnostic engine class. TrainOnly copies this 
 
 12. **`experiment_management` is removed.** `ExpEngine` / `RunSession` / `ExperimentConfigManager` / `dl_toolbox_config` / `default_layout` under that package do not survive as names or paths. Layout lives in `project_layout`. This class lives in `dl_engine/exp_engine/train_val_engine/`.
 
-13. **Identity index is per `run_group`.** Occupancy does not span groups. Two shells can claim the same `human_readable_name` in different groups. `Force.overwrite_name` only affects this group’s index and artifacts folder.
+13. **Identity index is per `run_group`.** PairState does not span groups. Two shells can claim the same `human_readable_name` in different groups. `Force.overwrite_name` only affects this group’s index and artifacts folder.

@@ -8,13 +8,20 @@ from __future__ import annotations
 
 import numpy as np
 
+from dl_toolbox.base.parsing.parse_utils import one_of_message, parse_one_of
+
 
 class ColorMode:
     """Semantic meaning of the channel axis. Channel count is derived."""
 
     def __init__(self, *, name: str, n_channels: int) -> None:
-        if n_channels not in (0, 3):
-            raise ValueError(f"n_channels must be 0 (gray) or 3 (color), got {n_channels}")
+        n_channels = parse_one_of(
+            n_channels,
+            allowed=(0, 3),
+            label="n_channels",
+            error_type=ValueError,
+            error_message=one_of_message,
+        )
         self._name = name
         self._n_channels = n_channels
 
@@ -117,8 +124,13 @@ class Layout:
     """
 
     def __init__(self, *, name: str) -> None:
-        if name not in ("yxc", "cyx"):
-            raise ValueError(f"layout name must be 'yxc' or 'cyx', got {name!r}")
+        name = parse_one_of(
+            name,
+            allowed=("yxc", "cyx"),
+            label="layout name",
+            error_type=ValueError,
+            error_message=one_of_message,
+        )
         self._name = name
 
     @property

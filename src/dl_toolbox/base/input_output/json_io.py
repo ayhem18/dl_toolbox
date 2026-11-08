@@ -1,25 +1,21 @@
-"""JSON object: parse, dump, flatten, File read, Directory write."""
+"""JSON object: parse_object, dump_object, flatten_object, read_object File, write_object under Directory."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
-from dl_toolbox.base.file_management.directory import (
-    Directory,
-    DirectoryParsePolicy,
-    DirectorySpec,
-)
+from dl_toolbox.base.file_management.directory import Directory, DirectorySpec
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.file_management.join import resolve_under_project
+from dl_toolbox.base.parsing.parse_utils import one_of_message, parse_one_of
 
 
 class JsonTextForm:
     DOCUMENT = "document"
     CANONICAL = "canonical"
     ASCII_PRETTY = "ascii_pretty"
+    FORMS = (DOCUMENT, CANONICAL, ASCII_PRETTY)
 
 
 def parse_object(text: str) -> dict[str, Any]:
@@ -29,35 +25,36 @@ def parse_object(text: str) -> dict[str, Any]:
     return _as_json_object(value)
 
 
-def dump(payload: object, *, form: str) -> str:
+def dump_object(payload: object, *, form: str) -> str:
     payload = _as_json_object(payload)
+    form = parse_one_of(
+        form,
+        allowed=JsonTextForm.FORMS,
+        label="form",
+        error_type=ValueError,
+        error_message=one_of_message,
+    )
     if form == JsonTextForm.DOCUMENT:
         return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
     if form == JsonTextForm.CANONICAL:
         return json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         )
-    if form == JsonTextForm.ASCII_PRETTY:
-        return json.dumps(payload, indent=2, ensure_ascii=True)
-    raise ValueError(
-        "form must be "
-        f"{JsonTextForm.DOCUMENT!r}, {JsonTextForm.CANONICAL!r}, or "
-        f"{JsonTextForm.ASCII_PRETTY!r}, got {form!r}"
-    )
+    return json.dumps(payload, indent=2, ensure_ascii=True)
 
 
-def flatten(payload: object) -> dict[str, str]:
+def flatten_object(payload: object) -> dict[str, str]:
     payload = _as_json_object(payload)
     return _flatten(payload, prefix="")
 
 
-def read(*, file: File) -> dict[str, Any]:
+def read_object(*, file: File) -> dict[str, Any]:
     if not isinstance(file, File):
         raise TypeError(f"file must be File, got {type(file)!r}")
     return parse_object(file.path.read_text(encoding="utf-8"))
 
 
-def write(
+def write_object(
     *,
     directory: Directory,
     name: str,
@@ -68,7 +65,7 @@ def write(
         raise TypeError(f"directory must be Directory, got {type(directory)!r}")
     if directory.spec != DirectorySpec.EXISTS:
         raise ValueError(f"directory must exist: {directory.path}")
-    text = dump(payload, form=form)
+    text = dump_object(payload, form=form)
     path = resolve_under_project(directory.path, name, label="name")
     tmp_path = path.with_name(path.name + ".tmp")
     tmp_path.write_text(text, encoding="utf-8")
@@ -117,22 +114,3 @@ def _flatten(payload: dict, *, prefix: str) -> dict[str, str]:
             continue
         params[name] = str(value)
     return params
-
-
-def read_json(path: Path) -> dict[str, Any]:
-    """Path-holding call sites parse File here. Not a sixth algorithm."""
-    return read(file=File.from_absolute(path=path))
-
-
-def write_json(path: Path, payload: Mapping[str, Any]) -> Path:
-    """Path-holding call sites parse Directory here. form=document. Missing parent is CREATE."""
-    directory = Directory.from_absolute(
-        path=path.parent, policy=DirectoryParsePolicy.CREATE
-    )
-    written = write(
-        directory=directory,
-        name=path.name,
-        payload=dict(payload),
-        form=JsonTextForm.DOCUMENT,
-    )
-    return written.path

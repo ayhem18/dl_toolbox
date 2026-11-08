@@ -14,7 +14,7 @@ The class is a translation of the algorithms below. If the code does something t
 
 ---
 
-## Given
+## Input Specification
 
 An absolute `log_dir` (the store). A `run_name` (one path segment). The UI run is the directory `run_dir = log_dir / run_name`.
 

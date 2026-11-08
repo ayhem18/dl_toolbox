@@ -9,3 +9,13 @@ description: A list of preferences for coding in Python. These are not rules but
 - if a function has a large number of parameters, then it is a sign to refactor the function in configuration objects that group these parameters into logical groups. The exact threshold for "large" will be specified and better formulated as We make more progress on the dl_toolbox custom package.
 
 - Pydantic is a hard dependency. Use it for documents, configs, and structured payloads. Do not grow hand-written `parse_*` / `require_exact_keys` for a job a model can own. If a check is domain-specific, pydantic owns the common shape and a named layer on top owns the extra rule (`model_validator`, or a function that takes the validated model). Do not keep a parallel hand parser.
+
+- **Vocabulary gate.** A new public type, parameter, attribute, or constant family must be a word from the user's prompt, the module docstring, or that feature's Terminology section. If the name is not there, stop and propose two or three names in that language. Do not invent a parallel vocabulary (`Occupancy` while the field is `state`).
+
+- **Generic verbs are not bare imports.** `read` / `write` / `dump` / `parse` / `load` / `save` must name the object (`write_object`, `dump_object`) or be qualified (`OpenCVImageIO.read`). A reader of the call site should not have to open the import to learn what the verb does.
+
+- **The type name is how callers talk.** If the attribute is `state`, the type is not `Occupancy`. Named constants live on the type that owns the decision. Code identifiers are the Terminology words. Do not keep a mapping from term to “identifier in code today”.
+
+- **Avoid module-level globals.** A module-level `_PURPOSES = frozenset(...)`, `_PAIR_STATE_NAMES`, or a constant used as if it were part of a type, is the pattern to collapse. Values that belong to a class live as **class variables on that class** (`HashManager.BOTH_FREE`, `EnginePurpose.FIT`). Callers import the class, not a parallel name from the module. A module-level `IDENTITY_LOCK_NAME = "identity.lock"` next to HashManager is HashManager's class variable.
+
+- **Membership in a set of valid values is `parse_one_of`.** `if value not in allowed: raise ValueError(f"{label} must be {a!r} or {b!r}, got {value!r}")` is `dl_toolbox.base.parsing.parse_utils.parse_one_of`. Pass `allowed`, `label`, `error_type`, and `error_message`. `error_message` is a callable; `one_of_message` is the usual sentence. Do not hand-roll the "A or B" sentence. Key checks on a JSON object are `require_key` / `require_exact_keys` in the same file.

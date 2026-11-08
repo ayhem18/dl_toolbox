@@ -15,7 +15,7 @@ from dl_toolbox.base.file_management.directory import (
     DirectoryParsePolicy,
 )
 from dl_toolbox.base.file_management.exclusive_lock import ExclusiveDirLock
-from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.base.hashing.hash_manager import HashManager, PairState
 from dl_toolbox.base.input_output.json_io import read_json, write_json
 from dl_toolbox.base.parsing.parse_iterable import parse_mapping
 from dl_toolbox.base.parsing.parse_utils import require_exact_keys
@@ -119,15 +119,15 @@ class ExpEngine:
     def reclaim_name(self, name: str) -> dict[str, Any] | None:
         """Overwrite helper: drop this name's identity pair and its artifacts folder.
 
-        HashManager.release_name deletes the JSON pair under run_identities_root.
+        HashManager.drop_pair deletes the JSON pair under run_identities_root.
         Then rmtree run_artifacts/{name} if it exists. Logger stores are not touched.
         Missing name returns None. Used only by name_taken + force=True.
         """
-        released = self._identity_manager.release_name(
-            self._identity_index(), name=name
+        released = self._identity_manager.drop_pair(
+            self._identity_index(), human_readable_name=name
         )
         run_artifacts = self._paths.run_artifacts_dir(
-            self._identity_manager.assert_name(name)
+            self._identity_manager.validate_human_readable_name(name)
         )
         if run_artifacts.exists():
             shutil.rmtree(run_artifacts)
@@ -156,25 +156,25 @@ class ExpEngine:
         with lock:
             index = self._identity_index()
             lookup = self._identity_manager.lookup(
-                index, name=name, configuration_hash=configuration_hash
+                index, human_readable_name=name, hash=configuration_hash
             )
-            if lookup.state == HashManager.HASH_TAKEN:
+            if lookup.state == PairState.HASH_TAKEN:
                 occupant = lookup.document
                 if occupant is None:
                     raise ValueError("HASH_TAKEN lookup requires a document")
                 raise FileExistsError(
                     f"configuration hash already saved as name {occupant['name']!r}"
                 )
-            if lookup.state == HashManager.BOTH_MATCH:
+            if lookup.state == PairState.BOTH_MATCH:
                 raise FileExistsError(
                     f"run {name!r} already exists with this configuration hash"
                 )
-            if lookup.state == HashManager.BOTH_FREE:
+            if lookup.state == PairState.BOTH_FREE:
                 if run_artifacts.exists():
                     raise FileExistsError(
                         f"run artifacts directory already exists: {run_artifacts}"
                     )
-            elif lookup.state == HashManager.NAME_TAKEN:
+            elif lookup.state == PairState.NAME_TAKEN:
                 if not force:
                     raise FileExistsError(
                         f"name {name!r} exists with a different configuration hash"
@@ -184,10 +184,10 @@ class ExpEngine:
                 raise ValueError(
                     f"unexpected identity lookup state {lookup.state!r}"
                 )
-            self._identity_manager.claim(
+            self._identity_manager.create_pair(
                 index,
-                name=name,
-                configuration_hash=configuration_hash,
+                human_readable_name=name,
+                hash=configuration_hash,
                 extra={},
             )
             run_artifacts.mkdir(parents=True, exist_ok=False)
@@ -204,13 +204,13 @@ class ExpEngine:
             raise FileNotFoundError(f"run {name!r} does not exist")
         lookup = self._identity_manager.lookup(
             self._identity_index(),
-            name=name,
-            configuration_hash=configuration_hash,
+            human_readable_name=name,
+            hash=configuration_hash,
         )
-        if lookup.state == HashManager.BOTH_FREE:
+        if lookup.state == PairState.BOTH_FREE:
             raise FileNotFoundError(f"run {name!r} does not exist")
-        if lookup.state != HashManager.BOTH_MATCH:
-            if lookup.state == HashManager.NAME_TAKEN:
+        if lookup.state != PairState.BOTH_MATCH:
+            if lookup.state == PairState.NAME_TAKEN:
                 raise FileExistsError(
                     f"name {name!r} exists with a different configuration hash"
                 )

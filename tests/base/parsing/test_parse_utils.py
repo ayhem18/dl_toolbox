@@ -1,9 +1,4 @@
-# PARKED: no contract yet. Not collected by pytest until this package is rewritten.
 from __future__ import annotations
-
-import pytest
-
-pytest.skip("Parked: this package has no contract yet.", allow_module_level=True)
 
 import random
 import string

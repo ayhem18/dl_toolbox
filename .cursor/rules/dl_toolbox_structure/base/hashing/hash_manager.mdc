@@ -1,47 +1,146 @@
 ---
-description: HashManager is exclusive (name, hash) JSON under a Directory. Occupancy is BOTH_FREE|BOTH_MATCH|NAME_TAKEN|HASH_TAKEN. No lock, no artifacts, no IdentityManager.
+description: HashManager is the (human_readable_name, hash) pair of a JSON config. It owns the identity index directory (.dir_index), the exclusive lock, and the two JSON copies. lookup, create_pair, drop_pair, create_identity_index. Pair state is both_free|both_match|name_taken|hash_taken.
 globs: **/hashing/hash_manager.py,**/tests/base/hashing/test_hash_manager.py
 alwaysApply: false
 ---
 
 # HashManager
 
-External-state functionality. The entity is an **identity index**: two sibling folders of JSON under a Directory the caller names. Each claimed pair is one document stored twice:
+## Context
+
+Among the dl_toolbox objectives is to facilitate running experiments just by specifying configuration or `.json` files.
+
+Consequently, I want to know whether a certain specific combination of parameters (in a `.json` file) has already been run. Hashing is a good mechanism for that. Now, imagine comparing runs with a tracking tool such as TensorBoard or MLflow. I can't tell which run is which. So, we need human readable names. And that's the identity of a `.json` file.
+
+The HashManager is a class that encapsulates the logic associated with a pair of `(human_readable_name, hash)` of a given `.json` file.
+
+That pair lives on disk as an **identity index**: a directory with two subdirectories of JSON and a `.dir_index` file that marks it as an index HashManager created. Every experiment engine that asks "has this configuration already been run?" and "what human readable name is it stored under?" is asking those questions of that directory. The uniqueness of the pair, the two copies of the document, the exclusive lock around a change, and the creation of that directory, are one story. They belong on HashManager. A caller that opens its own lock, mkdirs the index, then calls lookup / create_pair / drop_pair is doing HashManager's job in pieces.
+
+The inner waste today is treating disk as something to probe and then read again: `is_file`, then `read` the same path, then another method reads it once more. One pass is enough. Each JSON that exists is loaded once into a Python dict. After that, the state of the pair is decided in memory.
+
+### What HashManager needs in order to operate
+
+1. the name of the subdirectory where the hashes are stored: `hash_dir_name`
+2. the name of the subdirectory where the human readable names are stored: `human_readable_dir_name`
+3. the prefix length of the hash: `prefix_len`
+4. how long to wait for the exclusive lock: `lock_timeout_seconds`
+5. how often to retry that lock: `lock_poll_seconds`
+
+HashManager makes decisions based on a directory. After `create_identity_index`, that directory has the following structure:
 
 ```
-{directory}/{human_readable_dirname}/{name}.json
-{directory}/{hashes_dirname}/{hash-prefix}.json
+identity index
+|-- .dir_index
+|-- hash_dir_name
+|-- human_readable_dir_name
+|-- identity.lock     (present only while a process holds the exclusive lock)
 ```
 
-The two files of a healthy pair are equal JSON objects. Identity is `(name, hash)`. `name` is a label. It is not hashed. `hash` is the full 64-char lowercase SHA-256. The filename stem is a prefix of that digest. The document stores the full digest.
+`.dir_index` is a file. It is the mark that this directory is an identity index. `create_identity_index` is the only HashManager call that creates that structure. `lookup` / `create_pair` / `drop_pair` require `.dir_index` (and the two subfolders). A Directory that merely exists is not an identity index. HashManager will not adopt a random folder, and it will not mkdir the two JSON subfolders as a side effect of `create_pair`.
 
-The class is constructed with the **layout** (`prefix_len`, the two folder names). It is not bound to one Directory.
+That directory is a Directory in the sense of the Directory contract (`.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`). HashManager is constructed with the five facts above and is not bound to one directory: each call names the identity index it is asking about. The two subdirectories hold JSON. What it means to read or write a JSON object is the JSON contract (`.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`). `write_object` is already one-file atomic (temp file, then replace). HashManager uses that for each copy. The exclusive lock is how the *pair* of copies is written or dropped without another process reading a half-updated index.
 
-The class is a translation of the algorithms below. If the code does something that is not a line here, the code is wrong or this note is wrong.
+`identity.lock` is the exclusive lock, not the mark. The algorithm is atomic mkdir of that path, wait up to `lock_timeout_seconds`, sleep `lock_poll_seconds` between tries, rmdir on release. ExclusiveDirLock is the current translation of that algorithm. The lock path is a class variable on HashManager.
 
-Not this entity: digest primitives, run artifacts, payload directories, logger stores, `ExclusiveDirLock`, what object was hashed, `identity.json` parsing, `force` / orphan folders / resume.
+### What HashManager can do, given that directory
 
-Named constants, no defaults. There is no `IdentityManager`.
+- **create_identity_index:** create the directory that will be used as an identity index: the root, `.dir_index`, `hash_dir_name`, and `human_readable_dir_name`.
+
+- **lookup:** given `(human_readable_name, hash)`, determine the **state of the pair**: four states — hash taken vs free, and name taken vs free. One disk pass: load each existing JSON once as a dict (`identical_to_name`, `identical_to_hash`). The four states are derived from those dicts in memory.
+
+- **create_pair:** given `(human_readable_name, hash)`, verify both are free. Write a copy of the json file in the hash subdirectory first and then a copy in the human_readable subdirectory. The exclusive lock is held for the read and both writes.
+
+- **drop_pair:** given `(human_readable_name, hash)`: the call is by the human readable name; the hash is the one stored in that json. If the name is not stored, nothing is deleted. If both copies exist, they must be the same document. Delete the copy in the hash subdirectory first, then the copy in the human_readable subdirectory. The exclusive lock is held for the read and both deletes.
+
+Each stored pair is one JSON document stored twice: once under the human readable name, once under a prefix of the hash.
+
+```
+{identity index}/{human_readable_dir_name}/{human_readable_name}.json
+{identity index}/{hash_dir_name}/{prefix}.json
+```
+
+The two files of a healthy pair are equal JSON objects. The human readable name is a label. It is not hashed. The hash is the full 64-character lowercase SHA-256. The filename under `hash_dir_name` is only a prefix of that digest. The document still stores the full digest.
+
+The four states of a pair (`BOTH_FREE`, `BOTH_MATCH`, `NAME_TAKEN`, `HASH_TAKEN`) are class variables on HashManager. They are derived in memory from `identical_to_name` and `identical_to_hash`. They are not a reason to go back to disk.
+
+The engine that runs an experiment holds one HashManager and names one identity index per call. Deciding what to do when the pair is already taken (`force`), creating artifact folders, and attaching loggers are that engine's story. HashManager creates the identity index, answers the state of the pair, and writes or drops the two index files under the exclusive lock.
 
 ---
 
-## Given
+## Terminology
+
+Directory, File, JSON: `.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`, `file.mdc`, `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+
+| Term | Meaning |
+|---|---|
+| identity of a `.json` file | the pair `(human_readable_name, hash)` that lets you recognize a configuration later, and recognize it in TensorBoard / MLflow |
+| `human_readable_name` | the label you want to see in a tracking UI. Not hashed. A basename, not a path |
+| `hash` | the full 64-character lowercase SHA-256 of the configuration |
+| pair | that `human_readable_name` together with that `hash` |
+| identity index | a Directory HashManager created: `.dir_index` plus the two JSON subfolders. Every later call names it |
+| `.dir_index` | file that marks the directory as an identity index. `HashManager.DIR_INDEX_NAME` |
+| `identical_to_name` | the name-side JSON, loaded once as a dict, or empty if that file is missing |
+| `identical_to_hash` | the hash-side JSON, loaded once as a dict, or empty if that file is missing |
+| `HashManager.BOTH_FREE` | neither this name nor this hash is stored |
+| `HashManager.BOTH_MATCH` | this exact pair is stored; both files exist and agree |
+| `HashManager.NAME_TAKEN` | this name is stored with a **different** hash |
+| `HashManager.HASH_TAKEN` | this hash is stored under a **different** name |
+| `HashManager.PAIR_STATES` | those four values |
+| `directory` | the identity index for this call |
+| `hash_dir_name` | subdirectory where `{prefix}.json` files live |
+| `human_readable_dir_name` | subdirectory where name files live |
+| `prefix` | the first `prefix_len` hex characters of the hash. It is the hash-file basename (no `.json`). A `human_readable_name` must not look like one |
+| `prefix_len` | length of that prefix, in `[8, 64]`. The document still stores the full hash |
+| `HashManager.IDENTITY_LOCK_NAME` | `identity.lock`. The exclusive lock directory under the identity index. Not the mark |
+| `lock_timeout_seconds` | wait this long for `identity.lock` |
+| `lock_poll_seconds` | sleep this long between lock tries |
+| index document | the JSON object stored twice for a pair. Keys `name` and `hash`. Other keys came from `extra` on `create_pair` |
+| `extra` | keys on the index document other than `name` and `hash` |
+| `create_identity_index` | create the directory that will be used as an identity index |
+| `lookup` | given the pair, return the state of the pair |
+| `create_pair` | write the pair when both free |
+| `drop_pair` | drop this name and its hash file when the two documents still agree |
+| `pair_state` | derive `HashManager.BOTH_FREE` / `BOTH_MATCH` / `NAME_TAKEN` / `HASH_TAKEN` from the two dicts. Memory only |
+| `validate_human_readable_name` | turn a raw label into a legal `human_readable_name` |
+| `hash_payload` | SHA-256 of canonical JSON |
+
+A prefix collision (the hash-file `prefix` matches, stored full digest does not) is an error at lookup, not an empty `identical_to_hash`. Empty would look like the hash is free.
+
+With this layout each of `identical_to_name` / `identical_to_hash` is either empty or one dict. Two dicts in one list is a corrupt index.
+
+The index document keys `name` and `hash` are the JSON on disk. They are the same two facts as `human_readable_name` and `hash` on the Python call.
+
+`HashManager.BOTH_FREE` and the other three states live on HashManager. They are not imported as a separate type from the module.
+
+---
+
+## Input Specification
 
 A `HashManager` is already constructed:
 
 ```
-prefix_len              integer in [8, 64]
-human_readable_dirname  basename, not `.` / `..`, not a hash stem
-hashes_dirname          same rules, and distinct from human_readable_dirname
+prefix_len                 integer in [8, 64]
+human_readable_dir_name    basename, not `.` / `..`, not a prefix
+hash_dir_name              same rules, and distinct from human_readable_dir_name
+lock_timeout_seconds       > 0
+lock_poll_seconds          > 0
 ```
 
-A hash stem is a lowercase hex string whose length is `prefix_len` or 64.
+A prefix is a lowercase hex string whose length is `prefix_len` or 64.
 
-Every lookup / claim / release takes a **Directory that exists**. HashManager does not mkdir that root. Missing index subfolders are created on **claim** only.
+`create_identity_index` takes a **Directory** that may be missing. After the call it exists, with `.dir_index` and both index subfolders.
 
-JSON read / write are the JSON contract. File existence is probed, then `File` parse, then `read`. A missing file is not a `File`.
+If the directory already exists and already has `.dir_index` and both subfolders, the call succeeds (idempotent). If it exists and does not have `.dir_index`, error: HashManager does not turn a random folder into an identity index.
 
-Occupancy. The only legal lookup states. Class-level on `HashManager`:
+`lookup` / `create_pair` / `drop_pair` take a **Directory that exists** and **is an identity index**: `.dir_index` is a file, both subfolders exist. HashManager does not mkdir that root or those subfolders on those calls.
+
+`lookup` and `create_pair` take both elements of the pair. `hash` is a full 64-character lowercase SHA-256. `human_readable_name` is a raw label; `validate_human_readable_name` produces the basename.
+
+`create_pair` takes `extra`: a JSON object, required. Empty object means the document is only `name` and `hash`. `extra` must not contain `name` or `hash`.
+
+`drop_pair` takes `human_readable_name` only.
+
+The four pair states:
 
 ```
 HashManager.BOTH_FREE
@@ -50,182 +149,245 @@ HashManager.NAME_TAKEN
 HashManager.HASH_TAKEN
 ```
 
-| State | Meaning for this query `(name, hash)` |
-|---|---|
-| `BOTH_FREE` | Neither this name nor this hash is stored. |
-| `BOTH_MATCH` | This exact pair is stored. Both files exist and agree. |
-| `NAME_TAKEN` | This **name** is stored with a **different** hash. |
-| `HASH_TAKEN` | This **hash** is stored under a **different** name. |
+Stored document. Required keys, read with `[]`: `name` (the basename), `hash` (the full SHA-256). Other keys are `extra` from `create_pair`. Missing `name` or `hash` on an existing file is a corrupt index.
 
-A prefix collision (hash file stem matches, stored full digest does not) is not a fifth state. It is an error.
+`read_object` / `write_object` are the JSON contract. A missing file is not a `File`. Each `write_object` is the JSON contract's temp-then-replace. An existing index JSON is read **once** per path per call, into a dict. Later steps use that dict.
 
-Stored document. Required keys, read with `[]`: `name` (the basename), `hash` (the full SHA-256). Other keys are `extra` from claim. Missing `name` or `hash` on an existing file is corrupt index, not occupancy.
+Every public call that reads or writes index JSON holds `directory / HashManager.IDENTITY_LOCK_NAME` for the whole call. `create_identity_index` does not hold that lock (the lock path lives inside a directory that may not exist yet). ExclusiveDirLock does not mkdir the identity-index root: the root already exists because `create_identity_index` ran.
 
 ---
 
-## `hash_payload(payload)`
+## Main functionalities
+
+### `create_identity_index(directory)`
+
+create the directory that will be used as an identity index.
+
+**input:** `directory` (Directory, missing or exists).
+
+**assumptions on the input:** if it exists, it is a directory. Either it is already this HashManager's identity index (`.dir_index` and both subfolders), or it is missing.
+
+**steps:**
+
+```
+if directory exists and has .dir_index and both subfolders: return directory
+if directory exists and has no .dir_index: error (not an identity index)
+if directory is missing: CREATE it (Directory parse CREATE)
+CREATE {directory}/{hash_dir_name}
+CREATE {directory}/{human_readable_dir_name}
+write {directory}/.dir_index   # empty file
+return directory
+```
+
+**side effects:** the identity index exists, with `.dir_index` and both subfolders. `identity.lock` is not created here; it appears when a later call acquires the exclusive lock.
+
+**outputs:** the same Directory, now existing and marked.
+
+### `lookup(directory, *, human_readable_name, hash)`
+
+given `(human_readable_name, hash)`, determine the **state of the pair**: four states — hash taken vs free, and name taken vs free.
+
+**input:** `directory`, `human_readable_name`, `hash`.
+
+**assumptions on the input:** `directory` is an identity index. `hash` is a full SHA-256. `human_readable_name` is a raw label; `validate_human_readable_name` produces the basename used below.
+
+**steps:**
+
+```
+acquire exclusive lock on directory / IDENTITY_LOCK_NAME
+checked = validate_human_readable_name(human_readable_name)
+name_path = directory / human_readable_dir_name / {checked}.json
+hash_path = directory / hash_dir_name / {prefix}.json
+
+identical_to_name = []
+identical_to_hash = []
+if name_path is a file:
+    identical_to_name = [read_object of that File]
+if hash_path is a file:
+    hash_document = read_object of that File
+    if hash_document[hash] != hash:
+        error: prefix already used by hash_document[hash]
+    identical_to_hash = [hash_document]
+
+state = pair_state(
+    identical_to_name, identical_to_hash,
+    human_readable_name=checked, hash=hash,
+)
+document = the one dict that state needs (none when BOTH_FREE)
+release lock
+return PairLookup(state, name_path, hash_path, document)
+```
+
+`prefix` is the first `prefix_len` characters of the full digest (Secondary functionalities).
+
+Each path is read at most once. `is_file` then `read` of the same path, or a later `_read_pair_document` of a path already loaded, is the inner waste this call must not do. `pair_state` sees only the dicts.
+
+**side effects:** none on the index JSON. The exclusive lock is acquired and released.
+
+**outputs:** `PairLookup`: `state`, `name_path`, `hash_path` (locations of this query; they may not exist), `document` (index JSON when state is not `BOTH_FREE`). Callers do not `read` those paths.
+
+### `create_pair(directory, *, human_readable_name, hash, extra)`
+
+given `(human_readable_name, hash)`, verify both are free. Write a copy of the json file in the hash subdirectory first and then a copy in the human_readable subdirectory.
+
+**input:** `directory`, `human_readable_name`, `hash`, `extra`.
+
+**assumptions on the input:** Input Specification. After the locked read below, `pair_state` is `HashManager.BOTH_FREE`.
+
+**steps:**
+
+```
+checked = validate_human_readable_name(human_readable_name)
+if extra contains name or hash: error
+acquire exclusive lock
+matches = the lookup read (identical_to_name, identical_to_hash), lock already held
+state = pair_state(matches, human_readable_name=checked, hash=hash)
+if state is not BOTH_FREE:
+    BOTH_MATCH → FileExistsError: this pair already exists
+    NAME_TAKEN → FileExistsError: name exists with occupant hash
+    HASH_TAKEN → FileExistsError: hash already saved as occupant name
+document = {name: checked, hash: hash, **extra}
+write hash file first (JSON, form=document)
+write name file second (same document)
+release lock
+return name_path, hash_path
+```
+
+The read is the lookup disk pass, not a second public `lookup` (public lookup would try to take the lock again, and would read the files again).
+
+**side effects:** two json files written, under the exclusive lock. Write order is hash subdirectory first, then human_readable subdirectory. A crash between the two writes leaves this hash stored and this name missing: later lookup of the pair is `HASH_TAKEN`. Overwrite of an existing pair is `drop_pair`, then `create_pair`.
+
+**outputs:** `name_path`, `hash_path`. Later lookup of the same pair is `BOTH_MATCH`.
+
+### `drop_pair(directory, *, human_readable_name)`
+
+given `(human_readable_name, hash)`: the call is by the human readable name; the hash is the one stored in that json. If the name is not stored, nothing is deleted. If both copies exist, they must be the same document. Delete the copy in the hash subdirectory first, then the copy in the human_readable subdirectory.
+
+**input:** `directory`, `human_readable_name`.
+
+**assumptions on the input:** `directory` is an identity index. If the name file exists, its `hash` is a full SHA-256. If the hash file also exists, the two documents are equal.
+
+**steps:**
+
+```
+acquire exclusive lock
+checked = validate_human_readable_name(human_readable_name)
+name_path = directory / human_readable_dir_name / {checked}.json
+if name_path is not a file: release lock; return None
+document = read_object of that File      # once
+if document[name] != checked: error
+stored_hash = document[hash]             # must be a full SHA-256
+hash_path = directory / hash_dir_name / {prefix of stored_hash}.json
+if hash_path is a file:
+    hash_document = read_object of that File  # once
+    if hash_document != document: error: disagree
+    delete hash_path
+delete name_path
+release lock
+return document
+```
+
+**side effects:** under the exclusive lock, the hash copy is deleted first (if present and agreeing), then the human_readable copy. If the two documents disagree, error, files stay.
+
+**outputs:** the stored document, or `None` when the name was not stored.
+
+---
+
+## Secondary functionalities
+
+### `hash_payload(payload)`
 
 **Assume:** `payload` is a JSON object.
 
 ```
-return SHA-256 hex of dump(payload, form=canonical)
+return SHA-256 hex of dump_object(payload, form=canonical)
 ```
 
-**After:** a 64-char lowercase digest. Disk unchanged. Key order in `payload` does not change the digest.
+**After:** a 64-char lowercase digest. Disk unchanged. Key order in `payload` does not change the digest. This is the hash stored in the index document and passed as `hash`.
 
-The caller chooses the object. Hashing a recipe file that includes the name is an engine bug, not this algorithm.
+The caller chooses the object. Hashing a recipe that includes the human readable name is a mistake at that caller.
 
----
+### `validate_human_readable_name(human_readable_name)`
 
-## `assert_name(name)`
-
-**Assume:** `name` is the raw label.
+**Assume:** `human_readable_name` is the raw label.
 
 ```
 text = strip name
 if text ends with .json (case-insensitive): strip that suffix
 text must be a non-empty basename: no `/`, not `.`, not `..`
-text must not be a hash stem
+text must not be a prefix
 return text
 ```
 
-**After:** a legal name. Disk unchanged.
+**After:** a legal human readable name. Disk unchanged.
 
----
+### `pair_state(*, identical_to_name, identical_to_hash, human_readable_name, hash)`
 
-## `lookup(directory, *, name, configuration_hash)`
-
-**Assume:** `directory` exists. `configuration_hash` is a full SHA-256.
+**Assume:** both lists already loaded from the one disk pass. `human_readable_name` is already `validate_human_readable_name` output. `hash` is a full SHA-256.
 
 ```
-checked = assert_name(name)
-name_path = directory / human_readable_dirname / {checked}.json
-hash_path = directory / hashes_dirname / {stem(configuration_hash)}.json
-name_exists = name_path is a file
-hash_exists = hash_path is a file
-```
+name_docs = identical_to_name
+hash_docs = identical_to_hash
+if len(name_docs) > 1 or len(hash_docs) > 1: error: corrupt index
 
-Both files present:
-
-```
-name_document = JSON.read(name_path)
-hash_document = JSON.read(hash_path)
-if name_document != hash_document: disagreeing pair (below)
-else if name_document[name]==checked and name_document[hash]==configuration_hash:
-    BOTH_MATCH, document = name_document
-else if name_document[hash] != configuration_hash:
-    error: prefix already used by name_document[hash]
+if hash_docs and hash_docs[0][name] != human_readable_name:
+    HashManager.HASH_TAKEN
+else if name_docs and name_docs[0][hash] != hash:
+    HashManager.NAME_TAKEN
+else if name_docs and hash_docs
+     and name_docs[0][name] == human_readable_name
+     and name_docs[0][hash] == hash
+     and hash_docs[0] == name_docs[0]:
+    HashManager.BOTH_MATCH
+else if not name_docs and not hash_docs:
+    HashManager.BOTH_FREE
 else:
-    error: stored pair for checked does not match configuration_hash
+    error: lists do not form a pair state
 ```
 
-Disagreeing pair:
+**After:** one of `HashManager.PAIR_STATES`. Disk unchanged.
+
+HASH_TAKEN is checked first: a hash stored under another name cannot be stolen, even if the queried name is also stored with a different hash.
+
+### Digest / prefix
+
+HashManager hashes a configuration by going through the digest primitives in `base/hashing/identity.py`.
+
+- `prefix_len` lives on the HashManager instance, in `[8, 64]`. Every hash-file `prefix` and every "does this name look like a prefix" check uses that same length. It is not a per-call argument at lookup / create_pair / drop_pair.
+- The `prefix` of a hash is the first `prefix_len` characters of the full digest.
+- A full digest is recognized by `is_full_sha256`. A name that looks like a prefix (lowercase hex of length `prefix_len` or 64) is rejected by `validate_human_readable_name`.
+
+### Exclusive lock
+
+The algorithm is ExclusiveDirLock (`.cursor/rules/dl_toolbox_structure/base/file_management/exclusive_lock.mdc`). HashManager constructs it with `directory / IDENTITY_LOCK_NAME`, `lock_timeout_seconds`, `lock_poll_seconds`.
+
+Every public read or write of index JSON:
 
 ```
-stored_hash = hash_document[hash]
-if stored_hash != configuration_hash:
-    error: prefix already used by stored_hash
-name_is_this_pair = name_document is this (name, hash)
-hash_is_this_pair = hash_document is this (name, hash)
-if name_is_this_pair or hash_is_this_pair:
-    error: name/hash JSON disagree for this pair
-HASH_TAKEN, document = hash_document
+lock path = directory / HashManager.IDENTITY_LOCK_NAME
+acquire: atomic mkdir of lock path; on FileExistsError, sleep lock_poll_seconds until lock_timeout_seconds, then error
+release: rmdir lock path
 ```
 
-Only the name file: `NAME_TAKEN`, document = JSON.read(name_path).
-
-Only the hash file:
-
-```
-hash_document = JSON.read(hash_path)
-if hash_document[hash] != configuration_hash:
-    error: prefix already used by hash_document[hash]
-HASH_TAKEN, document = hash_document
-```
-
-Neither file: `BOTH_FREE`, no document.
-
-**After:** disk unchanged. Result: `state`, `name_path`, `hash_path` (locations of this query; they may not exist), `document` (occupant JSON when state is not `BOTH_FREE`). Callers do not `read` those paths.
-
----
-
-## `claim(directory, *, name, configuration_hash, extra)`
-
-**Assume:** `directory` exists. `extra` is a JSON object. Required. Empty object means the document is only `name` and `hash`. `extra` must not contain `name` or `hash`.
-
-```
-checked = assert_name(name)
-if extra contains name or hash: error
-lookup(...)
-if state is not BOTH_FREE:
-    BOTH_MATCH → FileExistsError: already claimed this pair
-    NAME_TAKEN → FileExistsError: name exists with occupant hash
-    HASH_TAKEN → FileExistsError: hash already saved as occupant name
-document = {name: checked, hash: configuration_hash, **extra}
-CREATE hashes_dirname under directory if missing
-write hash file first (JSON, form=document)
-CREATE human_readable_dirname under directory if missing
-write name file second (same document)
-return name_path, hash_path
-```
-
-**Entity after:** this pair is stored. Later lookup of the same `(name, hash)` is `BOTH_MATCH`.
-
-Write order is hash file, then name file. A crash between the two writes leaves `HASH_TAKEN` for this hash. Claim is not atomic. Two processes that both saw `BOTH_FREE` can both write. HashManager does not lock.
-
-`claim` does not mkdir the index root, artifacts, or logger stores. Overwrite is the caller: `release_name`, then `claim`.
-
----
-
-## `release_name(directory, *, name)`
-
-**Assume:** `directory` exists. Identity only.
-
-```
-checked = assert_name(name)
-name_path = directory / human_readable_dirname / {checked}.json
-if name_path is not a file: return None
-document = JSON.read(name_path)
-if document[name] != checked: error
-stored_hash = document[hash]   # must be a full SHA-256
-hash_path = directory / hashes_dirname / {stem(stored_hash)}.json
-if hash_path is a file:
-    if JSON.read(hash_path) != document: error: disagree
-    delete hash_path
-delete name_path
-return document
-```
-
-**Entity after:** this name is free. Missing name is `None`. Does not steal a hash held by a different name (disagree → error, files stay).
-
----
-
-## Translation (class)
-
-| Algorithm | Method |
-|---|---|
-| layout | `__init__(*, prefix_len, human_readable_dirname, hashes_dirname)` |
-| occupancy | `HashManager.BOTH_FREE` / `BOTH_MATCH` / `NAME_TAKEN` / `HASH_TAKEN` |
-| digest | `hash_payload(payload)` |
-| legal name | `assert_name(name)` |
-| four-way occupancy | `lookup(directory, *, name, configuration_hash)` |
-| write pair | `claim(directory, *, name, configuration_hash, extra)` |
-| drop this name | `release_name(directory, *, name)` |
-
-`directory` is a Directory that exists. Not a raw `Path`. No ABC. Occupancy before write is `lookup`. `claim` is the unique-write.
+Public `lookup` acquires, reads each JSON once, releases. `create_pair` and `drop_pair` acquire, do that same one pass, write or delete, release. They do not call public `lookup`.
 
 ---
 
 ## What this implies for the engine
 
-The engine holds one `HashManager` (layout) and one index Directory. Identity of a run is `(human_readable_name, hash({dl_toolbox_config, experiment_config}))`. The name is not in that object.
+The engine holds one `HashManager` (layout facts plus lock wait) and names one identity index. Identity of a run is `(human_readable_name, hash({dl_toolbox_config, experiment_config}))`. The name is not in that hashed object.
 
-Lookup returns a state. `force`, orphan artifacts, and resume are engine branches. The engine holds `ExclusiveDirLock` around lookup + optional `release_name` + `claim` + mkdir artifacts. HashManager does not.
+The engine calls `create_identity_index` on the group's identity-index Directory. It does not mkdir that root itself. It does not construct ExclusiveDirLock. `force`, orphan artifacts, and resume are engine branches on lookup `state`. Artifact mkdir / rmtree stay on the engine: they are not the identity index.
+
+Workers that attach poll `lookup` until state is `BOTH_MATCH` and the artifacts directory exists. Each `lookup` takes the lock for a short read.
 
 ---
 
 ## Tensions
 
-- Data-contract process records still re-implement this pair with `generating_process_name` instead of `name`. Adopting HashManager later uses `name` plus `extra` for the signature. Do not add a configurable name-key.
-- No lock here. ExclusiveDirLock is its own draft.
-- Digest primitives (`hash_file`, stem helpers) are not HashManager. Product call sites hash through `hash_payload` so `prefix_len` cannot drift per call.
+- **`drop_pair` then `create_pair` are two lock acquisitions.** The engine's overwrite-name path needs both, plus rmtree of artifacts. Another process can observe `BOTH_FREE` in the gap and write. A single HashManager operation that drops and creates under one lock would close the index half of that gap. Names if we add it: `replace_pair`, `overwrite_pair`. Artifacts would still sit outside that lock.
+- **A crash between the hash-file write and the name-file write** leaves `HASH_TAKEN` for that hash. The exclusive lock does not outlive the process. JSON write is atomic per file; the pair of files is not one rename.
+- **A crash while holding `identity.lock`** leaves that directory behind. The next acquire waits until `lock_timeout_seconds`. That is ExclusiveDirLock's algorithm; HashManager inherits it.
+- **Artifact directories are not the identity index.** After `create_pair` succeeds, the engine still has to mkdir artifacts. A crash there is an orphan artifacts folder or a pair without artifacts. HashManager does not close that window.
+- **Lock wait lives on the HashManager instance.** `identity.json` / ProjectLayout today pass `prefix_len`, `human_readable_dir_name`, `hash_dir_name`. They do not pass `lock_timeout_seconds` / `lock_poll_seconds`. Those numbers have to reach the constructor from somewhere the engine already knows.
+- Data-contract process records still re-implement this pair with `generating_process_name` instead of `name`. Adopting HashManager later uses `name` plus `extra` for the signature. A configurable name-key would paper over that; it would not resolve it.
