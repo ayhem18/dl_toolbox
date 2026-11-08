@@ -3,6 +3,8 @@ description: Map of this package. Always-on index only; resolved contracts live 
 alwaysApply: true
 ---
 
+The package is still in its enfancy. No crucial projects are depending on it yet. The projects and use-cases are meant to be "tests" for the extendability, usefulness and robustness of the package. Hence, if later projects / use-cases reveal problems / limitations / wrong inexplicit assumptions, the package should be revised and improved. The goal is not to just solve a task, but solve it in a way that makes part of a process / methodology / framework to solve DL / ML problems.
+
 # dl_toolbox structure
 
 Package: `src/dl_toolbox/`
@@ -41,6 +43,7 @@ src/dl_toolbox/
     image_processing/
   data_contract/           design still in standards/data_contract/
   project_layout/          CONTRACT  .cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc
+    cli.py                 cwd wrapper; setup-project CREATE then scaffold
   dl_engine/
     metrics/               design still in standards/metrics/
     training/
@@ -66,7 +69,6 @@ src/dl_toolbox/
       checkpointing/
   experiment_management/   design still in standards/exp_mng_engine/
   dl_engine_utils/         unspecified leftover; not the DL home
-  cli/
 ```
 
 A folder with no CONTRACT line has no `.mdc` yet. Do not invent one in passing. Drafts never modify `.mdc` files: write under `standards/contract/proposals/`. Do not add a per-feature `philosophy.md`. The definition of a contract is `standards/contract/philosophy.md`. Mark `CONTRACT` only when that definition is met in code. When you mark it, add that entity or functionality's names to the workspace rule description (`DL_projects/.cursor/rules/dl_toolbox_structure.mdc`).

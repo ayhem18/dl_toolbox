@@ -34,7 +34,7 @@ mlflow = [
 ]
 
 [project.scripts]
-dl-toolbox = "dl_toolbox.cli.main:main"
+dl-toolbox = "dl_toolbox.project_layout.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]

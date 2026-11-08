@@ -1,4 +1,33 @@
-"""Exclusive (name, hash) JSON index. Layout on the class; Directory per call."""
+"""
+Context: Among the dl_toolbox objectives is to facilitate running experiments just by specifying configuration or .json files. 
+
+Consequently, I want to know whether a certain specific combination of parameters (in a .json file) has already been run. 
+Hashing is a good mechanism for that. Now, Imagine comparing runs with a tracking tool such as tensorboard or MLflow. 
+I can't tell which run is which. So, we need human readable names.  And that's the identity of a .json file. 
+
+The HashManager is a class that encapsulates the logic associated with a pair of (human_readable_name, hash) of a given .json file. 
+
+The HashManager needs the following information to operate
+
+1. the name of the subdirectory where the hashes are stored: hash_dir_name
+2. the name of the subdirectory where the human readable names are stored: human_readable_dir_name
+3. the prefix length of the hash: prefix_len
+
+HashManager makes decisions based on a directory. The directory should have the following structure
+
+- directory_in_question
+-- hash_dir_name
+-- human_readable_dir_name
+
+
+Given a directory (with the above semantic structure), here is what HashManager can do:
+
+1. determine the state of the pair (human_readable_name, hash): there are 4 possible states hash: taken vs free & name: taken vs free
+... (to be continued)
+
+
+Exclusive (name, hash) JSON index. Layout on the class; Directory per call. 
+"""
 
 from __future__ import annotations
 
@@ -20,7 +49,12 @@ from dl_toolbox.base.hashing.identity import (
     is_full_sha256,
     is_hashed_artifact_stem,
 )
-from dl_toolbox.base.input_output.json_io import JsonTextForm, dump, read, write
+
+# although all the files are in a .json_io.py file, 
+# I don't want to go lookup the file everytime I want to understand what a function does
+# when I am reading the code below, the only way for me to understand what "write" means is to go lookup 
+# the import and then the source file. 
+from dl_toolbox.base.input_output.json_io import JsonTextForm, dump, read, write 
 from dl_toolbox.base.parsing.parse_numerical import parse_int
 from dl_toolbox.base.parsing.parse_str import parse_non_empty_str
 
@@ -54,10 +88,10 @@ class Occupancy:
         return f"Occupancy.{self._name.upper()}"
 
 
-Occupancy.BOTH_FREE = Occupancy(name="both_free")
-Occupancy.BOTH_MATCH = Occupancy(name="both_match")
-Occupancy.NAME_TAKEN = Occupancy(name="name_taken")
-Occupancy.HASH_TAKEN = Occupancy(name="hash_taken")
+# Occupancy.BOTH_FREE = Occupancy(name="both_free")
+# Occupancy.BOTH_MATCH = Occupancy(name="both_match")
+# Occupancy.NAME_TAKEN = Occupancy(name="name_taken")
+# Occupancy.HASH_TAKEN = Occupancy(name="hash_taken")
 
 
 class NameHashLookup:
@@ -69,8 +103,7 @@ class NameHashLookup:
         state: Occupancy,
         name_path: Path,
         hash_path: Path,
-        document: dict[str, Any] | None,
-    ) -> None:
+        document: dict[str, Any] | None) -> None:
         if not isinstance(state, Occupancy):
             raise TypeError(f"state must be Occupancy, got {type(state)!r}")
         if not isinstance(name_path, Path) or not name_path.is_absolute():
@@ -107,18 +140,17 @@ class NameHashLookup:
 class HashManager:
     """Operations on an exclusive (name, hash) index. Does not lock. Does not mkdir the root."""
 
-    BOTH_FREE = Occupancy.BOTH_FREE
-    BOTH_MATCH = Occupancy.BOTH_MATCH
-    NAME_TAKEN = Occupancy.NAME_TAKEN
-    HASH_TAKEN = Occupancy.HASH_TAKEN
+    BOTH_FREE = Occupancy(name="both_free")
+    BOTH_MATCH = Occupancy(name="both_match")
+    NAME_TAKEN = Occupancy(name="name_taken")
+    HASH_TAKEN = Occupancy(name="hash_taken")
 
     def __init__(
         self,
         *,
         prefix_len: int,
         human_readable_dirname: str,
-        hashes_dirname: str,
-    ) -> None:
+        hashes_dirname: str) -> None:
         self._prefix_len = _require_prefix_len(prefix_len)
         human = _require_index_dirname(
             human_readable_dirname,
@@ -170,13 +202,15 @@ class HashManager:
         directory: Directory,
         *,
         name: str,
-        configuration_hash: str,
-    ) -> NameHashLookup:
+        configuration_hash: str) -> NameHashLookup:
+
         name_path, hash_path, checked = self._query_paths(
             directory, name=name, configuration_hash=configuration_hash
         )
+    
         name_exists = name_path.is_file()
         hash_exists = hash_path.is_file()
+    
         if name_exists and hash_exists:
             name_document = self._read_pair_document(name_path)
             hash_document = self._read_pair_document(hash_path)
@@ -205,6 +239,7 @@ class HashManager:
             raise ValueError(
                 f"stored pair for {checked!r} does not match configuration_hash"
             )
+    
         if name_exists:
             return NameHashLookup(
                 state=HashManager.NAME_TAKEN,
@@ -212,6 +247,7 @@ class HashManager:
                 hash_path=hash_path,
                 document=self._read_pair_document(name_path),
             )
+    
         if hash_exists:
             hash_document = self._read_pair_document(hash_path)
             stored_hash = hash_document["hash"]
@@ -225,6 +261,7 @@ class HashManager:
                 hash_path=hash_path,
                 document=hash_document,
             )
+    
         return NameHashLookup(
             state=HashManager.BOTH_FREE,
             name_path=name_path,
@@ -238,32 +275,39 @@ class HashManager:
         *,
         name: str,
         configuration_hash: str,
-        extra: Mapping[str, Any],
-    ) -> tuple[Path, Path]:
+        extra: Mapping[str, Any]) -> tuple[Path, Path]:
+
         checked = self.assert_name(name)
+
         extra_payload = _require_extra(extra)
+
         lookup = self.lookup(
             directory, name=checked, configuration_hash=configuration_hash
         )
+
         if lookup.state != HashManager.BOTH_FREE:
             self._raise_not_free(checked=checked, lookup=lookup)
+
         document: dict[str, Any] = {
             "name": checked,
             "hash": configuration_hash,
             **extra_payload,
         }
+
         hash_path = self._write_index_file(
             directory,
             folder=self._hashes_dirname,
             filename=f"{self._stem(configuration_hash)}.json",
             document=document,
         )
+
         name_path = self._write_index_file(
             directory,
             folder=self._human_readable_dirname,
             filename=f"{checked}.json",
             document=document,
         )
+
         return name_path, hash_path
 
     def release_name(
@@ -318,6 +362,7 @@ class HashManager:
         name: str,
         configuration_hash: str,
     ) -> tuple[Path, Path, str]:
+
         _require_index(directory)
         checked = self.assert_name(name)
         if not is_full_sha256(configuration_hash):
@@ -353,8 +398,7 @@ class HashManager:
         name_path: Path,
         hash_path: Path,
         name_document: dict[str, Any],
-        hash_document: dict[str, Any],
-    ) -> NameHashLookup:
+        hash_document: dict[str, Any]) -> NameHashLookup:
         stored_hash = hash_document["hash"]
         if stored_hash != configuration_hash:
             raise ValueError(
@@ -385,19 +429,21 @@ class HashManager:
         *,
         folder: str,
         filename: str,
-        document: dict[str, Any],
-    ) -> Path:
+        document: dict[str, Any]) -> Path:
+
         child = Directory.from_under(
             root=directory,
             relative_path=folder,
             policy=DirectoryParsePolicy.CREATE,
         )
+
         written = write(
             directory=child,
             name=filename,
             payload=document,
             form=JsonTextForm.DOCUMENT,
         )
+        
         return written.path
 
     def _raise_not_free(self, *, checked: str, lookup: NameHashLookup) -> None:
@@ -405,9 +451,12 @@ class HashManager:
             raise FileExistsError(
                 f"already claimed name {checked!r} with this configuration hash"
             )
+        
         occupant = lookup.document
+        
         if occupant is None:
             raise ValueError(f"occupied lookup {lookup.state!r} has no document")
+        
         if lookup.state == HashManager.NAME_TAKEN:
             raise FileExistsError(
                 f"name {checked!r} already exists with hash {occupant['hash']!r}"

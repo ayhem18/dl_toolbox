@@ -1,4 +1,16 @@
-"""Train/val experiment-management flow. Occupancy trees live here. Layout does not."""
+"""
+- implementation of the TrainValEngine
+
+1. TrainValEngine: accepts - purpose (fit or inspect)
+
+2. the fit logic in a nutshell is 2 steps
+
+- 
+- 
+- 
+- 
+
+"""
 
 from __future__ import annotations
 
@@ -50,38 +62,50 @@ GROUP_RANK_ENV = "GROUP_RANK"
 LOCAL_RANK_ENV = "LOCAL_RANK"
 
 
-class Purpose:
+class EnginePurpose:
     FIT = "fit"
     INSPECT = "inspect"
 
 
-class Force:
+class IdentityOverwritePolicy:
     OFF = "off"
     OVERWRITE_NAME = "overwrite_name"
 
 
-_PURPOSES = frozenset({Purpose.FIT, Purpose.INSPECT})
-_FORCES = frozenset({Force.OFF, Force.OVERWRITE_NAME})
-
+_PURPOSES = frozenset({EnginePurpose.FIT, EnginePurpose.INSPECT})
+_OVERWRITE_POLICIES = frozenset({IdentityOverwritePolicy.OFF, IdentityOverwritePolicy.OVERWRITE_NAME})
 
 class TrainValEngine(ABC):
-    """Fit identity, then TrainValRun.fit / EvalRun.evaluate. Not a layout."""
+    """
+    The experiment engine for runs/ experiments with both Train and Validation split. 
 
-    Purpose = Purpose
-    Force = Force
+    This engine has 3 main functionalities: 
+
+    1. Manage run identities: a run is defined be the hash of its configuration and its human readable name
+    The engine uses a HashManager to enforce a clear protocol when working with multiple runs. 
+
+    2. Define the logical steps for parsing and validating a run recipe compatible with the fit and inspect logic of the train_val_run: 
+
+    dl_toolbox/src/dl_toolbox/dl_engine/runs/train_val_run/train_val_fit.py: fit()
+
+    3. Define the inspect logic.  
+    """
 
     def __init__(self, *, purpose: str) -> None:
-        self._purpose = parse_purpose(purpose)
+        self._purpose = parse_purpose(purpose) # TODO: this is a pattern and can probably be added to the parsing package
         self._identity_ready = False
         self._claimed_fit = False
 
     def train(self) -> None:
-        if self._purpose != Purpose.FIT:
+        if self._purpose != EnginePurpose.FIT:
             raise ValueError(
-                f"train requires purpose {Purpose.FIT!r}, got {self._purpose!r}"
+                f"train requires purpose {EnginePurpose.FIT!r}, got {self._purpose!r}"
             )
+
+        # the process_run_identity logic should probably be revisited         
         self.process_run_identity()
         self.apply_seed()
+         
         net = self.get_net()
         loaders = self.get_loaders()
         steps = self.get_steps()
@@ -91,6 +115,7 @@ class TrainValEngine(ABC):
         checkpointer = self.get_checkpointer()
         logger = self.get_logger()
         run_log = self.get_run_log()
+
         try:
             train_val_fit(
                 net=net,
@@ -108,9 +133,9 @@ class TrainValEngine(ABC):
                 checkpointer.mark_finished()
 
     def inspect(self) -> None:
-        if self._purpose != Purpose.INSPECT:
+        if self._purpose != EnginePurpose.INSPECT:
             raise ValueError(
-                f"inspect requires purpose {Purpose.INSPECT!r}, got {self._purpose!r}"
+                f"inspect requires purpose {EnginePurpose.INSPECT!r}, got {self._purpose!r}"
             )
         self.attach_fit_identity()
         checkpointer = self.get_checkpointer()
@@ -139,27 +164,54 @@ class TrainValEngine(ABC):
         )
 
     def process_run_identity(self) -> None:
-        if self._purpose != Purpose.FIT:
+        """
+        This is a very important method. 
+
+        - The identity of a run defined by 2 things: 
+
+        1. the hash of its json representation
+        2. the human readnable name it was assigned
+
+
+
+        """
+        if self._purpose != EnginePurpose.FIT:
             raise ValueError(
                 "process_run_identity requires purpose "
-                f"{Purpose.FIT!r}, got {self._purpose!r}"
+                f"{EnginePurpose.FIT!r}, got {self._purpose!r}"
             )
+
+
+
         if is_ddp_worker():
+            # TODO: this behavior must documented properly
             self.attach_fit_identity()
             return
+
         self.claim_fit_identity()
 
     def claim_fit_identity(self) -> None:
+        """
+        1. extract the run's identity
+        2. 
+        """
+
+
         name = self.get_run_name()
         payload = self.get_identity_payload()
         manager = self.get_hash_manager()
         configuration_hash = manager.hash_payload(payload)
+        
+        # self.get_force() 
         force = self.get_force()
         listed = self.get_identity_index()
         index = Directory.from_absolute(
             path=listed.path, policy=DirectoryParsePolicy.CREATE
         )
         lock_path = index.path / IDENTITY_LOCK_NAME
+
+        # it is a bit funny that the engine itself must open a lock ... 
+
         with ExclusiveDirLock(
             lock_path,
             timeout_seconds=self.get_identity_lock_timeout(),
@@ -168,14 +220,17 @@ class TrainValEngine(ABC):
             lookup = manager.lookup(
                 index, name=name, configuration_hash=configuration_hash
             )
+
             if lookup.state == HashManager.HASH_TAKEN:
                 raise FileExistsError(
                     "configuration hash already saved as another name in this group"
                 )
+
             if lookup.state == HashManager.BOTH_MATCH:
                 raise FileExistsError(
                     f"already claimed name {name!r} with this configuration hash"
                 )
+
             if lookup.state == HashManager.BOTH_FREE:
                 self._claim_free_pair(
                     manager=manager,
@@ -185,29 +240,32 @@ class TrainValEngine(ABC):
                     payload=payload,
                 )
                 return
-            if lookup.state == HashManager.NAME_TAKEN:
-                if force != Force.OVERWRITE_NAME:
-                    raise FileExistsError(
-                        f"name {name!r} already exists with a different "
-                        "configuration hash"
-                    )
-                manager.release_name(index, name=name)
-                artifacts = self.get_artifacts_directory()
-                if artifacts.path.exists():
-                    shutil.rmtree(artifacts.path)
-                manager.claim(
-                    index,
-                    name=name,
-                    configuration_hash=configuration_hash,
-                    extra=payload,
+
+            # at this point, the only valid value for lookup.state is HashManager.NAME_TAKEN
+
+            # the logic below is for the case of lookup.state = HashManager.NAME_TAKEN            
+            if force != IdentityOverwritePolicy.OVERWRITE_NAME:
+                raise FileExistsError(
+                    f"name {name!r} already exists with a different "
+                    "configuration hash"
                 )
-                Directory.from_absolute(
-                    path=artifacts.path, policy=DirectoryParsePolicy.CREATE
-                )
-                self._claimed_fit = True
-                self._identity_ready = True
-                return
-            raise ValueError(f"unknown occupancy {lookup.state!r}")
+            manager.release_name(index, name=name)
+            artifacts = self.get_artifacts_directory()
+            if artifacts.path.exists():
+                shutil.rmtree(artifacts.path)
+            manager.claim(
+                index,
+                name=name,
+                configuration_hash=configuration_hash,
+                extra=payload,
+            )
+            Directory.from_absolute(
+                path=artifacts.path, policy=DirectoryParsePolicy.CREATE
+            )
+            self._claimed_fit = True
+            self._identity_ready = True
+            return
+
 
     def attach_fit_identity(self) -> None:
         retry = is_ddp_worker()
@@ -264,8 +322,7 @@ class TrainValEngine(ABC):
         index: Directory,
         name: str,
         configuration_hash: str,
-        payload: Mapping[str, object],
-    ) -> None:
+        payload: Mapping[str, object],) -> None:
         artifacts = self.get_artifacts_directory()
         if artifacts.spec == DirectorySpec.EXISTS:
             raise FileExistsError(
@@ -385,20 +442,21 @@ class TrainValEngine(ABC):
 def parse_purpose(value: object) -> str:
     if not isinstance(value, str) or value not in _PURPOSES:
         raise ValueError(
-            f"purpose must be {Purpose.FIT!r} or {Purpose.INSPECT!r}, got {value!r}"
+            f"purpose must be {EnginePurpose.FIT!r} or {EnginePurpose.INSPECT!r}, got {value!r}"
         )
     return value
 
 
 def parse_force(value: object) -> str:
-    if not isinstance(value, str) or value not in _FORCES:
+    if not isinstance(value, str) or value not in _OVERWRITE_POLICIES:
         raise ValueError(
-            f"force must be {Force.OFF!r} or {Force.OVERWRITE_NAME!r}, got {value!r}"
+            f"overwrite policy must be {IdentityOverwritePolicy.OFF!r} or {IdentityOverwritePolicy.OVERWRITE_NAME!r}, got {value!r}"
         )
     return value
 
 
 def is_ddp_worker() -> bool:
+    # this must definitely move into a common package instead of being burried in here 
     rank = _env_int(RANK_ENV)
     if rank is None:
         rank = _env_int(GLOBAL_RANK_ENV)
@@ -416,6 +474,7 @@ def is_ddp_worker() -> bool:
 
 
 def _env_int(name: str) -> int | None:
+    # TODO: add a file to work on the environment variables 
     raw = os.environ.get(name)
     if raw is None:
         return None

@@ -72,7 +72,10 @@ INSPECT_CONSTRUCTOR_KEYS = ("inspect_recipe", "eval_device")
 
 
 class DefaultLayoutTrainValEngine(TrainValEngine):
-    """ProjectLayout + recipes + experiment code. Occupancy is TrainValEngine."""
+    """
+    This is the Experiment management engine based on a the opiniated default layout 
+    implemented by the dl_toolbox package
+    """
 
     def __init__(
         self,

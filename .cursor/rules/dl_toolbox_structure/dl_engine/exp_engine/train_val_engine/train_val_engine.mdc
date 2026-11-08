@@ -12,7 +12,7 @@ The class is a translation of the algorithms below. If the code does something t
 
 This is not TrainValRun and not EvalRun. Those receive already-resolved objects. This class is the experiment-management flow: fit identity, getters, then `fit` / `evaluate`.
 
-There is no run-agnostic engine. TrainOnly / LR-finder / Eval engines copy this *shape* if they need it. They do not share this class.
+There is no run-agnostic engine. Other run types can share the logic
 
 Named constants, no defaults. `train()` and `inspect()` take **no arguments**. Everything they need was bound at construction. Scripts parse CLI into the constructor, then call a zero-arg method.
 
@@ -21,19 +21,11 @@ Named constants, no defaults. `train()` and `inspect()` take **no arguments**. E
 ## Entity
 
 This **process** managing one train/val **run** on disk: the HashManager `(name, hash)` pair, the run artifacts Directory, the logger store row, the checkpoint catalog.
-
-Not this entity:
-
-- `TrainValRun.fit` / EvalRun `evaluate` (call them; do not re-specify their loops).
-- HashManager, InspectableCheckpointer, Logger internals.
-- The project tree (`project_layout`). DefaultLayoutTrainValEngine holds a ProjectLayout and fills getters.
-- Periodic inspect loops. `inspect()` is one shot. A script that polls constructs a new purpose=`inspect` instance per attempt.
-
 ---
 
-## Given
+## Input Specification
 
-A `TrainValEngine` is already constructed. Purpose is required:
+A `TrainValEngine` is already constructed. Purpose 
 
 ```
 Purpose = fit | inspect

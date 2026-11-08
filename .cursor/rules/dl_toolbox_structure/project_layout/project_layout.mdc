@@ -1,5 +1,5 @@
 ---
-description: ProjectLayout is one toolbox project tree. from_start walks to the marker. scaffold writes it. identity_index and artifacts_directory join run_group under storage/runs and storage/run_artifacts.
+description: ProjectLayout is one toolbox project tree. from_start walks to the marker. scaffold writes it. CLI setup-project CREATE’s {cwd}/{name} then scaffold. identity_index and artifacts_directory join run_group under storage/runs and storage/run_artifacts.
 globs: **/project_layout/**,**/tests/project_layout/**
 alwaysApply: false
 ---
@@ -77,6 +77,24 @@ Writes marker (`name` only), `.tracking-backend`, `identity.json`, `checkpoint.j
 
 ---
 
+## CLI `setup-project project_name --tracking-backend {tensorboard|mlflow}`
+
+**Assume:** process cwd exists. `project_name` is a non-empty basename: no `/`, not `.`, not `..`. `--tracking-backend` is required. No `--package`. W&B is not a choice.
+
+```
+parent = Directory.from_absolute(cwd, MUST_EXIST)
+if {cwd}/{project_name} exists: FileExistsError
+root = CREATE that Directory
+scaffold(*, root, project_name, tracking_backend)
+if scaffold fails: delete root; re-raise
+```
+
+**After:** `from_start` can read this tree. stdout is the root path.
+
+cwd is allowed only here. `from_start` / `scaffold` never use `Path.cwd()`. This is not a second Python layout API.
+
+---
+
 ## `parse_run_group(segments)`
 
 **Assume:** `segments` is a sequence of strings, not a `str`.
@@ -138,6 +156,7 @@ MLflow experiment name is not here.
 |---|---|
 | walk + read | `from_start(*, start, project_name, tracking_backend)` |
 | write empty tree | `scaffold(*, root, project_name, tracking_backend)` |
+| CREATE `{cwd}/{name}` then scaffold | CLI `setup-project` |
 | group segments | `parse_run_group(segments)` |
 | index / artifacts paths | `identity_index`, `artifacts_directory` |
 | `tensorboard` \| `mlflow` | `TrackingBackend` |
@@ -155,3 +174,5 @@ This package does not import TrainValRun, Logger vendor classes, or Lightning.
 3. **Identity lock timeout = checkpoint lock timeout.** One key.
 
 4. **`run_group` is path join, not occupancy.** Two groups are two HashManager Directories. Uniqueness of `(name, hash)` is per group.
+
+5. **CLI owns cwd.** `scaffold` assumes `root` already exists. `setup-project` CREATE’s a new child of cwd, then calls `scaffold`. An existing child is `FileExistsError`. CREATE then scaffold fail: delete the child. No `--package`: marker is `name` only.

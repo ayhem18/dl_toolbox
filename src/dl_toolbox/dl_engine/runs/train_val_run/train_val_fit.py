@@ -114,6 +114,8 @@ def fit(
         check_val_every_n_epoch=1,
         num_nodes=1,
     )
+
+    
     require_single_machine(trainer=lightning_trainer, config=trainer)
 
     try:

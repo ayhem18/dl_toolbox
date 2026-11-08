@@ -1,4 +1,4 @@
-"""Opinionated toolbox project tree. Not HashManager occupancy. Not a recipe parser."""
+"""Opinionated toolbox project tree."""
 
 from __future__ import annotations
 

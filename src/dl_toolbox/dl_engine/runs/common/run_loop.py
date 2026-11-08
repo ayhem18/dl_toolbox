@@ -44,6 +44,7 @@ def epoch_metric_keys(specs: Sequence[MetricSpec], *, split: str) -> list[str]:
     for i in range(n_specs):
         metric, _batch_reducers, epoch_reducers = specs[i]
         n_reducers = len(epoch_reducers)
+        # TODO: replace with .extend()
         for j in range(n_reducers):
             keys.append(
                 metric_log_name(metric.name, split, LEVEL_EPOCH, epoch_reducers[j])
@@ -57,6 +58,8 @@ def configured_optimizers(
     optimizer = optimization.optimizer
     if optimization.scheduler is OptimizationConfig.ABSENT:
         return optimizer
+
+    # TODO: it is not made explicit that only epoch-level learning rate schedulers are supported. This is buried deep in the code.
     return {
         "optimizer": optimizer,
         "lr_scheduler": {
@@ -89,11 +92,11 @@ def log_epoch_row(
     metrics = module.trainer.callback_metrics
     for i in range(n_keys):
         key = keys[i]
-        metric = metrics.get(key)
+        metric = metrics.get(key) # .get() 
         if metric is None:
-            logged[key] = float(row.get(key, 0.0))
+            logged[key] = float(row.get(key, 0.0)) # I see .get() with default values ... this means either the contract is not clear: or the validation is missing
         else:
-            logged[key] = float(metric.detach().cpu())
+            logged[key] = float(metric.detach().cpu()) 
     epoch_logger.log_scalars(logged, step=epoch)
 
 
