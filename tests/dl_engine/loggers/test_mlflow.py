@@ -177,6 +177,37 @@ class MlflowLoggerTests(unittest.TestCase):
             _client(_logger(self.tmp_path)).get_run(first_id).info.status, "FAILED"
         )
 
+    def test_cleanup_deletes_running_namesake_and_allows_create(self) -> None:
+        logger = _logger(self.tmp_path)
+        logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
+        first_id = logger.run_id
+        logger.close()
+        logger.cleanup()
+        logger.cleanup()
+        client = _client(_logger(self.tmp_path))
+        deleted = client.get_run(first_id)
+        self.assertEqual(deleted.info.lifecycle_stage, "deleted")
+        second = _logger(self.tmp_path)
+        second.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
+        second_id = second.run_id
+        try:
+            self.assertNotEqual(second_id, first_id)
+        finally:
+            second.close()
+
+    def test_cleanup_without_setup_is_noop(self) -> None:
+        logger = _logger(self.tmp_path)
+        logger.cleanup()
+
+    def test_require_after_cleanup_raises(self) -> None:
+        logger = _logger(self.tmp_path)
+        logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
+        logger.close()
+        logger.cleanup()
+        inspect = _logger(self.tmp_path)
+        with self.assertRaisesRegex(LoggerError, "does not exist"):
+            inspect.setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)
+
     def test_log_before_setup_raises(self) -> None:
         logger = _logger(self.tmp_path, tags={})
         with self.assertRaisesRegex(LoggerError, "setup"):

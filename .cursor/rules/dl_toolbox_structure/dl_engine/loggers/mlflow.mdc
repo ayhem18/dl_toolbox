@@ -37,6 +37,7 @@ Optional extra is `require(package="mlflow")` (extras contract, `.cursor/rules/d
 - **log_image / log_text / log_table:** artifact store (table is `log_text` of `table_as_json`).
 - **log_artifact / log_model:** artifact store / PyTorch flavor, bound `run_id`.
 - **close:** unbind `run_id`. The run stays.
+- **cleanup:** `close` if open, then `delete_run` of the running namesake for `(experiment_name, run_name)`. Terminal namesakes stay.
 
 ---
 
@@ -65,7 +66,7 @@ Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. Extra
 | lookup | 0 / 1 / 2+ **running** namesakes named `run_name` in the experiment |
 | `bounded_mapping` | string map with MLflow key/value length limits |
 
-Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `table_as_json`) are Logger's Terminology.
+Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `cleanup`, `table_as_json`) are Logger's Terminology.
 
 `lifecycle_stage` and `status` are different fields. Terminal is a `status` set.
 
@@ -305,6 +306,32 @@ unbind run_id
 
 `setup` after `close` is a new bind (create or require again), not "resume the flag".
 
+### `cleanup()`
+
+remove the running namesake in `(experiment_name, run_name)`. This is the no-resume logger path.
+
+**input:** this MlflowLogger.
+
+**assumptions on the input:** Logger Input Specification for `cleanup`.
+
+**steps:**
+
+```
+if open: close()
+client = tracking client for backend_store_uri (same bind setup uses)
+experiment = get_experiment_by_name(experiment_name)
+if experiment is missing: return
+run = lookup running namesake (same lookup CREATE uses)
+if run is missing: return
+delete_run(run_id)
+```
+
+**side effects:** that running MLflow run is deleted (lifecycle deleted). Terminal namesakes with the same name are not deleted: they are leftover history CREATE already ignores. A later `setup` CREATE may `create_run` again. A later `setup` REQUIRE errors (no running namesake).
+
+**outputs:** none.
+
+`delete_run` is the analog of deleting TensorBoard `run_dir`. Occupancy deletes the artifacts Directory completely; this is the same no-resume path for the vendor row.
+
 ---
 
 ## Secondary functionalities
@@ -408,5 +435,6 @@ Create once. Every other process `require`. They share one `run_id`, so the UI s
 ## Tensions
 
 - **Two processes both `create`:** if the first has committed a running namesake, the second errors. If they race, MLflow may accept two running namesakes and later lookup errors on 2+. The name map is a function only after a successful create. The engine is what must prevent the race.
-- **`close` leaves the run `RUNNING`.** Identity files and this store are independent. Deleting the HashManager pair does not free the name here. A leftover `RUNNING` namesake still blocks `create` (it is occupancy; inspect may still `require`). Retry after a failed fit needs that leftover to be terminal (`FAILED` / `KILLED` / `FINISHED`) first — this class does not terminate. `require` of a terminal-only name is "does not exist": there is no running run to attach to.
+- **`close` leaves the run `RUNNING`.** That is the inspect handshake. `cleanup` deletes the running namesake. Identity files and this store are independent: deleting the HashManager pair does not free the name here. A leftover `RUNNING` namesake still blocks `create` until `cleanup` (or a manual delete / terminate). `require` of a terminal-only or deleted-only name is "does not exist": there is no running run to attach to.
+- **MLflow delete vs terminal.** `cleanup` deletes the running row. Previous terminal namesakes from earlier attempts (if someone terminated by hand) stay. CREATE already ignores them.
 - **`stream` is required by Logger and unused for this entity.** Filename suffix is a TensorBoard fact. The shared `setup` signature is the reason; this class validates `stream` and then ignores it for the run.

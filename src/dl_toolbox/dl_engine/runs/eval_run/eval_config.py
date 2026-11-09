@@ -32,12 +32,12 @@ class EvalLoggerConfig(BaseModel):
     @field_validator("stream")
     @classmethod
     def _stream(cls, value: object) -> str:
-        return parse_log_stream(value)
+        return parse_log_stream(stream=value)
 
     @field_validator("existence")
     @classmethod
     def _existence(cls, value: object) -> str:
-        return parse_log_existence(value)
+        return parse_log_existence(existence=value)
 
     @field_validator("step")
     @classmethod

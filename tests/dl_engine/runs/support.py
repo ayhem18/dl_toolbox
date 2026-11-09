@@ -67,6 +67,9 @@ class RecordingLogger(Logger):
     def close(self) -> None:
         self.close_calls += 1
 
+    def cleanup(self) -> None:
+        self.close()
+
 
 class LinearBinary(nn.Module):
     def __init__(self) -> None:

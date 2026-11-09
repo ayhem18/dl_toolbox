@@ -81,6 +81,6 @@ def test_identity_payload_excludes_logger_labels(tmp_path: Path) -> None:
     assert "human_readable_name" not in payload
     assert payload["lr_finder"]["kind"] == FindLrSpec.RANGE
     assert payload["runtime"]["accelerator"] == "cpu"
-    left.claim_identity()
+    left.claim_fit_identity()
     with pytest.raises(FileExistsError, match="already claimed"):
-        right.claim_identity()
+        right.claim_fit_identity()

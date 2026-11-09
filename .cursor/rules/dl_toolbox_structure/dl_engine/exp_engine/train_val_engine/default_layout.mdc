@@ -18,7 +18,7 @@ Trainer `devices` is either an int `N` (first `N` visible CUDA devices) or a lis
 
 ## Terminology
 
-TrainValEngine, EnginePurpose, IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`. ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`. JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+TrainValEngine, EnginePurpose: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`. IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/run_occupancy.mdc`. ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`. JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
 
 | Term | Meaning |
 |---|---|

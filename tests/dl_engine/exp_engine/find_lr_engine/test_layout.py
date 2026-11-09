@@ -94,13 +94,13 @@ def test_parts_require_identity(tmp_path: Path) -> None:
     engine = find_engine(
         root, project_name="proj_id", recipe=recipe, force=IdentityOverwritePolicy.OFF
     )
-    with pytest.raises(RuntimeError, match="claim_identity"):
+    with pytest.raises(RuntimeError, match="claim_fit_identity"):
         engine.get_logger()
-    with pytest.raises(RuntimeError, match="claim_identity"):
+    with pytest.raises(RuntimeError, match="claim_fit_identity"):
         engine.get_run_log()
-    with pytest.raises(RuntimeError, match="claim_identity"):
+    with pytest.raises(RuntimeError, match="claim_fit_identity"):
         engine.get_net()
-    engine.claim_identity()
+    engine.claim_fit_identity()
     assert isinstance(engine.get_net(), torch.nn.Module)
     log = engine.get_run_log()
     assert log.filename == DefaultLayoutFindLrEngine.RESOLVED_CONFIG_FILENAME

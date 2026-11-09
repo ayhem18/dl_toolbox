@@ -185,7 +185,7 @@ def test_worker_attaches_to_claimed_pair(
     )
     worker.process_run_identity()
     assert worker._identity_ready
-    assert not worker._claimed_fit
+    assert not worker._claimed
 
 
 def test_worker_times_out_when_pair_is_missing(

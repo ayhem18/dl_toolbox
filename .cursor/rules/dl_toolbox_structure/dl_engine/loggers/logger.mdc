@@ -1,5 +1,5 @@
 ---
-description: Logger is setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close. LogStream is fit|inspect. LogExistence is create|require.
+description: Logger is setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close, cleanup. LogStream is fit|inspect. LogExistence is create|require.
 globs: **/dl_engine/loggers/logger.py,**/tests/dl_engine/loggers/test_logger.py
 alwaysApply: false
 ---
@@ -25,7 +25,8 @@ At the time of writing this contract, I am supporting 2 logging backends: Tensor
 - **log_params / log_tags:** run-level string maps, no `step`.
 - **log_scalars:** every scalar for one step. `step` required.
 - **log_image / log_text / log_table:** one tagged blob at a `step`.
-- **close:** disconnect the process from the run in the backend; the process is no longer allowed to call `log_*`.
+- **close:** disconnect the process from the run in the backend; the process is no longer allowed to call `log_*`. The vendor run stays.
+- **cleanup:** remove vendor occupancy for this constructor identity (`log_dir` / `run_name`, or experiment / `run_name`). Legal after `close` and legal if `setup` never ran. Failed-claim occupancy calls this; inspect does not; a successful fit does not.
 ---
 
 ## Terminology
@@ -44,6 +45,8 @@ JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`. parse_
 | `open` | whether the process is allowed to call  `log_*`. Process-local |
 | `setup` | bind this process so `log_*` is legal |
 | `close` | unbind this process. Idempotent |
+| `cleanup` | remove this Logger's vendor occupancy for its constructor identity |
+| constructor identity | TensorBoard: `log_dir` + `run_name` → `run_dir`. MLflow: `experiment_name` + `run_name` |
 | `params` | `Mapping[str, str]` for `log_params` |
 | `tags` | `Mapping[str, str]` for `log_tags` |
 | `values` | `Mapping[str, float]` for `log_scalars` |
@@ -87,6 +90,10 @@ Membership is `parse_one_of` with `error_type=LoggerError` and `error_message=on
 `log_params` and `log_tags` have no `step`.
 
 `close` takes nothing besides this Logger.
+
+`cleanup` takes nothing besides this Logger. `open` may be true or false. If `open` is true, `cleanup` `close`s first, then removes occupancy. `setup` may never have run: then there is no vendor entity this process created, and `cleanup` is a no-op besides that check. Idempotent: a second `cleanup` finds nothing to remove and returns.
+
+`close` unbinds the process. `cleanup` removes the vendor entity. They are two behaviors. **This is the no-resume logger path:** failed-claim occupancy deletes artifacts completely; `cleanup` deletes the matching vendor occupancy. Resume that kept a TensorBoard `run_dir` or an MLflow `run_id` would not call `cleanup`.
 
 ---
 
@@ -260,6 +267,29 @@ The vendor run stays. Other processes that `require` still can log. Fit and insp
 
 `setup` after `close` on the same object is a new bind, not "resume the flag".
 
+### `cleanup()`
+
+remove vendor occupancy for this constructor identity.
+
+**input:** this Logger.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+if open: close()
+remove vendor occupancy for constructor identity
+```
+
+**side effects:** the vendor entity this identity would `CREATE` is gone (backend note). This process is not `open`.
+
+**outputs:** none.
+
+`log_*` after `cleanup` without a new `setup` is the same error as after `close`.
+
+The bind-specific remove is TensorBoard `cleanup` or MLflow `cleanup`.
+
 ---
 
 
@@ -268,3 +298,4 @@ The vendor run stays. Other processes that `require` still can log. Fit and insp
 
 - **`log_image` leaves layout and scale unnamed.** Each backend infers them from the array (TensorBoard: channel-axis size and `max > 1`; MLflow: whether the first axis looks like channels). The same array can land as different layouts on the two backends. A float tensor already in `[0, 1]` with a stray value above 1 is scaled on TensorBoard.
 - **`table_as_json` is a JSON array.** `parse_object` is the object. Those blobs do not round-trip through the JSON contract. JSON already names the array gap; Logger owns the table behavior that hits it.
+- **`close` and `cleanup` disagree on purpose.** `close` is the inspect handshake (vendor stays). `cleanup` is the failed-claim handshake (vendor goes). An engine that `cleanup`s a successful fit would steal inspect's `REQUIRE`. Occupancy only calls `cleanup` from `cleanup_failed_claim`.

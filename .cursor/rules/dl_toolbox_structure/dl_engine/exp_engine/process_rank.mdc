@@ -1,0 +1,95 @@
+---
+description: ProcessRank is this process's distributed rank as Lightning / torch write it into the environment. is_ddp_worker is true when any named rank variable parses as an int > 0. RANK_ENV, GLOBAL_RANK_ENV, LOCAL_RANK_ENV, NODE_RANK_ENV, GROUP_RANK_ENV.
+globs: **/exp_engine/process_rank.py,**/tests/dl_engine/exp_engine/test_process_rank.py
+alwaysApply: false
+---
+
+# ProcessRank
+
+## Context
+
+A fit launch is several OS processes that share one occupancy: rank 0 creates the HashManager pair and the artifacts Directory; the others wait until that tree exists. A learning-rate finder is one process; a worker rank that still calls `find()` is a mistake, not an attach.
+
+Those two stories ask the same question of the environment: is this process rank 0, or a DDP worker? Lightning and torch set `RANK`, `GLOBAL_RANK`, `LOCAL_RANK`, `NODE_RANK`, `GROUP_RANK`. The numbers are strings in `os.environ`. Empty and non-integer values happen. The rule that turns those strings into "this process must attach (or must refuse `find`)" is one algorithm.
+
+`ProcessRank` is that algorithm. RunOccupancy and the engines call it. They do not re-parse the environment.
+
+### What ProcessRank needs in order to operate
+
+1. the process environment (`os.environ`)
+2. the five rank variable names it owns
+
+### What ProcessRank can do
+
+- **`is_ddp_worker`:** true when any named rank variable parses as an int `> 0`.
+
+---
+
+## Terminology
+
+| Term | Meaning |
+|---|---|
+| `ProcessRank` | the class that owns the rank environment names and `is_ddp_worker` |
+| `is_ddp_worker` | this process is not rank 0 |
+| `RANK_ENV` | `"RANK"` |
+| `GLOBAL_RANK_ENV` | `"GLOBAL_RANK"` |
+| `NODE_RANK_ENV` | `"NODE_RANK"` |
+| `GROUP_RANK_ENV` | `"GROUP_RANK"` |
+| `LOCAL_RANK_ENV` | `"LOCAL_RANK"` |
+| rank variable | one of those five names, read from `os.environ` |
+
+A missing name, an empty string, or a non-integer string is "this variable is unset". Unset is not a worker.
+
+---
+
+## Input Specification
+
+`is_ddp_worker` takes no arguments besides this process.
+
+A rank variable that is present and parses as `int` is that integer. `> 0` is a worker signal. `0` is rank 0 on that axis. Unset is ignored.
+
+Any one worker signal is enough. The function does not require `WORLD_SIZE`. It does not require every variable to be set.
+
+---
+
+## Main functionalities
+
+### `is_ddp_worker()`
+
+**input:** this process.
+
+**assumptions on the input:** none. The environment may be empty (a single-process launch).
+
+**steps:**
+
+```
+rank = int of RANK_ENV, else int of GLOBAL_RANK_ENV
+if rank is set and rank > 0: true
+
+node = int of NODE_RANK_ENV, else int of GROUP_RANK_ENV
+if node is set and node > 0: true
+
+local = int of LOCAL_RANK_ENV
+if local is set and local > 0: true
+
+false
+```
+
+Integer parse of a rank variable: strip; empty → unset; `int(...)` failure → unset.
+
+**side effects:** none.
+
+**outputs:** `bool`.
+
+---
+
+## Secondary functionalities
+
+The five names live as class variables on `ProcessRank`. Callers import `ProcessRank` and `is_ddp_worker`. They do not spell `"RANK"` at the call site.
+
+---
+
+## Tensions
+
+- **`WORLD_SIZE > 1` on rank 0 is not a worker.** Rank 0 of a multi-process launch is still the claiming process. FindLrEngine that wants "exactly one process" still has to refuse that launch on some other check; this function only names rank `> 0`.
+- **A junk string is unset, not an error.** `RANK=gpu` is the same as missing. A mis-set launcher fails open as rank 0 and may claim occupancy from a worker's environment. Making junk an error would change attach vs claim on a broken env.

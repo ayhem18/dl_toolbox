@@ -12,10 +12,6 @@ from dl_toolbox.dl_engine.exp_engine.train_only_engine.default_layout import (
 from dl_toolbox.dl_engine.exp_engine.train_only_engine.train_only_engine import (
     EnginePurpose,
     IdentityOverwritePolicy,
-    TrainOnlyEngine,
-)
-from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
-    TrainValEngine,
 )
 from dl_toolbox.project_layout.names import (
     CHECKPOINT_CONFIG_FILENAME,
@@ -32,15 +28,6 @@ from tests.dl_engine.exp_engine.train_only_engine.support import (
     LinearBinaryTrainOnlyExperiment,
     fit_engine,
 )
-
-
-def test_rank_env_names_match_train_val() -> None:
-    assert TrainOnlyEngine.RANK_ENV == TrainValEngine.RANK_ENV
-    assert TrainOnlyEngine.GLOBAL_RANK_ENV == TrainValEngine.GLOBAL_RANK_ENV
-    assert TrainOnlyEngine.NODE_RANK_ENV == TrainValEngine.NODE_RANK_ENV
-    assert TrainOnlyEngine.GROUP_RANK_ENV == TrainValEngine.GROUP_RANK_ENV
-    assert TrainOnlyEngine.LOCAL_RANK_ENV == TrainValEngine.LOCAL_RANK_ENV
-    assert TrainOnlyEngine.ATTACH_POLL_SECONDS == TrainValEngine.ATTACH_POLL_SECONDS
 
 
 def test_both_free_then_both_match(tmp_path: Path) -> None:
@@ -210,7 +197,7 @@ def test_worker_attaches_to_claimed_pair(
     )
     worker.process_run_identity()
     assert worker._identity_ready
-    assert not worker._claimed_fit
+    assert not worker._claimed
 
 
 def test_worker_times_out_when_pair_is_missing(

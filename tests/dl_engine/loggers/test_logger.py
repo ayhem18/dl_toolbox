@@ -17,6 +17,7 @@ _METHODS = (
     "log_table",
     "log_text",
     "close",
+    "cleanup",
 )
 
 

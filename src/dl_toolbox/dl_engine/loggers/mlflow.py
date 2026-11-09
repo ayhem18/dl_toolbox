@@ -191,6 +191,21 @@ class MlflowLogger(Logger):
         self._client = None
         self._run_id = None
 
+    def cleanup(self) -> None:
+        if self._open:
+            self.close()
+        self._client = self._build_client()
+        try:
+            experiment = self._client.get_experiment_by_name(self._experiment_name)
+            if experiment is None:
+                return
+            run = self._lookup_run(experiment_id=str(experiment.experiment_id))
+            if run is None:
+                return
+            self._client.delete_run(str(run.info.run_id))
+        finally:
+            self._client = None
+
     def _setup_create(self) -> None:
         experiment_id = self._resolve_experiment_create()
         existing = self._lookup_run(experiment_id=experiment_id)

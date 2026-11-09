@@ -32,7 +32,8 @@ Identity payload includes `FindLrSpec.to_dict()`, the runtime document, `experim
 
 ## Terminology
 
-FindLrEngine, IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/find_lr_engine/find_lr_engine.mdc`.
+FindLrEngine: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/find_lr_engine/find_lr_engine.mdc`.
+IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/run_occupancy.mdc`.
 ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`.
 FindLrRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/find_lr_run.mdc`.
 JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.

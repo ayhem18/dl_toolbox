@@ -1,5 +1,5 @@
 ---
-description: FindLrEngine is the experiment engine for a learning-rate range test. One process, one device. find() is zero-arg. Rank 0 claims HashManager occupancy; a worker rank is FindLrEngineError. IdentityOverwritePolicy is TrainValEngine's off or overwrite_name.
+description: FindLrEngine is the experiment engine for a learning-rate range test. One process, one device. Occupancy is RunOccupancy. find() is zero-arg. Rank 0 claims; a worker rank is FindLrEngineError. Failed-claim cleanup is the retry path, not resume.
 globs: **/find_lr_engine/find_lr_engine.py, **/tests/dl_engine/exp_engine/find_lr_engine/**
 alwaysApply: false
 ---
@@ -10,9 +10,11 @@ alwaysApply: false
 
 FindLrRun is the range-test procedure: snapshot, sweep, restore, write the curve, close the FIT stream. Something still has to answer the occupancy questions that procedure assumes are already settled: which `(hash, name)` is this run, is the pair free, who creates the artifacts Directory, which Logger and which net the procedure consumes.
 
-`FindLrEngine` is that object for one process. It is a claiming process, the same HashManager table TrainValEngine rank-0 fit uses. There is one zero-arg entry: `find()`. After occupancy and seed, it calls `find_lr(...)` with the getters. Logger `CREATE` on `LogStream.FIT` happens inside `find_lr`, not here. Close is `find_lr`'s `finally`.
+`FindLrEngine` is that object for one process. It inherits RunOccupancy (`.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/run_occupancy.mdc`). It is a claiming process, the same HashManager table TrainValEngine rank-0 fit uses. There is one zero-arg entry: `find()`. After occupancy and seed, it calls `find_lr(...)` with the getters. Logger `CREATE` on `LogStream.FIT` happens inside `find_lr`, not here. Close is `find_lr`'s `finally`.
 
-This engine has one process and one device. A worker rank (`LOCAL_RANK` / `RANK` parsed as int `> 0`) is `FindLrEngineError` before claim. There is no inspect attach and no second purpose. IdentityOverwritePolicy is the same type TrainValEngine uses: consulted only on `NAME_TAKEN`.
+This engine has one process and one device. A worker rank (`is_ddp_worker()`, ProcessRank) is `FindLrEngineError` before claim. There is no inspect attach and no second purpose. This engine does not call `process_run_identity`; it errors on a worker then calls `claim_fit_identity`.
+
+**Failed-claim cleanup is the retry path. It is not resume.** If `find_lr()` raises after this process claimed, `find()` calls `cleanup_failed_claim`: Logger `cleanup`, `drop_pair`, delete the artifacts Directory completely. The next claim of the same payload is a new run. Curves from the failed attempt are gone. Resume from those files is a later contract. `BOTH_MATCH` on a *successful* previous claim is still an error.
 
 The engine does not invent a project tree. Getters return the HashManager, the identity index, the artifacts Directory, the net, the optimizer, the train loader, FindLrSteps, FindLrSpec, FindLrRuntime, the Logger, the RunLogConfig. A concrete engine (`DefaultLayoutFindLrEngine`) fills those getters.
 
@@ -26,8 +28,8 @@ The engine does not invent a project tree. Getters return the HashManager, the i
 
 ### What FindLrEngine can do
 
-- **`find`:** claim occupancy, seed, call `find_lr`, return `FindLrResult`.
-- **`claim_identity`:** HashManager lookup, then create or overwrite, then create artifacts.
+- **`find`:** claim occupancy, seed, call `find_lr`, return `FindLrResult`; `cleanup_failed_claim` if `find_lr` raised and this process claimed.
+- **`claim_fit_identity`:** RunOccupancy claim.
 - **`require_identity`:** getters that need the claimed tree may run.
 
 ---
@@ -36,14 +38,14 @@ The engine does not invent a project tree. Getters return the HashManager, the i
 
 HashManager: `.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc`.
 FindLrRun (`find_lr`, `FindLrSpec`, `FindLrSteps`, `FindLrRuntime`, `FindLrResult`, `FindLrError`): `.cursor/rules/dl_toolbox_structure/dl_engine/runs/find_lr_run.mdc`.
-Logger, LogStream, LogExistence: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`.
-IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`.
+Logger, LogStream, LogExistence, `cleanup`: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`.
+RunOccupancy, IdentityOverwritePolicy, `claimed`, `claim_fit_identity`, `cleanup_failed_claim`, parse_force: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/run_occupancy.mdc`.
+ProcessRank, `is_ddp_worker`: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/process_rank.mdc`.
 
 | Term | Meaning |
 |---|---|
-| `FindLrEngine` | one process's finder engine: bound getters plus occupancy |
+| `FindLrEngine` | one process's finder engine: bound getters plus occupancy. Inherits RunOccupancy |
 | `find` | zero-arg. Claims, seeds, calls `find_lr`, returns `FindLrResult` |
-| `claim_identity` | `create_identity_index`, lookup, then create or overwrite |
 | `get_run_name` | human-readable name |
 | `get_identity_payload` | JSON-legal mapping HashManager hashes |
 | `get_force` | `IdentityOverwritePolicy` value |
@@ -54,11 +56,7 @@ IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engin
 | `get_steps` | `FindLrSteps` |
 | `get_spec` | `FindLrSpec` |
 | `get_runtime` | `FindLrRuntime` |
-| `parse_force` | `parse_one_of` onto IdentityOverwritePolicy (TrainValEngine's) |
-| `is_ddp_worker` | rank env says this process is not rank 0 |
 | `FindLrEngineError` | engine-level error (worker rank) |
-
-HashManager owns `identity.lock` on the identity index. Rank env names live on the class: `RANK_ENV`, `GLOBAL_RANK_ENV`, `NODE_RANK_ENV`, `GROUP_RANK_ENV`, `LOCAL_RANK_ENV` (same strings TrainValEngine names).
 
 ---
 
@@ -68,16 +66,7 @@ Constructor binds getters in the concrete class. This class has no `EnginePurpos
 
 `find()`: this process is rank 0 (`is_ddp_worker()` is false). HashManager reachable. `get_force()` is `OFF` or `OVERWRITE_NAME`.
 
-`claim_identity` lookup table:
-
-```
-BOTH_FREE     create_pair + create artifacts Directory
-BOTH_MATCH    error (already claimed this name with this hash)
-HASH_TAKEN    error
-NAME_TAKEN    OFF → error; OVERWRITE_NAME → drop_pair, rmtree artifacts, create_pair, create artifacts
-```
-
-An artifacts Directory that already exists on `BOTH_FREE` is an orphan: error.
+Claim lookup table, orphan artifacts: RunOccupancy Input Specification.
 
 `get_identity_payload` is JSON-legal via `dump_object`. It includes `FindLrSpec.to_dict()` (the concrete engine names the rest of the document).
 
@@ -95,57 +84,42 @@ An artifacts Directory that already exists on `BOTH_FREE` is an orphan: error.
 
 ```
 if is_ddp_worker(): FindLrEngineError
-claim_identity()
+claim_fit_identity()
 apply_seed()
-return find_lr(
-  net=get_net(),
-  optimizer=get_optimizer(),
-  train_loader=get_train_loader(),
-  steps=get_steps(),
-  spec=get_spec(),
-  runtime=get_runtime(),
-  logger=get_logger(),
-  artifacts=get_artifacts_directory(),
-  run_log=get_run_log(),
-)
+try:
+  return find_lr(
+    net=get_net(),
+    optimizer=get_optimizer(),
+    train_loader=get_train_loader(),
+    steps=get_steps(),
+    spec=get_spec(),
+    runtime=get_runtime(),
+    logger=get_logger(),
+    artifacts=get_artifacts_directory(),
+    run_log=get_run_log(),
+  )
+except:
+  if claimed: cleanup_failed_claim()
+  raise
 ```
 
-**side effects:** occupancy, range test, FIT logs, curve Files under artifacts. Logger close is `find_lr`.
+Failed-claim cleanup is the no-resume path (RunOccupancy).
+
+**side effects:** occupancy, range test, FIT logs, curve Files under artifacts; cleanup of pair, artifacts, and logger vendor occupancy if `find_lr` raised and this process claimed. Logger close is `find_lr`.
 
 **outputs:** `FindLrResult`.
 
-### `claim_identity()`
-
-**input:** this engine.
-
-**assumptions on the input:** rank 0.
-
-**steps:**
-
-```
-name = get_run_name()
-payload = get_identity_payload()
-hash = HashManager.hash_payload(payload)
-index = manager.create_identity_index(get_identity_index())
-lookup = manager.lookup(index, human_readable_name=name, hash=hash)
-branch on lookup.state as Input Specification
-```
-
-**side effects:** pair table, artifacts Directory, `_claimed` when this process created the pair.
-
-**outputs:** none. Sets `_identity_ready`.
+Claim, `cleanup_failed_claim`, `require_identity`: RunOccupancy. This engine does not call `attach_fit_identity` or `process_run_identity`.
 
 ---
 
 ## Secondary functionalities
 
-`require_identity()`: `_identity_ready` must be true before getters that need the claimed tree (`get_logger`, `get_run_log`).
+`require_identity()`: identity ready must be true before getters that need the claimed tree (`get_logger`, `get_run_log`).
 
-Getters: `get_run_name`, `get_identity_payload`, `get_force`, `get_hash_manager`, `get_identity_index`, `get_identity_lock_timeout`, `get_artifacts_directory`, `apply_seed`, `get_net`, `get_optimizer`, `get_train_loader`, `get_steps`, `get_spec`, `get_runtime`, `get_logger`, `get_run_log`.
+Getters: `get_run_name`, `get_identity_payload`, `get_force`, `get_hash_manager`, `get_identity_index`, `get_identity_lock_timeout`, `get_artifacts_directory`, `apply_seed`, `get_net`, `get_optimizer`, `get_train_loader`, `get_steps`, `get_spec`, `get_runtime`, `get_logger`, `get_run_log`. Occupancy getters are RunOccupancy's abstracts; the concrete engine fills them.
 
-`parse_force` is TrainValEngine's `parse_one_of` onto `IdentityOverwritePolicy`.
-
-`is_ddp_worker`: any of `RANK_ENV` / `GLOBAL_RANK_ENV` / `LOCAL_RANK_ENV` (and kin) parsed as int `> 0`.
+`parse_force` is RunOccupancy's `parse_one_of` onto `IdentityOverwritePolicy`.
 
 `FindLrEngineError` is a `ValueError` subclass.
 
@@ -153,15 +127,13 @@ Getters: `get_run_name`, `get_identity_payload`, `get_force`, `get_hash_manager`
 
 ## What this implies for the engine/multiprocess
 
-One process. Rank 0 of a later DDP job that accidentally calls `find()` still claims if `is_ddp_worker()` is false; only a worker rank errors. Two processes, same `(hash, name)`, both `find()`: the second sees `BOTH_MATCH` and errors. `OVERWRITE_NAME` is only the `NAME_TAKEN` branch. There is no inspect process and no checkpointer `mark_finished`. The curve Files under artifacts are the completion record `find_lr` writes.
+One process. Rank 0 of a later DDP job that accidentally calls `find()` still claims if `is_ddp_worker()` is false; only a worker rank errors. Two processes, same `(hash, name)`, both `find()`: the second sees `BOTH_MATCH` and errors. `OVERWRITE_NAME` is only the `NAME_TAKEN` branch. There is no inspect process and no checkpointer `mark_finished`. The curve Files under artifacts are the completion record `find_lr` writes. A failed `find_lr` that this process claimed is cleaned.
 
 ---
 
 ## Tensions
 
-- **`BOTH_MATCH` is terminal.** A failed `find_lr` after a successful claim still holds the pair. A retry with the same payload is `BOTH_MATCH`, not overwrite. Same table as TrainValEngine fit. Changing the name, or dropping the pair outside this engine, is how you run again.
-- **`OVERWRITE_NAME` is drop then create.** Two HashManager calls, `rmtree` of artifacts in between. A crash in the gap leaves `BOTH_FREE` or a half-removed artifacts tree.
-- **`HASH_TAKEN` has no overwrite.** The configuration already lives under another name.
+- **Resume is not this algorithm.** `BOTH_MATCH` after a *successful* claim is an error. Failed-claim cleanup is RunOccupancy's no-resume path.
 - **Rank 0 of a multi-process launch still claims.** Only `is_ddp_worker()` (rank `> 0`) errors. `WORLD_SIZE > 1` on rank 0 is not a check this engine names.
 - **`find()` returns `FindLrResult`.** TrainValEngine `train()` returns none. The finder result is the suggested LRs; the Files are still the disk record.
-- **`LogStream.FIT` is FindLrRun's setup.** This engine claims HashManager occupancy; `find_lr` creates the vendor row. A claiming process that dies after `claim_identity` and before `find_lr` setup leaves a pair with no logger entity.
+- **`LogStream.FIT` is FindLrRun's setup.** This engine claims HashManager occupancy; `find_lr` creates the vendor row. A claiming process that dies after `claim_fit_identity` and before `find_lr` setup leaves a pair with no logger entity until `cleanup_failed_claim` runs (constructor-identity `cleanup` is then a no-op on a missing vendor row).

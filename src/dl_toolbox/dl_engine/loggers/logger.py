@@ -1,4 +1,4 @@
-"""Logger: setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close."""
+"""Logger: setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close, cleanup."""
 
 
 
@@ -97,7 +97,9 @@ class Logger(ABC):
     def close(self) -> None:
         """Unbind this process. Idempotent."""
 
-
+    @abstractmethod
+    def cleanup(self) -> None:
+        """Remove vendor occupancy for this constructor identity. Not resume."""
 
 
     ############################################ State Validation helpers ############################################

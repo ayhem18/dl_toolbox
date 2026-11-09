@@ -46,6 +46,7 @@ The writer creates those files.
 - **setup require:** `run_dir` must exists. Open a writer the same way. One new event file in that directory.
 - **log_*:** through the bound writer, then `flush`.
 - **close:** flush and close this process's writer. Event files stay. The UI run stays.
+- **cleanup:** `close` if open, then delete the `run_dir` tree. `log_dir` stays. Other `run_name`s under `log_dir` stay.
 
 ---
 
@@ -62,7 +63,7 @@ Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. JSON:
 | `SummaryWriter` | vendor writer. `setup` constructs one; `log_*` go through it |
 | `filename_suffix` | `.fit` or `.inspect`, from `stream` |
 
-Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `table_as_json`) are Logger's Terminology.
+Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `cleanup`, `table_as_json`) are Logger's Terminology.
 
 ---
 
@@ -203,6 +204,25 @@ unbind writer
 **outputs:** none.
 
 `setup` after `close` is a new writer, a new file.
+
+### `cleanup()`
+
+remove the event tree under `run_dir`. This is the no-resume logger path.
+
+**input:** this TensorBoardLogger.
+
+**assumptions on the input:** Logger Input Specification for `cleanup`.
+
+**steps:**
+
+```
+if open: close()
+if run_dir exists as a directory: delete that tree completely
+```
+
+**side effects:** `run_dir` is missing. `log_dir` stays. Other `run_name`s under `log_dir` stay. A later `setup` CREATE may create `run_dir` again. A later `setup` REQUIRE errors (`run_dir` does not exist).
+
+**outputs:** none.
 
 ---
 

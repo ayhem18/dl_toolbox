@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -149,6 +150,12 @@ class TensorBoardLogger(Logger):
         self._writer.close()
         self._writer = None
         self._open = False
+
+    def cleanup(self) -> None:
+        if self._open:
+            self.close()
+        if self._run_dir.is_dir():
+            shutil.rmtree(self._run_dir)
 
 
     ############################################ private helpers ############################################

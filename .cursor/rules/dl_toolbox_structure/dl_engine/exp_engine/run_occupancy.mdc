@@ -1,0 +1,225 @@
+---
+description: RunOccupancy is the mixin for one run's HashManager pair plus artifacts Directory. claim_fit_identity, attach_fit_identity, process_run_identity, cleanup_failed_claim. IdentityOverwritePolicy is off or overwrite_name. Failed-claim cleanup is the retry path, not resume.
+globs: **/exp_engine/run_occupancy.py,**/tests/dl_engine/exp_engine/test_run_occupancy.py
+alwaysApply: false
+---
+
+# RunOccupancy
+
+## Context
+
+Every experiment engine asks the same occupancy questions before it trains, inspects, or sweeps a learning rate: which `(human_readable_name, hash)` is this run, is the pair free, who creates the artifacts Directory, what happens if a name is taken, what does a DDP worker do while rank 0 claims.
+
+`RunOccupancy` is that object. TrainValEngine, TrainOnlyEngine, and FindLrEngine inherit it. Rank 0 `claim_fit_identity`. A DDP worker `attach_fit_identity` (ProcessRank `is_ddp_worker`). Inspect attaches; it does not claim. FindLrEngine rank 0 claims and never attaches; a worker rank is FindLrEngine's error, not this mixin's attach.
+
+A failed fit after a successful claim is the other half of the story. Rank 0 writes the pair, creates artifacts, then `fit()` / `find_lr()` raises. Without cleanup the pair stays `BOTH_MATCH`, and a leftover logger vendor row still blocks `CREATE`. Retry with the same payload is then "already claimed".
+
+**Failed-claim cleanup is the retry path. It is not resume.** A crash after claim drops the pair, deletes the artifacts Directory completely, and asks the Logger to `cleanup` its vendor occupancy. The next `BOTH_FREE` claim is a new run. Checkpoints, curves, and logger files from the failed attempt are gone. Resume from a failed fit's checkpoints is a later contract. Until that exists, cleanup is the algorithm.
+
+HashManager: `.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc`. Directory: `.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`. Logger `cleanup`: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. ProcessRank: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/process_rank.mdc`.
+
+### What RunOccupancy needs in order to operate
+
+1. getters bound by the engine: `get_run_name`, `get_identity_payload`, `get_force`, `get_hash_manager`, `get_identity_index`, `get_identity_lock_timeout`, `get_artifacts_directory`, `get_logger`
+2. `IdentityOverwritePolicy` is `OFF` or `OVERWRITE_NAME` on a claiming process
+3. HashManager reachable; the identity index can be created on claim
+
+### What RunOccupancy can do
+
+- **`claim_fit_identity`:** lookup, then create or overwrite, then create the artifacts Directory. This process `claimed`.
+- **`attach_fit_identity`:** wait until `BOTH_MATCH` and the artifacts Directory exist.
+- **`process_run_identity`:** worker attaches; rank 0 claims.
+- **`cleanup_failed_claim`:** Logger `cleanup`, `drop_pair`, delete the artifacts Directory. Only if this process `claimed`.
+- **`require_identity`:** the pair is ready for getters that need the tree.
+
+---
+
+## Terminology
+
+HashManager, pair states (`BOTH_FREE`, `BOTH_MATCH`, `NAME_TAKEN`, `HASH_TAKEN`), `create_pair`, `drop_pair`, `lookup`: HashManager's Terminology.
+Directory, `DirectorySpec`, `DirectoryParsePolicy`: Directory's Terminology.
+Logger, `cleanup`: Logger's Terminology.
+ProcessRank, `is_ddp_worker`: ProcessRank's Terminology.
+
+| Term | Meaning |
+|---|---|
+| `RunOccupancy` | mixin: occupancy of one run (pair + artifacts Directory) |
+| `IdentityOverwritePolicy` | `OFF` (`"off"`) or `OVERWRITE_NAME` (`"overwrite_name"`) |
+| `claimed` | this process created the pair on this invocation (`_claimed`) |
+| `identity ready` | claim or attach succeeded; getters that need the tree may run (`_identity_ready`) |
+| `claim_fit_identity` | rank-0 create or overwrite |
+| `attach_fit_identity` | wait until `BOTH_MATCH` and artifacts exist |
+| `process_run_identity` | worker `attach_fit_identity`; else `claim_fit_identity` |
+| `cleanup_failed_claim` | undo a claim after the run procedure raised |
+| `get_force` | `IdentityOverwritePolicy` value |
+| `parse_force` | `parse_one_of` onto `IdentityOverwritePolicy` |
+| `ATTACH_POLL_SECONDS` | `0.05`. Attach sleep |
+
+HashManager owns `identity.lock` on the identity index. Rank env names live on `ProcessRank`, not here.
+
+---
+
+## Input Specification
+
+The mixin is constructed by the engine. `claimed` starts false. `identity ready` starts false.
+
+`claim_fit_identity`: this process is the claiming process (rank 0, or FindLrEngine's single process). `get_force()` is `OFF` or `OVERWRITE_NAME`.
+
+Lookup table for `claim_fit_identity`:
+
+```
+BOTH_FREE     create_pair + create artifacts Directory. claimed = true
+BOTH_MATCH    error (already claimed this name with this hash)
+HASH_TAKEN    error
+NAME_TAKEN    OFF → error
+              OVERWRITE_NAME → drop_pair, delete artifacts Directory, create_pair, create artifacts Directory. claimed = true
+```
+
+An artifacts Directory that already exists on `BOTH_FREE` is an orphan: error.
+
+`attach_fit_identity`: workers retry until `get_identity_lock_timeout()`. A caller that is not a DDP worker (inspect rank 0) does not retry: missing index or missing artifacts raises immediately.
+
+`cleanup_failed_claim`: `claimed` is true. Identity index still exists. The artifacts Directory may exist. The Logger may be open or already `close`d (fit / `find_lr` `close` in their own `finally` before the exception reaches the engine).
+
+`cleanup_failed_claim` is the no-resume path: after it, lookup of this `(name, hash)` is `BOTH_FREE` and the artifacts Directory is missing.
+
+---
+
+## Main functionalities
+
+### `process_run_identity()`
+
+**input:** this occupancy.
+
+**assumptions on the input:** the engine is in a claiming launch (fit). FindLrEngine does not call this; it errors on `is_ddp_worker()` then calls `claim_fit_identity`. TrainValEngine / TrainOnlyEngine require `EnginePurpose.FIT` before calling this.
+
+**steps:** if `is_ddp_worker()`: `attach_fit_identity()`; else `claim_fit_identity()`.
+
+**side effects:** claim or attach.
+
+**outputs:** none. Sets identity ready.
+
+### `claim_fit_identity()`
+
+**input:** this occupancy.
+
+**assumptions on the input:** claiming process.
+
+**steps:**
+
+```
+name = get_run_name()
+payload = get_identity_payload()
+hash = HashManager.hash_payload(payload)
+index = manager.create_identity_index(get_identity_index())
+lookup = manager.lookup(index, human_readable_name=name, hash=hash)
+branch on lookup.state as Input Specification
+identity ready = true
+```
+
+**side effects:** pair table, artifacts Directory, `claimed` when this process created the pair.
+
+**outputs:** none.
+
+### `attach_fit_identity()`
+
+**input:** this occupancy.
+
+**assumptions on the input:** Input Specification (retry vs immediate).
+
+**steps:**
+
+```
+retry = is_ddp_worker()
+deadline = now + get_identity_lock_timeout()
+loop until deadline:
+  identity_index must EXISTS
+  lookup BOTH_MATCH and artifacts EXISTS → identity ready, return
+  BOTH_FREE → wait (worker) or FileNotFoundError
+  NAME_TAKEN / HASH_TAKEN → FileExistsError
+```
+
+**side effects:** none on the pair table. `claimed` stays false.
+
+**outputs:** none.
+
+### `cleanup_failed_claim()`
+
+Undo occupancy this process created, so the same payload can claim again. This is not resume.
+
+**input:** this occupancy.
+
+**assumptions on the input:** `claimed` is true. Called from the engine when the run procedure raised, not on a successful return.
+
+**steps:**
+
+```
+get_logger().cleanup()
+manager.drop_pair(identity_index, human_readable_name=get_run_name())
+if artifacts Directory path exists: delete that tree completely
+claimed = false
+identity ready = false
+```
+
+Logger `cleanup` uses the logger's constructor identity (`run_name`, URIs / `log_dir`). It does not require `open`. Order is logger, then `drop_pair`, then artifacts: the same order overwrite uses for the pair and the tree (`drop_pair` then delete artifacts), with logger first so the vendor row is not left as a running namesake after the pair is gone.
+
+**side effects:** HashManager pair gone. Artifacts Directory gone. Logger vendor occupancy for this `run_name` gone (Logger cleanup). Disk and vendor match a never-claimed run, except leftover terminal MLflow history if that backend keeps it (Logger cleanup names what it deletes).
+
+**outputs:** none.
+
+A worker (`claimed` is false) must not call this. Inspect must not call this. A call while `claimed` is false is an error.
+
+---
+
+## Secondary functionalities
+
+`require_identity()`: identity ready must be true.
+
+`parse_force` is `parse_one_of` onto `IdentityOverwritePolicy`.
+
+`_claim_free_pair` is the `BOTH_FREE` branch: orphan artifacts Directory is an error; else `create_pair`, create artifacts Directory, `claimed = true`.
+
+Delete artifacts Directory: `shutil.rmtree` of that absolute path when it exists. The Directory entity after that is missing; the next claim creates it again.
+
+Engine wrappers (not methods of this mixin, but the occupancy algorithm they must follow):
+
+**Fit `train()` on the claiming process:**
+
+```
+process_run_identity()
+apply_seed()
+try:
+  fit(...)
+except:
+  if claimed: cleanup_failed_claim()
+  raise
+else:
+  if claimed: checkpointer.mark_finished()
+```
+
+`mark_finished` is success-only. It is not a `finally` on a raised fit.
+
+**FindLrEngine `find()` on the claiming process:**
+
+```
+claim_fit_identity()
+apply_seed()
+try:
+  return find_lr(...)
+except:
+  if claimed: cleanup_failed_claim()
+  raise
+```
+
+FindLrEngine has no `mark_finished`.
+
+---
+
+## Tensions
+
+- **`drop_pair` then delete artifacts are two steps.** Overwrite already has this gap (HashManager tension: two lock acquisitions). Cleanup has the same gap plus Logger `cleanup` before them. A crash after logger cleanup and before `drop_pair` leaves a `BOTH_MATCH` pair with no vendor row. A crash after `drop_pair` and before rmtree leaves `BOTH_FREE` plus an orphan artifacts Directory; the next claim errors on orphan. Manual delete of that Directory is the recovery until a single locked "replace occupancy" exists.
+- **Resume is not this algorithm.** Cleanup deletes checkpoints and curves on failure. A later resume contract would keep the pair and the artifacts Directory and would not call `cleanup_failed_claim`. Until then, `BOTH_MATCH` on a *successful* previous claim is still an error (already claimed). Only a claim that raised is cleaned.
+- **Logger `cleanup` and HashManager `drop_pair` are independent stores.** Cleanup of one can succeed while the other fails. The name map on MLflow and the pair on disk can disagree until the operator retries cleanup or deletes by hand.
+- **`HASH_TAKEN` has no overwrite and no cleanup path.** The configuration already lives under another name. This mixin does not rename it.
+- **Attach can hang until deadline.** A worker whose rank-0 never claims waits, then `FileNotFoundError`. Inspect rank 0 does not wait.
+- **Process kill skips the except.** `cleanup_failed_claim` runs when the exception reaches `train()` / `find()`. An OS kill leaves the pair, the artifacts Directory, and the vendor row.

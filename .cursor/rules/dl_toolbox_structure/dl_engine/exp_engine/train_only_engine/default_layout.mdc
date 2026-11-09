@@ -33,7 +33,8 @@ Identity payload includes the trainer document, checkpoint policy, early stoppin
 
 ## Terminology
 
-TrainOnlyEngine, EnginePurpose, IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_only_engine/train_only_engine.mdc`.
+TrainOnlyEngine, EnginePurpose: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_only_engine/train_only_engine.mdc`.
+IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/run_occupancy.mdc`.
 ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`.
 TrainOnlyRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/train_only_run.mdc`.
 JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
