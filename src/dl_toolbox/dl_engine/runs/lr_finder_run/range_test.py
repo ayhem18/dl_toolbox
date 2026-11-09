@@ -81,9 +81,9 @@ def run_range_test(
             set_optimizer_lr(optimizer=optimizer, lr=lr)
             prepared = prepare_batch(steps=steps, raw_batch=raw_batch, device=device)
             optimizer.zero_grad(set_to_none=True)
-            with amp.autocast():
-                output = steps.forward_fn(net, prepared)
-                loss = steps.loss_fn(output, prepared)
+            loss = _forward_loss(net=net, steps=steps, prepared=prepared, amp=amp)
+            if loss is None:
+                break
             raw = float(loss.detach().cpu())
             if not math.isfinite(raw):
                 break
@@ -186,6 +186,8 @@ def _train_one_pass(
         prepared = prepare_batch(steps=steps, raw_batch=raw_batch, device=device)
         optimizer.zero_grad(set_to_none=True)
         loss = _forward_loss(net=net, steps=steps, prepared=prepared, amp=amp)
+        if loss is None:
+            return False
         raw = float(loss.detach().cpu())
         if not math.isfinite(raw):
             return False
@@ -211,6 +213,8 @@ def _eval_mean_loss(
         for raw_batch in train_loader:
             prepared = prepare_batch(steps=steps, raw_batch=raw_batch, device=device)
             loss = _forward_loss(net=net, steps=steps, prepared=prepared, amp=amp)
+            if loss is None:
+                return None
             raw = float(loss.detach().cpu())
             if not math.isfinite(raw):
                 return None
@@ -227,10 +231,21 @@ def _forward_loss(
     steps: FindLrSteps,
     prepared: dict,
     amp: AmpSession,
-) -> Tensor:
-    with amp.autocast():
-        output = steps.forward_fn(net, prepared)
-        return steps.loss_fn(output, prepared)
+) -> Tensor | None:
+    try:
+        with amp.autocast():
+            output = steps.forward_fn(net, prepared)
+            if (
+                isinstance(output, Tensor)
+                and output.is_floating_point()
+                and not bool(output.isfinite().all())
+            ):
+                return None
+            return steps.loss_fn(output, prepared)
+    except FindLrError:
+        raise
+    except ValueError:
+        return None
 
 
 def suggest_lrs(

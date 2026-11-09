@@ -262,9 +262,14 @@ for i, lr in enumerate(candidates):
     set_optimizer_lr(optimizer, lr)
     prepared = mapping_to_device(steps.prepare_tensors_fn(raw_batch), device)
     optimizer.zero_grad(set_to_none=True)
-    with amp.autocast():
-        output = steps.forward_fn(net, prepared)
-        loss = steps.loss_fn(output, prepared)
+    try:
+        with amp.autocast():
+            output = steps.forward_fn(net, prepared)
+            loss = steps.loss_fn(output, prepared)
+    except FindLrError:
+        raise
+    except ValueError:
+        break                            # do not step, do not keep
     raw = float(loss.detach().cpu())
     if raw is not finite: break          # do not step, do not keep
     amp.optimizer_step(loss, optimizer)
@@ -282,6 +287,8 @@ if len(kept) < 2:
     FindLrError
 return kept lrs, kept losses
 ```
+
+A `ValueError` from forward or loss (other than `FindLrError`) is the same as a non-finite loss: break.
 
 `cycling_batches`: iterate `train_loader`; when the iterator is exhausted, start it again. Exhausting an empty loader is `FindLrError`.
 
@@ -307,9 +314,15 @@ for lr in candidates:
         for raw_batch in train_loader:
             prepared = mapping_to_device(steps.prepare_tensors_fn(raw_batch), device)
             optimizer.zero_grad(set_to_none=True)
-            with amp.autocast():
-                output = steps.forward_fn(net, prepared)
-                loss = steps.loss_fn(output, prepared)
+            try:
+                with amp.autocast():
+                    output = steps.forward_fn(net, prepared)
+                    loss = steps.loss_fn(output, prepared)
+            except FindLrError:
+                raise
+            except ValueError:
+                train_ok = False
+                break
             raw = float(loss.detach().cpu())
             if raw is not finite:
                 train_ok = False
@@ -328,9 +341,15 @@ for lr in candidates:
     with torch.no_grad():
         for raw_batch in train_loader:
             prepared = mapping_to_device(...)
-            with amp.autocast():
-                output = steps.forward_fn(net, prepared)
-                loss = steps.loss_fn(output, prepared)
+            try:
+                with amp.autocast():
+                    output = steps.forward_fn(net, prepared)
+                    loss = steps.loss_fn(output, prepared)
+            except FindLrError:
+                raise
+            except ValueError:
+                train_ok = False
+                break
             raw = float(loss.detach().cpu())
             if raw is not finite:
                 train_ok = False
@@ -347,7 +366,7 @@ if len(kept) < 1:
 return kept lrs, kept losses
 ```
 
-A non-finite candidate is omitted from the curve. Later candidates still run. Every kept loss is finite.
+A non-finite candidate is omitted from the curve. A `ValueError` from forward or loss (other than `FindLrError`) is the same omission. Later candidates still run. Every kept loss is finite.
 
 Progress: `range_progress(spec.num_iter, enabled=..., desc="full_ds_lr_finder", unit="lr")`.
 
@@ -405,3 +424,4 @@ Identity payload includes `FindLrSpec.to_dict()`. The engine does not start DDP 
 - **Table rows are `{lr, loss}`.** The File also stores `kind` and `suggested`. Two representations of one curve; the File is the complete one.
 - **Plot image type is the Logger's image type.** This run converts a matplotlib figure to an array. CHW vs HWC vs `[0,1]` vs `[0,255]` is the Logger Tension, visible here as an untyped image.
 - **Steepest is a grid point.** It is the left end of the steepest log-space segment on the prefix before the min, not an interpolated LR.
+- **Forward/loss can raise instead of returning non-finite.** Payload checks (a `PatchifiedTensor` of a NaN prediction) raise `ValueError` before a loss scalar exists. That is the same event as a non-finite loss: RANGE breaks; FULL_DS skips the candidate and later LRs still run. `FindLrError` is a `ValueError` subclass and still propagates. `TypeError` and `RuntimeError` still abort.

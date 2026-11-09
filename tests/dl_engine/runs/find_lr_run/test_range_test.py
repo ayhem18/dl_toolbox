@@ -93,3 +93,38 @@ def test_diverge_stops_before_keeping_the_spike() -> None:
     assert len(lrs) == 2
     assert losses[0] == pytest.approx(1.0)
     assert losses[1] == pytest.approx(1.05)
+
+
+def test_value_error_from_loss_stops_the_walk() -> None:
+    step = {"i": 0}
+
+    def raising_loss(output: Tensor, batch: dict[str, Tensor]) -> Tensor:
+        i = step["i"]
+        step["i"] += 1
+        if i >= 2:
+            raise ValueError("tensor contains NaN or inf")
+        return output.sum() * 0.0 + 1.0
+
+    net, optimizer, loader = net_optimizer_loader()
+    lrs, losses = run_range_test(
+        net=net,
+        optimizer=optimizer,
+        train_loader=loader,
+        steps=FindLrSteps(
+            prepare_tensors_fn=prepare_tensors,
+            forward_fn=forward_fn,
+            loss_fn=raising_loss,
+        ),
+        spec=FindLrSpec.range(
+            start_lr=1e-4,
+            end_lr=1e-1,
+            num_iter=4,
+            smooth_f=0.0,
+            diverge_th=4.0,
+        ),
+        device=torch.device("cpu"),
+        runtime=cpu_runtime(),
+    )
+    assert len(lrs) == 2
+    assert losses[0] == pytest.approx(1.0)
+    assert losses[1] == pytest.approx(1.0)

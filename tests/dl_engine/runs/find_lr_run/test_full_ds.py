@@ -174,3 +174,43 @@ def test_non_finite_candidate_is_skipped_later_lrs_run() -> None:
     assert losses[1] == pytest.approx(0.5)
     for i in range(len(losses)):
         assert math.isfinite(losses[i])
+
+
+def test_value_error_from_loss_skips_candidate_later_lrs_run() -> None:
+    step = {"i": 0}
+
+    def raising_first_then_ok(output: Tensor, batch: dict[str, Tensor]) -> Tensor:
+        i = step["i"]
+        step["i"] += 1
+        if i == 0:
+            raise ValueError("tensor contains NaN or inf")
+        return output.sum() * 0.0 + 0.5
+
+    net, optimizer, loader = net_optimizer_loader(n=8, batch_size=4)
+    spec = FindLrSpec.full_ds(
+        start_lr=1e-4,
+        end_lr=1e-1,
+        num_iter=3,
+        num_iterations_per_lr=1,
+    )
+    snapshot = snapshot_trainable(model=net, optimizer=optimizer)
+    lrs, losses = run_full_ds_range_test(
+        net=net,
+        optimizer=optimizer,
+        train_loader=loader,
+        steps=FindLrSteps(
+            prepare_tensors_fn=prepare_tensors,
+            forward_fn=forward_fn,
+            loss_fn=raising_first_then_ok,
+        ),
+        spec=spec,
+        device=torch.device("cpu"),
+        runtime=cpu_runtime(),
+        snapshot=snapshot,
+    )
+    expected = log_spaced_lrs(spec)
+    assert lrs == expected[1:]
+    assert losses[0] == pytest.approx(0.5)
+    assert losses[1] == pytest.approx(0.5)
+    for i in range(len(losses)):
+        assert math.isfinite(losses[i])
