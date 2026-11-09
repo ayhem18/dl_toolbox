@@ -1,0 +1,225 @@
+---
+description: TrainOnlyEngine is the experiment engine for train-only runs. EnginePurpose is fit or inspect. IdentityOverwritePolicy is TrainValEngine's off or overwrite_name. train() and inspect() are zero-arg. Rank 0 claims HashManager occupancy on identity_index; other ranks attach. Getters are the recipe surface.
+globs: **/train_only_engine/train_only_engine.py, **/tests/dl_engine/exp_engine/train_only_engine/**
+alwaysApply: false
+---
+
+# TrainOnlyEngine
+
+## Context
+
+TrainOnlyRun is `fit()` for a run with a train loader and no val loop: pretrain, a single-corpus pass, a debug overfit. Occupancy is the same story TrainValEngine already answers for train+val: which `(hash, name)` is this run, is the pair free, who creates the artifacts Directory, which Logger and which net the procedure consumes. Inspect still reads that tree. The Lightning loop is the part that changed.
+
+`TrainOnlyEngine` is that object for one process. `EnginePurpose` is `fit` or `inspect` at construction — the same type TrainValEngine uses. `train()` and `inspect()` take no arguments. Rank 0 on fit claims HashManager occupancy on `identity_index`; other ranks attach. Inspect attaches; it does not create the pair. `IdentityOverwritePolicy` is TrainValEngine's: consulted only on `NAME_TAKEN`.
+
+`train()` calls TrainOnlyRun `fit(...)` with the getters. Logger `CREATE` on `LogStream.FIT` happens inside that `fit`, not here. Close is that procedure's `finally`. After a successful claim, rank 0 `checkpointer.mark_finished()` in `train()`'s `finally`, the same finished mark TrainValEngine writes.
+
+`inspect()` fetches a checkpoint, loads the net, and calls EvalRun `evaluate(...)` with `LogStream.INSPECT` / `LogExistence.REQUIRE`. The inspect set is whatever `get_eval_loaders` / `get_evaluate_fn` bind. Fit never iterated those loaders.
+
+The engine does not invent a project tree. Getters return the HashManager, the identity index, the artifacts Directory, the net, TrainOnlyLoaders, FitSteps, TrainOnlyMetrics, the logger, the checkpointer. A concrete engine (`DefaultLayoutTrainOnlyEngine`) fills those getters.
+
+### What TrainOnlyEngine needs in order to operate
+
+1. getters bound by the concrete class
+2. `EnginePurpose` is `FIT` or `INSPECT`
+3. HashManager reachable; on fit rank 0, `get_identity_index()` can be created
+4. `get_force()` is `IdentityOverwritePolicy.OFF` or `OVERWRITE_NAME` (fit)
+
+### What TrainOnlyEngine can do
+
+- **`train`:** claim or attach occupancy, seed, call TrainOnlyRun `fit`, mark finished if this process claimed.
+- **`inspect`:** attach occupancy, fetch a checkpoint, load the net, call `evaluate`.
+- **`process_run_identity`:** rank 0 `claim_fit_identity`; worker `attach_fit_identity`.
+- **`require_identity`:** getters that need the claimed tree may run.
+
+---
+
+## Terminology
+
+HashManager: `.cursor/rules/dl_toolbox_structure/base/hashing/hash_manager.mdc`.
+TrainOnlyRun (`fit`, `TrainOnlyLoaders`, `TrainOnlyMetrics`, `TrainOnlyLightningModule`): `.cursor/rules/dl_toolbox_structure/dl_engine/runs/train_only_run.mdc`.
+EvalRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/eval_run.mdc`.
+Logger, LogStream, LogExistence: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`.
+EnginePurpose, IdentityOverwritePolicy, parse_purpose, parse_force: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `TrainOnlyEngine` | one process's train-only engine: purpose plus bound getters |
+| `train` | zero-arg. `EnginePurpose` must be `FIT` |
+| `inspect` | zero-arg. `EnginePurpose` must be `INSPECT` |
+| `process_run_identity` | rank 0 `claim_fit_identity`; worker `attach_fit_identity` |
+| `claim_fit_identity` | `create_identity_index`, lookup, then create or overwrite |
+| `attach_fit_identity` | wait until `BOTH_MATCH` and artifacts Directory exist |
+| `get_run_name` | human-readable name |
+| `get_identity_payload` | JSON-legal mapping HashManager hashes |
+| `get_force` | `IdentityOverwritePolicy` value. Fit only |
+| `get_identity_index` | HashManager index Directory |
+| `get_artifacts_directory` | run artifacts Directory |
+| `get_loaders` | `TrainOnlyLoaders` |
+| `get_metrics` | `TrainOnlyMetrics` |
+| `is_ddp_worker` | rank env says this process is not rank 0 |
+
+HashManager owns `identity.lock` on the identity index. Attach poll: `TrainOnlyEngine.ATTACH_POLL_SECONDS = 0.05` (same value TrainValEngine names). Rank env names live on the class: `RANK_ENV`, `GLOBAL_RANK_ENV`, `NODE_RANK_ENV`, `GROUP_RANK_ENV`, `LOCAL_RANK_ENV` (same strings TrainValEngine names).
+
+---
+
+## Input Specification
+
+Constructor binds `purpose`. `purpose` is `EnginePurpose.FIT` or `EnginePurpose.INSPECT`. Getters are bound by the concrete class.
+
+`train()`: purpose is `FIT`. Rank 0: HashManager reachable; `get_identity_index()` can be created; `get_force()` is `OFF` or `OVERWRITE_NAME`. Workers: the pair will become `BOTH_MATCH` and artifacts will exist before `get_identity_lock_timeout()`.
+
+`inspect()`: purpose is `INSPECT`. The pair is already `BOTH_MATCH`. Checkpoint `get_checkpoint_request()` is fetchable. Logger setup inside `evaluate()` is `LogStream.INSPECT` / `LogExistence.REQUIRE`.
+
+`claim_fit_identity` lookup table (same table TrainValEngine fit uses):
+
+```
+BOTH_FREE     create_pair + create artifacts Directory
+BOTH_MATCH    error (already claimed this name with this hash)
+HASH_TAKEN    error
+NAME_TAKEN    OFF → error; OVERWRITE_NAME → drop_pair, rmtree artifacts, create_pair, create artifacts
+```
+
+An artifacts Directory that already exists on `BOTH_FREE` is an orphan: error.
+
+`get_identity_payload` is JSON-legal via `dump_object`.
+
+---
+
+## Main functionalities
+
+### `train()`
+
+**input:** this engine (zero-arg).
+
+**assumptions on the input:** purpose is `EnginePurpose.FIT`.
+
+**steps:**
+
+```
+process_run_identity()
+apply_seed()
+train_only_fit(
+  net=get_net(), loaders=get_loaders(), steps=get_steps(),
+  metrics=get_metrics(), optimization=get_optimization(),
+  trainer=get_trainer(), checkpointer=get_checkpointer(),
+  logger=get_logger(), run_log=get_run_log(),
+)
+finally: if this process claimed the pair: checkpointer.mark_finished()
+```
+
+**side effects:** occupancy, training, checkpoints, FIT logs, finished mark if claimed.
+
+**outputs:** none (`fit()`'s Trainer is not returned from `train()`).
+
+### `inspect()`
+
+**input:** this engine (zero-arg).
+
+**assumptions on the input:** purpose is `EnginePurpose.INSPECT`. Pair occupied.
+
+**steps:**
+
+```
+attach_fit_identity()
+record = checkpointer.fetch(get_checkpoint_request(), dest=staging.path)
+get_inspect_payload_directory(epoch=record.epoch)
+TrainOnlyLightningModule.load_net(net=get_net(), file=record.path, map_location=get_eval_device())
+evaluate(
+  net=..., loaders=get_eval_loaders(), evaluate_fn=get_evaluate_fn(),
+  device=get_eval_device(), logger=get_logger(),
+  logger_config=EvalLoggerConfig(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE, step=record.epoch),
+  run_log=get_run_log(),
+)
+```
+
+**side effects:** inspect logs. Staging Directory under artifacts. No new identity pair.
+
+**outputs:** none.
+
+### `process_run_identity()`
+
+**input:** this engine.
+
+**assumptions on the input:** purpose is `FIT`.
+
+**steps:** if `is_ddp_worker()`: `attach_fit_identity()`; else `claim_fit_identity()`.
+
+**side effects:** claim or attach.
+
+**outputs:** none. Sets `_identity_ready`.
+
+### `claim_fit_identity()`
+
+**input:** this engine.
+
+**assumptions on the input:** rank 0, purpose `FIT`.
+
+**steps:**
+
+```
+name = get_run_name()
+payload = get_identity_payload()
+hash = HashManager.hash_payload(payload)
+index = manager.create_identity_index(get_identity_index())
+lookup = manager.lookup(index, human_readable_name=name, hash=hash)
+branch on lookup.state as Input Specification
+```
+
+**side effects:** pair table, artifacts Directory, `_claimed_fit` when this process created the pair.
+
+**outputs:** none.
+
+### `attach_fit_identity()`
+
+**input:** this engine.
+
+**assumptions on the input:** workers retry until deadline; inspect rank 0 does not retry (`is_ddp_worker()` is false → missing index raises immediately).
+
+**steps:**
+
+```
+loop until deadline:
+  identity_index must EXISTS
+  lookup BOTH_MATCH and artifacts EXISTS → identity ready, return
+  BOTH_FREE → wait (worker) or FileNotFoundError
+  NAME_TAKEN / HASH_TAKEN → FileExistsError
+```
+
+**side effects:** none on the pair table.
+
+**outputs:** none.
+
+---
+
+## Secondary functionalities
+
+`require_identity()`: `_identity_ready` must be true before getters that need the claimed tree (`get_checkpointer`, `get_logger`, `get_run_log`, inspect payload dirs).
+
+Fit getters: `get_run_name`, `get_identity_payload`, `get_force`, `get_hash_manager`, `get_identity_index`, `get_identity_lock_timeout`, `get_artifacts_directory`, `apply_seed`, `get_net`, `get_loaders`, `get_steps`, `get_metrics`, `get_optimization`, `get_trainer`, `get_checkpointer`, `get_logger`, `get_run_log`.
+
+Inspect getters: the identity getters above (except `get_force`), plus `get_checkpoint_request`, `get_inspect_staging_directory`, `get_inspect_payload_directory(*, epoch)`, `get_eval_loaders`, `get_evaluate_fn`, `get_eval_device`. `get_net` / `get_metrics` / `get_checkpointer` / `get_logger` / `get_run_log` are used on inspect too.
+
+`parse_purpose` / `parse_force` are TrainValEngine's `parse_one_of` onto `EnginePurpose` / `IdentityOverwritePolicy`.
+
+`is_ddp_worker`: any of `RANK_ENV` / `GLOBAL_RANK_ENV` / `LOCAL_RANK_ENV` (and kin) parsed as int `> 0`.
+
+`TrainOnlyLightningModule.load_net` loads a Lightning checkpoint whose inner module name is `net` into the bound `nn.Module`.
+
+---
+
+## What this implies for the engine/multiprocess
+
+Two processes, same `(hash, name)`, both `FIT` rank 0: the second sees `BOTH_MATCH` and errors. `OVERWRITE_NAME` is only the `NAME_TAKEN` branch. Fit and inspect share the tree; they are two engines, two purposes. Inspect `REQUIRE` needs a prior fit `CREATE` on the same logger entity. Several GPUs on fit is Lightning DDP under TrainOnlyRun; workers attach.
+
+---
+
+## Tensions
+
+- **Inspect has no uniqueness protocol of its own.** Two inspect processes on the same occupied pair both attach and both `REQUIRE`. Staging Directories are per-call (`uuid`); they do not serialize inspect.
+- **Inspect require needs a prior fit create.** An inspect engine on a `BOTH_FREE` pair has nothing to attach to.
+- **`OVERWRITE_NAME` is drop then create.** Two HashManager calls, `rmtree` of artifacts in between. A crash in the gap leaves `BOTH_FREE` or a half-removed artifacts tree.
+- **Attach can hang until deadline.** A worker whose rank-0 never creates the pair waits, then raises `FileNotFoundError`. Inspect rank 0 does not wait: missing index fails immediately.
+- **Resume is not a purpose.** `BOTH_MATCH` on fit rank 0 is an error. Continuing from a checkpoint is still a new claim or a different name. Checkpoint load is inspect's `fetch`.
+- **`HASH_TAKEN` has no overwrite.** The configuration already lives under another name.
+- **`LogStream.FIT` is TrainOnlyRun's setup.** This engine claims HashManager occupancy; `fit` creates the vendor row. A claiming process that dies after `claim_fit_identity` and before `on_fit_start` leaves a pair with no logger entity.

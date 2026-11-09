@@ -1,0 +1,156 @@
+---
+description: DefaultLayoutFindLrEngine fills FindLrEngine getters from a ProjectLayout plus a find-lr recipe File and an experiment with build_find_lr. Construction takes force. GPU is this process's cuda via CUDA_VISIBLE_DEVICES. No devices count, no strategy.
+globs: **/find_lr_engine/default_layout.py,**/find_lr_engine/recipe.py,**/find_lr_engine/experiment.py,**/tests/dl_engine/exp_engine/find_lr_engine/**
+alwaysApply: false
+---
+
+# DefaultLayoutFindLrEngine
+
+## Context
+
+`FindLrEngine` is abstract getters plus occupancy. A Digital Lab project that already has `ProjectLayout` should not re-specify where the identity index lives, where artifacts live, or which tracking backend constructed the loggers.
+
+`DefaultLayoutFindLrEngine` is the engine that fills those getters from one `ProjectLayout`, one find-lr recipe File, and an `experiment` object with `build_find_lr`. Construction also takes `force`. The recipe is JSON with exact keys. `experiment.build_find_lr` turns the remaining Python objects (net, optimizer, train loader, steps) into `FindLrParts`.
+
+Runtime is one device: `FindLrRuntime.accelerator` is `cpu` or `gpu`. GPU is this process's `cuda` (FindLrRun `resolve_device`). A specific physical GPU is `CUDA_VISIBLE_DEVICES` for this process. The recipe has no `devices` count and no strategy.
+
+Identity payload includes `FindLrSpec.to_dict()`, the runtime document, `experiment_config`, `seed`, and `run_group`. HashManager hashes that payload. The human-readable name is the other half of the pair.
+
+### What DefaultLayoutFindLrEngine needs in order to operate
+
+1. an existing `ProjectLayout`
+2. a recipe File that parses as `FindLrRecipe` for this layout's `tracking_backend`
+3. an `experiment` with `build_find_lr`
+4. `force`: `IdentityOverwritePolicy.OFF` or `OVERWRITE_NAME`
+
+### What DefaultLayoutFindLrEngine can do
+
+- **construction:** parse the recipe, store `force` and `experiment`. Occupancy happens in `find()`.
+- **getters:** the FindLrEngine surface, filled from layout + recipe + `FindLrParts`.
+
+---
+
+## Terminology
+
+FindLrEngine, IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/find_lr_engine/find_lr_engine.mdc`.
+ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`.
+FindLrRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/find_lr_run.mdc`.
+JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `DefaultLayoutFindLrEngine` | FindLrEngine filled from ProjectLayout + recipe |
+| `FindLrRecipe` | parsed find-lr JSON |
+| `FindLrParts` | `build_find_lr` product: `net`, `optimizer`, `train_loader`, `steps` |
+| `DefaultLayoutFindLrEngine.RESOLVED_CONFIG_FILENAME` | `"resolved_config.json"` (`RunLogConfig.filename`) |
+| `DefaultLayoutFindLrEngine.CONSTRUCTOR_KEYS` | `("force",)` |
+| `parse_find_lr_recipe` | JSON object → `FindLrRecipe` |
+
+Recipe exact keys: `human_readable_name`, `run_group`, `seed`, `lr_finder`, `runtime`, `logger`, `experiment_config`.
+
+`lr_finder` is the JSON object `parse_find_lr_spec` accepts (`kind` plus that kind's fields).
+
+`runtime` exact keys: `accelerator`, `precision`, `enable_progress_bar`.
+
+---
+
+## Input Specification
+
+Constructor: `layout`, `recipe`, `experiment`, `force`. `layout` is an existing `ProjectLayout`. `recipe` is a File. `force` is `IdentityOverwritePolicy.OFF` or `OVERWRITE_NAME`. `experiment` has `build_find_lr` (instance, or a class that constructs).
+
+Logger JSON matches `layout.tracking_backend` (TensorBoard tags vs MLflow experiment name — the same documents DefaultLayoutTrainValEngine's fit recipe uses).
+
+`runtime.accelerator` is `Accelerator.CPU` or `Accelerator.GPU`. `runtime.precision` is `int | str`. `runtime.enable_progress_bar` is `bool`.
+
+`seed` is an int `≥ 0`. `human_readable_name` is HashManager `validate_human_readable_name`. `run_group` is `ProjectLayout.parse_run_group`. `experiment_config` is a JSON object.
+
+`FindLrParts`: `net` is `nn.Module`. `optimizer` is `Optimizer`. `train_loader` is `DataLoader`. `steps` is `FindLrSteps`.
+
+---
+
+## Main functionalities
+
+### Construction
+
+**input:** `layout`, `recipe`, `experiment`, `force`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+parse FindLrRecipe from the File (tracking_backend from layout)
+parse_force(force)
+store experiment
+```
+
+**side effects:** none. Occupancy happens in `find()`. `build_find_lr` runs lazily on first getter that needs parts.
+
+**outputs:** a DefaultLayoutFindLrEngine.
+
+### Getters filled from the layout
+
+**input:** this engine, identity already ready where `require_identity()` says so.
+
+**assumptions on the input:** construction succeeded.
+
+**steps:**
+
+```
+get_run_name              → FindLrRecipe.human_readable_name
+get_identity_payload      → FindLrRecipe.identity_payload()
+get_force                 → stored force
+get_hash_manager          → layout.hash_manager
+get_identity_index        → layout.identity_index(run_group=recipe.run_group)
+get_identity_lock_timeout → layout.lock_timeout_seconds
+get_artifacts_directory   → layout.artifacts_directory(run_group=..., name=run_name)
+apply_seed                → random / numpy / torch / cuda from recipe.seed
+get_net / get_optimizer / get_train_loader / get_steps
+                          → experiment.build_find_lr(...) once, then those fields
+get_spec                  → FindLrRecipe.spec (already parsed FindLrSpec)
+get_runtime               → FindLrRecipe.runtime (already parsed FindLrRuntime)
+get_logger                → TensorBoardLogger(log_dir, run_name) or MlflowLogger(...)
+get_run_log               → RunLogConfig(
+                              payload=identity + name + tags,
+                              filename=resolved_config.json
+                            )
+```
+
+**side effects:** `build_find_lr` as the experiment defines.
+
+**outputs:** the getter returns what FindLrEngine already named.
+
+---
+
+## Secondary functionalities
+
+`FindLrRecipe.identity_payload()`:
+
+```
+{
+  "run_group": list(run_group),
+  "experiment_config": experiment_config,
+  "seed": seed,
+  "lr_finder": spec.to_dict(),
+  "runtime": {accelerator, precision, enable_progress_bar},
+}
+```
+
+`parse_find_lr_recipe` is `require_exact_keys` on the seven recipe keys, then `parse_find_lr_spec` on `lr_finder`, `FindLrRuntime` on `runtime`, and the same logger parse DefaultLayoutTrainValEngine uses for a fit recipe.
+
+`experiment.build_find_lr` receives `experiment_config` plus `project_root`. It returns `FindLrParts`.
+
+---
+
+## What this implies for the engine/multiprocess
+
+One process constructs a DefaultLayoutFindLrEngine on `ProjectLayout.from_start` and calls `find()`. Fit and finder may share a project tree; they are different engines and usually different `run_group` values. Identity name and payload always come from this recipe File.
+
+---
+
+## Tensions
+
+- **Recipe File vs `build_find_lr` callables.** JSON cannot hold an `nn.Module`. The File names what is serializable; the callables live on `experiment`.
+- **No `devices` field.** GPU is whatever `CUDA_VISIBLE_DEVICES` made device 0 for this process. A list of indices would be a second way to name the same fact.
+- **Same `run_group` as a train+val recipe shares the identity index.** A finder name can `NAME_TAKEN` against a fit name. Separate `run_group` segments (`["lr_finder"]` vs `["train"]`) keep the pair tables apart.
+- **Logger documents are the fit-recipe logger documents.** TensorBoard tags vs MLflow experiment name. There is not a third logger JSON shape for the finder.

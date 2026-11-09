@@ -27,6 +27,7 @@ TrainValRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/train_val_run.md
 | `TrainOnlyLoaders` | `train` DataLoader |
 | `TrainOnlyMetrics` | train metrics plus `monitor` |
 | `on_fit_start` | rank-0 logger setup + params + text dump |
+| `TrainOnlyLightningModule.load_net` | load a Lightning checkpoint whose inner module name is `net` |
 
 `FitSteps`, `TrainerConfig`, `OptimizationConfig`, `EarlyStoppingConfig`, `RunLogConfig`, `Accelerator`, `Strategy`, `FitError` are the common objects TrainValRun names.
 

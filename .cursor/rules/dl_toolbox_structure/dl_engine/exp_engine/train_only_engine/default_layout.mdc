@@ -1,0 +1,176 @@
+---
+description: DefaultLayoutTrainOnlyEngine fills TrainOnlyEngine getters from a ProjectLayout plus a train-recipe File and an experiment with build_train_only / build_eval. Inspect adds inspect_recipe File and eval_device. GPU count picks the first N visible CUDA devices; a list is explicit indices.
+globs: **/train_only_engine/default_layout.py,**/train_only_engine/recipe.py,**/train_only_engine/experiment.py,**/tests/dl_engine/exp_engine/train_only_engine/**
+alwaysApply: false
+---
+
+# DefaultLayoutTrainOnlyEngine
+
+## Context
+
+`TrainOnlyEngine` is abstract getters plus occupancy. A Digital Lab project that already has `ProjectLayout` should not re-specify where the identity index lives, where artifacts live, or which tracking backend constructed the loggers.
+
+`DefaultLayoutTrainOnlyEngine` is the engine that fills those getters from one `ProjectLayout`, one train-only recipe File, and an `experiment` object with `build_train_only` / `build_eval`. Fit construction also takes `force`. Inspect construction also takes `inspect_recipe` (File) and `eval_device`. Recipes are JSON with exact keys. `experiment.build_train_only` / `build_eval` turn the remaining Python objects (net, loaders, metrics, evaluate_fn) into `TrainOnlyFitParts` / `TrainOnlyEvalParts`.
+
+Trainer `devices` is either an int `N` (first `N` visible CUDA devices) or a list of GPU indices. One device → `Strategy.SINGLE_DEVICE`. More than one → `Strategy.DDP`. CPU → empty device tuple and `SINGLE_DEVICE`. That map is `devices_and_strategy` as DefaultLayoutTrainValEngine already names it.
+
+Identity payload includes the trainer document, checkpoint policy, early stopping, `experiment_config`, `seed`, and `run_group`. HashManager hashes that payload. The human-readable name is the other half of the pair.
+
+### What DefaultLayoutTrainOnlyEngine needs in order to operate
+
+1. an existing `ProjectLayout`
+2. a train-recipe File that parses as `TrainOnlyRecipe` for this layout's `tracking_backend`
+3. an `experiment` with `build_train_only` and `build_eval`
+4. fit: `force` is `IdentityOverwritePolicy.OFF` or `OVERWRITE_NAME`
+5. inspect: `inspect_recipe` File and `eval_device`
+
+### What DefaultLayoutTrainOnlyEngine can do
+
+- **construction:** parse the train recipe, store `force` or inspect fields. Occupancy happens in `train()` / `inspect()`.
+- **getters:** the TrainOnlyEngine surface, filled from layout + recipe + Parts.
+
+---
+
+## Terminology
+
+TrainOnlyEngine, EnginePurpose, IdentityOverwritePolicy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_only_engine/train_only_engine.mdc`.
+ProjectLayout, TrackingBackend: `.cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc`.
+TrainOnlyRun: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/train_only_run.mdc`.
+JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+`devices_and_strategy`, `pick_visible_gpu_indices`: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/default_layout.mdc`.
+
+| Term | Meaning |
+|---|---|
+| `DefaultLayoutTrainOnlyEngine` | TrainOnlyEngine filled from ProjectLayout + recipes |
+| `TrainOnlyRecipe` | parsed train-only JSON |
+| `TrainOnlyFitParts` | `build_train_only` product: `net`, `loaders`, `steps`, `metrics`, `optimization` |
+| `TrainOnlyEvalParts` | `build_eval` product: `loaders`, `evaluate_fn` |
+| `DefaultLayoutTrainOnlyEngine.RESOLVED_CONFIG_FILENAME` | `"resolved_config.json"` (`RunLogConfig.filename`) |
+| `DefaultLayoutTrainOnlyEngine.INSPECTION_STAGING_DIRNAME` | `"inspection_staging"` |
+| `DefaultLayoutTrainOnlyEngine.INSPECTION_RUNS_DIRNAME` | `"inspection_runs"` |
+| `DefaultLayoutTrainOnlyEngine.FIT_CONSTRUCTOR_KEYS` | `("force",)` |
+| `DefaultLayoutTrainOnlyEngine.INSPECT_CONSTRUCTOR_KEYS` | `("inspect_recipe", "eval_device")` |
+| `parse_train_only_recipe` | JSON object → `TrainOnlyRecipe` |
+
+Train-recipe exact keys: `human_readable_name`, `run_group`, `seed`, `trainer`, `checkpoint_policy`, `early_stopping`, `logger`, `experiment_config`.
+
+Inspect-recipe exact keys: `selector`, `evaluate` (the same inspect document DefaultLayoutTrainValEngine parses).
+
+`trainer` exact keys are the fit-trainer document DefaultLayoutTrainValEngine already uses: `max_epochs`, `accelerator`, `devices`, `precision`, `enable_progress_bar`, `accumulate_grad_batches`.
+
+---
+
+## Input Specification
+
+Constructor: `purpose`, `layout`, `train_recipe`, `experiment`, plus purpose-specific extra keys. `layout` is an existing `ProjectLayout`. `train_recipe` is a File. `experiment` has `build_train_only` and `build_eval` (instance, or a class that constructs).
+
+Fit: `purpose` is `EnginePurpose.FIT`. Extra exact key `force` (`IdentityOverwritePolicy.OFF` or `OVERWRITE_NAME`).
+
+Inspect: `purpose` is `EnginePurpose.INSPECT`. Extra exact keys `inspect_recipe` (File) and `eval_device` (`torch.device`). Pair will be `BOTH_MATCH` by the time `inspect()` attaches.
+
+Logger JSON matches `layout.tracking_backend` (TensorBoard tags vs MLflow experiment name — the same documents DefaultLayoutTrainValEngine's fit recipe uses).
+
+`seed` is an int `≥ 0`. `human_readable_name` is HashManager `validate_human_readable_name`. `run_group` is `ProjectLayout.parse_run_group`. `experiment_config` is a JSON object.
+
+`TrainOnlyFitParts`: `net` is `nn.Module`. `loaders` is `TrainOnlyLoaders`. `steps` is `FitSteps`. `metrics` is `TrainOnlyMetrics`. `optimization` is `OptimizationConfig`.
+
+`TrainOnlyEvalParts`: `loaders` is `EvalLoaders`. `evaluate_fn` is callable.
+
+---
+
+## Main functionalities
+
+### Construction
+
+**input:** `purpose`, `layout`, `train_recipe`, `experiment`, plus purpose-specific extra keys.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+parse TrainOnlyRecipe from the File (always; identity lives there)
+if FIT: parse_force(fields["force"]); return
+if INSPECT: parse inspect_recipe File; store eval_device
+```
+
+**side effects:** none. Occupancy happens in `train()` / `inspect()`. `build_train_only` / `build_eval` run lazily on first getter that needs parts.
+
+**outputs:** a DefaultLayoutTrainOnlyEngine.
+
+### Getters filled from the layout
+
+**input:** this engine, identity already ready where `require_identity()` says so.
+
+**assumptions on the input:** construction succeeded.
+
+**steps:**
+
+```
+get_run_name              → TrainOnlyRecipe.human_readable_name
+get_identity_payload      → TrainOnlyRecipe.identity_payload()
+get_force                 → stored force (FIT only)
+get_hash_manager          → layout.hash_manager
+get_identity_index        → layout.identity_index(run_group=recipe.run_group)
+get_identity_lock_timeout → layout.lock_timeout_seconds
+get_artifacts_directory   → layout.artifacts_directory(run_group=..., name=run_name)
+apply_seed                → random / numpy / torch / cuda from recipe.seed
+get_net / get_loaders / get_steps / get_metrics / get_optimization
+                          → experiment.build_train_only(...) once, then those fields
+get_trainer               → TrainerConfig from recipe + devices_and_strategy
+get_checkpointer          → InspectableCheckpointer on existing artifacts
+get_logger                → TensorBoardLogger(log_dir, run_name) or MlflowLogger(...)
+get_run_log               → RunLogConfig(
+                              payload=identity + name + tags,
+                              filename=resolved_config.json
+                            )
+get_checkpoint_request    → CheckpointRequest.parse(inspect_recipe.selector)
+get_inspect_staging_directory → artifacts/inspection_staging/{uuid} CREATE
+get_inspect_payload_directory(epoch) → artifacts/inspection_runs/epoch={epoch} CREATE
+get_eval_loaders / get_evaluate_fn → experiment.build_eval(...) once
+get_eval_device           → constructor eval_device
+```
+
+**side effects:** `build_train_only` / `build_eval` as the experiment defines. Staging / payload Directories created on inspect getters.
+
+**outputs:** the getter returns what TrainOnlyEngine already named.
+
+---
+
+## Secondary functionalities
+
+`TrainOnlyRecipe.identity_payload()`:
+
+```
+{
+  "run_group": list(run_group),
+  "experiment_config": experiment_config,
+  "seed": seed,
+  "trainer": trainer document,
+  "checkpoint_policy": checkpoint_policy document,
+  "early_stopping": early_stopping document,
+}
+```
+
+`parse_train_only_recipe` is `require_exact_keys` on the eight recipe keys, then the same trainer / checkpoint_policy / early_stopping / logger documents DefaultLayoutTrainValEngine uses for a fit recipe.
+
+`experiment.build_train_only` receives `experiment_config` plus `project_root`. It returns `TrainOnlyFitParts`. `build_eval` receives `experiment_config`, inspect `evaluate` field, `project_root`, `payload_dir`. It returns `TrainOnlyEvalParts`.
+
+Inspect recipe parse is DefaultLayoutTrainValEngine's `parse_inspect_recipe`.
+
+---
+
+## What this implies for the engine/multiprocess
+
+Fit rank 0 and inspect both construct a DefaultLayoutTrainOnlyEngine on the same `ProjectLayout.from_start`. They pass different purpose-specific constructor keys. They do not share an in-memory engine object. Identity name and payload always come from the train-recipe File, including on inspect. Fit and train+val may share a project tree; they are different engines and usually different `run_group` values.
+
+---
+
+## Tensions
+
+- **Recipe File vs `build_train_only` callables.** JSON cannot hold an `nn.Module`. The File names what is serializable; the callables live on `experiment`.
+- **`eval_device` is inspect-only.** Fit devices come from the trainer recipe. Inspect does not reread that field.
+- **GPU count is a prefix of visible devices.** Hiding a GPU from this process is `CUDA_VISIBLE_DEVICES`. An explicit list is indices in that visible space.
+- **Train recipe is required on inspect construction.** Inspect still parses it for name, run_group, logger, and `build_eval`'s `experiment_config`.
+- **Same `run_group` as a train+val recipe shares the identity index.** A train-only name can `NAME_TAKEN` against a train+val name. Separate `run_group` segments (`["pretrain"]` vs `["train"]`) keep the pair tables apart.
+- **Logger documents are the fit-recipe logger documents.** TensorBoard tags vs MLflow experiment name. There is not a third logger JSON shape for train-only.

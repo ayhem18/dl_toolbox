@@ -1,0 +1,407 @@
+---
+description: FindLrRun is find_lr() for a learning-rate range test. FindLrSpec is RANGE or FULL_DS. LogStream.FIT / LogExistence.CREATE, flatten_object, dump_object, write_object lr_curve.json, matplotlib plot. Snapshot restore leaves the caller's net unchanged.
+globs: **/runs/lr_finder_run/**,**/tests/dl_engine/runs/find_lr_run/**
+alwaysApply: false
+---
+
+# FindLrRun
+
+## Context
+
+A learning-rate range test answers a question fit cannot: which LR is even in the right order of magnitude for *this* net, *this* optimizer, *this* loader. Leslie Smith's method walks a log-spaced grid, one optimizer step per candidate, and reads the loss curve. A second method asks a different question of the same grid: if the net trains for a fixed number of loader passes at one LR, starting every time from the same weights, what mean loss do you get back. The first is a walk along a changing trajectory. The second is independent short trains. Both restore the caller's net and optimizer when they are done. The range test is not a fit. After `find_lr` returns, the tensors the caller holds are the tensors they passed in.
+
+That restore is why this run exists as its own procedure. Fit writes checkpoints and a FIT stream and leaves trained weights. The finder must leave the weights alone and still occupy a run: a HashManager pair, an artifacts Directory, a vendor logger row with a curve you can look at. Occupancy and logging are the same story as TrainValRun. The loop is not.
+
+`FindLrRun` is that procedure: `find_lr`. One process, one device. The engine claims occupancy and constructs the Logger and the artifacts Directory. This procedure opens the FIT stream (`LogStream.FIT`, `LogExistence.CREATE`), logs the `RunLogConfig` payload the same way fit does (`flatten_object` → `log_params`, `dump_object` → `log_text`), runs one of the two sweeps, restores, suggests LRs from the curve, writes `lr_curve.json` and `lr_curve.png` under artifacts, logs the curve, and `close()`s in `finally`.
+
+The two sweeps are one spec product, not two run folders. `FindLrSpec.range(...)` is the walk: smoothing, diverge stop, three suggestions (`steepest`, `before_min`, `min_loss_lr`). `FindLrSpec.full_ds(...)` is the reset: `num_iterations_per_lr` loader passes at each candidate, mean eval loss on that same loader, one suggestion (`min_loss_lr`). Kind lives on the spec. `find_lr` reads it.
+
+The walk, the reset, suggestion, the plot, the logger tags, and the two artifact filenames are this run.
+
+Taking a CPU clone of the net and optimizer and putting it back, writing one LR onto every param group, moving prepared tensors onto a device, AMP around forward and `optimizer.step`, cycling a DataLoader when it is exhausted, and a known-length progress range are DL-engine utilities. This run uses them. They are not the range test. Those utilities have no contract yet; this note talks to them because restore is how the finder leaves the caller's net unchanged, and AMP / device / progress are how one training step actually runs.
+
+`FindLrSteps` is prepare, forward, loss — the three callables the sweep needs. Fit's fourth callable (`build_metric_inputs_fn`) is a metric concern. A caller who already has `FitSteps` copies the three through `FindLrSteps.from_fit_steps`.
+
+### What FindLrRun needs in order to operate
+
+1. `net`, `optimizer`, `train_loader` already in this process
+2. `FindLrSteps`, `FindLrSpec`, `FindLrRuntime`
+3. a Logger already constructed (store and name bound; not yet open)
+4. an artifacts Directory that exists
+5. `RunLogConfig`
+
+### What FindLrRun can do
+
+- **`find_lr`:** snapshot, sweep, restore, suggest, write the curve File and the plot File, log, close.
+- **`FindLrSpec.range` / `FindLrSpec.full_ds`:** construct the spec product.
+- **`parse_find_lr_spec`:** JSON object → `FindLrSpec`.
+
+---
+
+## Terminology
+
+Logger, LogStream, LogExistence: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`.
+JSON `dump_object` / `flatten_object` / `write_object` / `JsonTextForm`: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`.
+Directory, File: `.cursor/rules/dl_toolbox_structure/base/file_management/directory.mdc`, `file.mdc`.
+`require(*, package)`: `.cursor/rules/dl_toolbox_structure/base/packaging/require.mdc`.
+`parse_one_of`: `.cursor/rules/dl_toolbox_structure/base/parsing/parse_utils.mdc`. Spec JSON shape: `RangeFindLrSpecDocument` / `FullDsFindLrSpecDocument`.
+`FitSteps`, `RunLogConfig`, `Accelerator`: `.cursor/rules/dl_toolbox_structure/dl_engine/runs/train_val_run.mdc`.
+TrainValEngine occupancy: `.cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_val_engine/train_val_engine.mdc`.
+
+`TrainableSnapshot`, `snapshot_trainable`, `restore_trainable`, `set_optimizer_lr`, `mapping_to_device`, `cycling_batches`, `AmpSession`, `range_progress` have no contract yet. This run calls them as named below.
+
+| Term | Meaning |
+|---|---|
+| `find_lr` | the range-test procedure |
+| `FindLrRun` | constants this run owns, plus `find_lr` |
+| `FindLrSpec` | sweep hyperparameters; kind is `RANGE` or `FULL_DS` |
+| `FindLrSpec.RANGE` | `"range"` — one optimizer step per log-spaced LR, smooth, stop on diverge |
+| `FindLrSpec.FULL_DS` | `"full_ds"` — restore snapshot, train N loader passes, mean eval loss, next LR |
+| `FindLrSpec.KINDS` | `(RANGE, FULL_DS)` |
+| `FindLrSpec.range(...)` | RANGE constructor |
+| `FindLrSpec.full_ds(...)` | FULL_DS constructor |
+| `RangeFindLrSpecDocument` | pydantic RANGE document (`kind`, grid, `smooth_f`, `diverge_th`) |
+| `FullDsFindLrSpecDocument` | pydantic FULL_DS document (`kind`, grid, `num_iterations_per_lr`) |
+| `start_lr` / `end_lr` | inclusive ends of the log-spaced grid; `0 < start_lr < end_lr` |
+| `num_iter` | number of candidate LRs; int ≥ 2 |
+| `smooth_f` | EMA factor on RANGE; float in `[0, 1)` |
+| `diverge_th` | RANGE stop when smoothed loss `> diverge_th * best_loss`; float `> 1` |
+| `num_iterations_per_lr` | FULL_DS loader passes per candidate; int ≥ 1 |
+| `FindLrSteps` | `prepare_tensors_fn`, `forward_fn`, `loss_fn` |
+| `FindLrSteps.from_fit_steps` | copy those three from `FitSteps` |
+| `FindLrRuntime` | `accelerator`, `precision`, `enable_progress_bar` |
+| `FindLrResult` | `kind`, `lrs`, `losses`, `suggested`, `curve`, `plot` |
+| `FindLrError` | run-level error |
+| `log_spaced_lrs` | inclusive log grid from a spec |
+| `run_range_test` | RANGE sweep |
+| `run_full_ds_range_test` | FULL_DS sweep |
+| `suggest_lrs` | RANGE suggestions |
+| `suggest_min_loss_lr` | FULL_DS suggestion |
+| `steepest` | LR at the left of the steepest `d(loss)/d(log10 lr)` segment before the min |
+| `before_min` | `min_loss_lr / 10` |
+| `min_loss_lr` | LR of the lowest finite recorded loss |
+| `plot_lr_curve` | semilog figure → PNG File plus the array `log_image` accepts |
+| `parse_find_lr_spec` | JSON object → `FindLrSpec` |
+| `resolve_device` | `Accelerator` → `torch.device` |
+| `FindLrRun.CURVE_FILENAME` | `"lr_curve.json"` |
+| `FindLrRun.PLOT_FILENAME` | `"lr_curve.png"` |
+| `FindLrRun.TAG_LR` | `"lr_finder/lr"` |
+| `FindLrRun.TAG_LOSS` | `"lr_finder/loss"` |
+| `FindLrRun.TAG_TABLE` | `"lr_finder/curve"` |
+| `FindLrRun.TAG_PLOT` | `"lr_finder/plot"` |
+| `FindLrRun.SUGGESTED_PREFIX` | `"suggested/"` |
+
+Direct `FindLrSpec()` is an error. Use `range` / `full_ds`.
+
+---
+
+## Input Specification
+
+`find_lr(*, net, optimizer, train_loader, steps, spec, runtime, logger, artifacts, run_log)`:
+
+- `net` is `nn.Module`.
+- `optimizer` is `torch.optim.Optimizer`.
+- `train_loader` is a `DataLoader`. An empty loader is `FindLrError` at the first `next` / first pass.
+- `steps` is `FindLrSteps`. `prepare_tensors_fn` returns a `dict`. Tensors in that dict are moved onto the device; other values pass through.
+- `spec` is `FindLrSpec`. `spec.kind` is `FindLrSpec.RANGE` or `FindLrSpec.FULL_DS` (`parse_one_of`, `error_type=FindLrError`).
+- `runtime.accelerator` is `Accelerator.CPU` or `Accelerator.GPU` (`parse_one_of`). GPU requires CUDA at `resolve_device`.
+- `runtime.precision` is the value `AmpSession.from_precision` accepts (`int | str`).
+- `runtime.enable_progress_bar` is `bool`.
+- `logger` is a `Logger`, constructed, not yet open.
+- `artifacts` is a Directory that exists.
+- `run_log.payload` is JSON-legal via `dump_object`.
+
+This process is the only process of the run. `resolve_device` returns one `torch.device`: CPU → `cpu`; GPU → `cuda` (this process's device 0).
+
+RANGE fields: `start_lr`, `end_lr`, `num_iter`, `smooth_f`, `diverge_th`. FULL_DS fields: `start_lr`, `end_lr`, `num_iter`, `num_iterations_per_lr`. The other kind's fields are not on the object.
+
+`FindLrSteps.from_fit_steps(fit_steps)`: `fit_steps` is `FitSteps`.
+
+`parse_find_lr_spec(payload)`: `payload` is a JSON object. `kind` is `parse_one_of` onto `FindLrSpec.KINDS`. The matching document (`RangeFindLrSpecDocument` / `FullDsFindLrSpecDocument`) owns the remaining shape (`extra="forbid"`, `strict=True`) and the domain rules. `FindLrSpec.range` / `full_ds` validate through those same documents.
+
+RANGE fields: `kind`, `start_lr`, `end_lr`, `num_iter`, `smooth_f`, `diverge_th`.
+FULL_DS fields: `kind`, `start_lr`, `end_lr`, `num_iter`, `num_iterations_per_lr`.
+
+`start_lr` / `end_lr` / `smooth_f` / `diverge_th` are exact `float`. `num_iter` / `num_iterations_per_lr` are exact `int` (not `bool`). `0 < start_lr < end_lr`. `num_iter >= 2`. RANGE: `smooth_f` in `[0, 1)`, `diverge_th > 1`. FULL_DS: `num_iterations_per_lr >= 1`.
+
+`FindLrResult.suggested` keys:
+
+- RANGE: `steepest`, `before_min`, `min_loss_lr`
+- FULL_DS: `min_loss_lr`
+
+Every recorded loss on `FindLrResult` and in `lr_curve.json` is finite. JSON does not carry non-finite numbers.
+
+`require(package="matplotlib")` runs before the sweep. The plot is a required artifact of `find_lr`.
+
+---
+
+## Main functionalities
+
+### `find_lr(...)`
+
+**input:** `net`, `optimizer`, `train_loader`, `steps`, `spec`, `runtime`, `logger`, `artifacts`, `run_log`.
+
+**assumptions on the input:** Input Specification. Engine already claimed occupancy and created `artifacts`.
+
+**steps:**
+
+```
+require(package="matplotlib")
+device = resolve_device(runtime)
+logger.setup(stream=LogStream.FIT, existence=LogExistence.CREATE)
+try:
+    logger.log_params(flatten_object(run_log.payload))
+    logger.log_text(
+        run_log.filename,
+        dump_object(run_log.payload, form=JsonTextForm.ASCII_PRETTY),
+        step=0,
+    )
+    net.to(device)
+    snapshot = snapshot_trainable(net, optimizer)
+    try:
+        if spec.kind is RANGE:
+            lrs, losses = run_range_test(...)
+            suggested = suggest_lrs(lrs, losses)
+            ylabel = "smoothed loss"
+        else:
+            lrs, losses = run_full_ds_range_test(...)
+            suggested = suggest_min_loss_lr(lrs, losses)
+            ylabel = "eval loss"
+    finally:
+        restore_trainable(net, optimizer, snapshot, device)
+    log each kept point:
+        logger.log_scalars(
+            {FindLrRun.TAG_LR: lr, FindLrRun.TAG_LOSS: loss},
+            step=i,
+        )
+    plot = plot_lr_curve(artifacts, lrs, losses, suggested, ylabel)
+    logger.log_image(FindLrRun.TAG_PLOT, plot image, step=0)
+    curve = write_object(
+        directory=artifacts,
+        name=FindLrRun.CURVE_FILENAME,
+        payload={
+            "kind": spec.kind,
+            "lrs": list(lrs),
+            "losses": list(losses),
+            "suggested": dict(suggested),
+        },
+        form=JsonTextForm.DOCUMENT,
+    )
+    last = len(lrs) - 1
+    logger.log_scalars(
+        {FindLrRun.SUGGESTED_PREFIX + key: value for key, value in suggested},
+        step=last,
+    )
+    logger.log_table(
+        FindLrRun.TAG_TABLE,
+        rows=[{"lr": lr, "loss": loss} per point],
+        step=last,
+    )
+finally:
+    logger.close()
+return FindLrResult(kind=spec.kind, lrs, losses, suggested, curve, plot)
+```
+
+**side effects:** optimizer steps during the sweep; weights and optimizer restored; FIT stream created and closed; `lr_curve.json` and `lr_curve.png` under `artifacts`.
+
+**outputs:** `FindLrResult`. After return, `net` and `optimizer` match the snapshot. Train vs eval mode of `net` is whatever restore left.
+
+### `FindLrSpec.range(*, start_lr, end_lr, num_iter, smooth_f, diverge_th)`
+
+**input:** the five RANGE fields.
+
+**assumptions on the input:** Input Specification.
+
+**steps:** `RangeFindLrSpecDocument.model_validate`; copy fields onto `FindLrSpec`.
+
+**outputs:** a `FindLrSpec`.
+
+### `FindLrSpec.full_ds(*, start_lr, end_lr, num_iter, num_iterations_per_lr)`
+
+**input:** the four FULL_DS fields.
+
+**assumptions on the input:** Input Specification.
+
+**steps:** `FullDsFindLrSpecDocument.model_validate`; copy fields onto `FindLrSpec`.
+
+**outputs:** a `FindLrSpec`.
+
+---
+
+## Secondary functionalities
+
+### `log_spaced_lrs(spec)`
+
+`num_iter` points, inclusive:
+
+```
+gamma = end_lr / start_lr
+lr[i] = start_lr * gamma ** (i / (num_iter - 1))    i = 0 .. num_iter-1
+```
+
+### `resolve_device(runtime)`
+
+`Accelerator.CPU` → `torch.device("cpu")`. `Accelerator.GPU` → `torch.device("cuda")` if CUDA is available, else `FindLrError`.
+
+### `run_range_test(...)`
+
+**input:** `net`, `optimizer`, `train_loader`, `steps`, `spec` (RANGE), `device`, `runtime`.
+
+**steps:**
+
+```
+net.train()
+amp = AmpSession.from_precision(runtime.precision, device)
+candidates = log_spaced_lrs(spec)
+batches = cycling_batches(train_loader, spec.num_iter)
+avg_loss = 0.0
+best_loss = +inf
+kept = empty
+for i, lr in enumerate(candidates):
+    raw_batch = next(batches)          # empty loader → FindLrError
+    set_optimizer_lr(optimizer, lr)
+    prepared = mapping_to_device(steps.prepare_tensors_fn(raw_batch), device)
+    optimizer.zero_grad(set_to_none=True)
+    with amp.autocast():
+        output = steps.forward_fn(net, prepared)
+        loss = steps.loss_fn(output, prepared)
+    raw = float(loss.detach().cpu())
+    if raw is not finite: break          # do not step, do not keep
+    amp.optimizer_step(loss, optimizer)
+    if smooth_f <= 0:
+        smoothed = raw
+    else:
+        avg_loss = smooth_f * avg_loss + (1 - smooth_f) * raw
+        smoothed = avg_loss / (1 - smooth_f ** (i + 1))
+    if smoothed < best_loss:
+        best_loss = smoothed
+    if i > 0 and smoothed > diverge_th * best_loss:
+        break                            # do not keep this point
+    append (lr, smoothed) to kept
+if len(kept) < 2:
+    FindLrError
+return kept lrs, kept losses
+```
+
+`cycling_batches`: iterate `train_loader`; when the iterator is exhausted, start it again. Exhausting an empty loader is `FindLrError`.
+
+Progress: `range_progress(spec.num_iter, enabled=runtime.enable_progress_bar, desc="lr_finder", unit="step")`.
+
+### `run_full_ds_range_test(...)`
+
+**input:** `net`, `optimizer`, `train_loader`, `steps`, `spec` (FULL_DS), `device`, `runtime`. Caller already holds `snapshot` from `find_lr`; this sweep restores it before every candidate and does not own the outer restore.
+
+**steps:**
+
+```
+candidates = log_spaced_lrs(spec)
+amp = AmpSession.from_precision(runtime.precision, device)
+kept = empty
+for lr in candidates:
+    restore_trainable(net, optimizer, snapshot, device)
+    set_optimizer_lr(optimizer, lr)
+    train_ok = True
+    for _ in range(num_iterations_per_lr):
+        net.train()
+        n_batches = 0
+        for raw_batch in train_loader:
+            prepared = mapping_to_device(steps.prepare_tensors_fn(raw_batch), device)
+            optimizer.zero_grad(set_to_none=True)
+            with amp.autocast():
+                output = steps.forward_fn(net, prepared)
+                loss = steps.loss_fn(output, prepared)
+            raw = float(loss.detach().cpu())
+            if raw is not finite:
+                train_ok = False
+                break
+            amp.optimizer_step(loss, optimizer)
+            n_batches += 1
+        if n_batches == 0:
+            FindLrError                   # empty loader
+        if not train_ok:
+            break
+    if not train_ok:
+        continue                          # skip this candidate; later LRs still run
+    net.eval()
+    total = 0.0
+    n_eval = 0
+    with torch.no_grad():
+        for raw_batch in train_loader:
+            prepared = mapping_to_device(...)
+            with amp.autocast():
+                output = steps.forward_fn(net, prepared)
+                loss = steps.loss_fn(output, prepared)
+            raw = float(loss.detach().cpu())
+            if raw is not finite:
+                train_ok = False
+                break
+            total += raw
+            n_eval += 1
+    if n_eval == 0:
+        FindLrError
+    if not train_ok:
+        continue
+    append (lr, total / n_eval) to kept
+if len(kept) < 1:
+    FindLrError
+return kept lrs, kept losses
+```
+
+A non-finite candidate is omitted from the curve. Later candidates still run. Every kept loss is finite.
+
+Progress: `range_progress(spec.num_iter, enabled=..., desc="full_ds_lr_finder", unit="lr")`.
+
+### `suggest_lrs(lrs, losses)` — RANGE
+
+Same length, ≥ 2 points, all finite.
+
+`min_i` is the first index of the minimum loss. If `min_i < 1`: `FindLrError` (`loss minimum is the first recorded point; widen the LR range`).
+
+`steepest` is `lrs[j]` for the `j` in `0 .. min_i-1` that minimizes `(losses[j+1] - losses[j]) / (log10(lrs[j+1]) - log10(lrs[j]))` among segments with positive log-width. No such segment: `FindLrError`.
+
+Returns `{steepest, before_min: lrs[min_i] / 10, min_loss_lr: lrs[min_i]}`.
+
+### `suggest_min_loss_lr(lrs, losses)` — FULL_DS
+
+Same length, ≥ 1 point, all finite. Returns `{min_loss_lr}` at the first index of the minimum loss.
+
+### `plot_lr_curve(artifacts, lrs, losses, suggested, ylabel)`
+
+`require(package="matplotlib")` already succeeded.
+
+Draw `semilogx(lrs, losses)`. X label `"learning rate"`. Y label is the string `find_lr` passed. One vertical line per suggested key (`steepest`, `before_min`, `min_loss_lr` as present), legend if any line was drawn.
+
+`savefig` under `artifacts` as `FindLrRun.PLOT_FILENAME`. The File is `File.from_absolute` of that path. The image passed to `log_image` is the figure rendered to the array the Logger accepts.
+
+### `parse_find_lr_spec(payload)` / `FindLrSpec.to_dict()`
+
+Parse as Input Specification. `to_dict()` is the inverse JSON object (`kind` plus that kind's fields). Identity hashing and `RunLogConfig.payload` can include it.
+
+### `FindLrSteps.from_fit_steps(fit_steps)`
+
+Copies `prepare_tensors_fn`, `forward_fn`, `loss_fn`.
+
+### `FindLrError`
+
+`ValueError` subclass for illegal spec, empty loader, too few kept points, suggestion failure, GPU without CUDA.
+
+---
+
+## What this implies for the engine/multiprocess
+
+A later FindLrEngine (own contract) is a claiming process: HashManager pair, then create `artifacts`, construct the Logger, bind getters, call `find_lr()`. One process, one device. `LogStream.FIT` / `LogExistence.CREATE` is this procedure's setup, same occupancy as fit rank 0. There is no inspect process for this run type. Close is `find_lr`'s `finally`.
+
+Identity payload includes `FindLrSpec.to_dict()`. The engine does not start DDP and does not accumulate gradients across RANGE steps: this loop is one `optimizer.step` per RANGE batch, and a full loader pass per FULL_DS iteration.
+
+---
+
+## Tensions
+
+- **`LogStream.FIT` on a restore-loop.** Logger names two streams: fit and inspect. This run creates the vendor entity the same way a claiming process does, so HashManager occupancy and the UI row match. The stream identifier still says `fit`.
+- **FULL_DS eval is mean loss on `train_loader`.** The number is train loss after `num_iterations_per_lr` passes, not a held-out val. The caller chooses how large that loader is (a subset is a legal `DataLoader`).
+- **`before_min` is `min_loss_lr / 10`.** That value can sit below `start_lr`. It is a suggested training LR, not a grid point.
+- **RANGE suggestion refuses a minimum at index 0.** The sweep already ran and restore already happened. Curve scalars are not yet logged (`find_lr` logs after suggest). JSON and plot are not written.
+- **matplotlib is required to start the sweep.** The JSON curve is the record; the PNG is also official. A process without matplotlib never takes a RANGE step.
+- **Table rows are `{lr, loss}`.** The File also stores `kind` and `suggested`. Two representations of one curve; the File is the complete one.
+- **Plot image type is the Logger's image type.** This run converts a matplotlib figure to an array. CHW vs HWC vs `[0,1]` vs `[0,255]` is the Logger Tension, visible here as an untyped image.
+- **Steepest is a grid point.** It is the left end of the steepest log-space segment on the prefix before the min, not an interpolated LR.

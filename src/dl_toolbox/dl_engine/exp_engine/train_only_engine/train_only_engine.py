@@ -1,0 +1,411 @@
+"""TrainOnlyEngine is one process's train-only engine: purpose plus bound getters.
+
+EnginePurpose is fit or inspect. train() and inspect() take no arguments.
+Rank 0 claims HashManager occupancy on identity_index; other ranks attach.
+IdentityOverwritePolicy is off or overwrite_name (NAME_TAKEN only).
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import time
+from abc import ABC, abstractmethod
+from collections.abc import Mapping
+
+import torch
+from torch import nn
+
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
+    DirectorySpec,
+)
+from dl_toolbox.base.hashing.hash_manager import HashManager
+from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.checkpointer import (
+    InspectableCheckpointer,
+)
+from dl_toolbox.dl_engine.dl_engine_utils.checkpointing.types import CheckpointRequest
+from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
+    EnginePurpose,
+    IdentityOverwritePolicy,
+    parse_purpose,
+)
+from dl_toolbox.dl_engine.loggers.logger import LogExistence, LogStream, Logger
+from dl_toolbox.dl_engine.runs.common.run_config import (
+    FitSteps,
+    OptimizationConfig,
+    RunLogConfig,
+    TrainerConfig,
+)
+from dl_toolbox.dl_engine.runs.eval_run.eval_config import EvalLoaders, EvalLoggerConfig
+from dl_toolbox.dl_engine.runs.eval_run.eval_run import evaluate as eval_evaluate
+from dl_toolbox.dl_engine.runs.train_only_run.train_only_config import (
+    TrainOnlyLoaders,
+    TrainOnlyMetrics,
+)
+from dl_toolbox.dl_engine.runs.train_only_run.train_only_fit import fit as train_only_fit
+from dl_toolbox.dl_engine.runs.train_only_run.train_only_module import (
+    TrainOnlyLightningModule,
+)
+
+
+class TrainOnlyEngine(ABC):
+    """One process's train-only engine: EnginePurpose plus bound getters.
+
+    train() / inspect() are zero-arg. Rank 0 claims occupancy; other ranks
+    attach. Getters are the recipe surface a concrete engine fills.
+    """
+
+    ATTACH_POLL_SECONDS = 0.05
+    RANK_ENV = "RANK"
+    GLOBAL_RANK_ENV = "GLOBAL_RANK"
+    NODE_RANK_ENV = "NODE_RANK"
+    GROUP_RANK_ENV = "GROUP_RANK"
+    LOCAL_RANK_ENV = "LOCAL_RANK"
+
+    def __init__(self, *, purpose: str) -> None:
+        self._purpose = parse_purpose(purpose)
+        self._identity_ready = False
+        self._claimed_fit = False
+
+    def train(self) -> None:
+        if self._purpose != EnginePurpose.FIT:
+            raise ValueError(
+                f"train requires purpose {EnginePurpose.FIT!r}, got {self._purpose!r}"
+            )
+        self.process_run_identity()
+        self.apply_seed()
+        net = self.get_net()
+        loaders = self.get_loaders()
+        steps = self.get_steps()
+        metrics = self.get_metrics()
+        optimization = self.get_optimization()
+        trainer = self.get_trainer()
+        checkpointer = self.get_checkpointer()
+        logger = self.get_logger()
+        run_log = self.get_run_log()
+        try:
+            train_only_fit(
+                net=net,
+                loaders=loaders,
+                steps=steps,
+                metrics=metrics,
+                optimization=optimization,
+                trainer=trainer,
+                checkpointer=checkpointer,
+                logger=logger,
+                run_log=run_log,
+            )
+        finally:
+            if self._claimed_fit:
+                checkpointer.mark_finished()
+
+    def inspect(self) -> None:
+        if self._purpose != EnginePurpose.INSPECT:
+            raise ValueError(
+                f"inspect requires purpose {EnginePurpose.INSPECT!r}, got {self._purpose!r}"
+            )
+        self.attach_fit_identity()
+        checkpointer = self.get_checkpointer()
+        request = self.get_checkpoint_request()
+        staging = self.get_inspect_staging_directory()
+        record = checkpointer.fetch(request, dest=staging.path)
+        self.get_inspect_payload_directory(epoch=record.epoch)
+        net = self.get_net()
+        TrainOnlyLightningModule.load_net(
+            net=net,
+            file=record.path,
+            map_location=self.get_eval_device(),
+        )
+        eval_evaluate(
+            net=net,
+            loaders=self.get_eval_loaders(),
+            evaluate_fn=self.get_evaluate_fn(),
+            device=self.get_eval_device(),
+            logger=self.get_logger(),
+            logger_config=EvalLoggerConfig(
+                stream=LogStream.INSPECT,
+                existence=LogExistence.REQUIRE,
+                step=record.epoch,
+            ),
+            run_log=self.get_run_log(),
+        )
+
+    def process_run_identity(self) -> None:
+        """Rank 0 claims; a DDP worker attaches."""
+        if self._purpose != EnginePurpose.FIT:
+            raise ValueError(
+                "process_run_identity requires purpose "
+                f"{EnginePurpose.FIT!r}, got {self._purpose!r}"
+            )
+        if is_ddp_worker():
+            self.attach_fit_identity()
+            return
+        self.claim_fit_identity()
+
+    def claim_fit_identity(self) -> None:
+        """HashManager lookup, then create or overwrite. HashManager owns identity.lock."""
+        name = self.get_run_name()
+        payload = self.get_identity_payload()
+        manager = self.get_hash_manager()
+        configuration_hash = manager.hash_payload(payload)
+        force = self.get_force()
+        index = manager.create_identity_index(self.get_identity_index())
+        lookup = manager.lookup(
+            index, human_readable_name=name, hash=configuration_hash
+        )
+        if lookup.state == HashManager.HASH_TAKEN:
+            raise FileExistsError(
+                "configuration hash already saved as another name in this group"
+            )
+        if lookup.state == HashManager.BOTH_MATCH:
+            raise FileExistsError(
+                f"already claimed name {name!r} with this configuration hash"
+            )
+        if lookup.state == HashManager.BOTH_FREE:
+            self._claim_free_pair(
+                manager=manager,
+                index=index,
+                name=name,
+                configuration_hash=configuration_hash,
+                payload=payload,
+            )
+            return
+        if force != IdentityOverwritePolicy.OVERWRITE_NAME:
+            raise FileExistsError(
+                f"name {name!r} already exists with a different "
+                "configuration hash"
+            )
+        manager.drop_pair(index, human_readable_name=name)
+        artifacts = self.get_artifacts_directory()
+        if artifacts.path.exists():
+            shutil.rmtree(artifacts.path)
+        manager.create_pair(
+            index,
+            human_readable_name=name,
+            hash=configuration_hash,
+            extra=payload,
+        )
+        Directory.from_absolute(
+            path=artifacts.path, policy=DirectoryParsePolicy.CREATE
+        )
+        self._claimed_fit = True
+        self._identity_ready = True
+
+    def attach_fit_identity(self) -> None:
+        retry = is_ddp_worker()
+        name = self.get_run_name()
+        payload = self.get_identity_payload()
+        manager = self.get_hash_manager()
+        configuration_hash = manager.hash_payload(payload)
+        deadline = time.monotonic() + self.get_identity_lock_timeout()
+        while True:
+            index = self.get_identity_index()
+            if index.spec != DirectorySpec.EXISTS:
+                _raise_or_wait_missing(
+                    retry=retry,
+                    deadline=deadline,
+                    message=f"fit identity index does not exist: {index.path}",
+                )
+                continue
+            lookup = manager.lookup(
+                index, human_readable_name=name, hash=configuration_hash
+            )
+            if lookup.state == HashManager.BOTH_MATCH:
+                artifacts = self.get_artifacts_directory()
+                if artifacts.spec == DirectorySpec.EXISTS:
+                    self._identity_ready = True
+                    return
+                _raise_or_wait_missing(
+                    retry=retry,
+                    deadline=deadline,
+                    message=f"artifacts directory does not exist: {artifacts.path}",
+                )
+                continue
+            if lookup.state == HashManager.BOTH_FREE:
+                _raise_or_wait_missing(
+                    retry=retry,
+                    deadline=deadline,
+                    message=f"fit identity pair is not claimed: {name!r}",
+                )
+                continue
+            if lookup.state == HashManager.NAME_TAKEN:
+                raise FileExistsError(
+                    f"name {name!r} already exists with a different "
+                    "configuration hash"
+                )
+            if lookup.state == HashManager.HASH_TAKEN:
+                raise FileExistsError(
+                    "configuration hash already saved under a different name"
+                )
+            raise ValueError(f"unknown pair state {lookup.state!r}")
+
+    def _claim_free_pair(
+        self,
+        *,
+        manager: HashManager,
+        index: Directory,
+        name: str,
+        configuration_hash: str,
+        payload: Mapping[str, object],
+    ) -> None:
+        artifacts = self.get_artifacts_directory()
+        if artifacts.spec == DirectorySpec.EXISTS:
+            raise FileExistsError(
+                f"orphan artifacts directory exists: {artifacts.path}"
+            )
+        manager.create_pair(
+            index,
+            human_readable_name=name,
+            hash=configuration_hash,
+            extra=payload,
+        )
+        Directory.from_absolute(
+            path=artifacts.path, policy=DirectoryParsePolicy.CREATE
+        )
+        self._claimed_fit = True
+        self._identity_ready = True
+
+    def require_identity(self) -> None:
+        if not self._identity_ready:
+            raise RuntimeError(
+                "process_run_identity / attach_fit_identity has not succeeded"
+            )
+
+    @abstractmethod
+    def get_run_name(self) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_identity_payload(self) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_force(self) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_hash_manager(self) -> HashManager:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_identity_index(self) -> Directory:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_identity_lock_timeout(self) -> float:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_artifacts_directory(self) -> Directory:
+        raise NotImplementedError
+
+    @abstractmethod
+    def apply_seed(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_net(self) -> nn.Module:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_loaders(self) -> TrainOnlyLoaders:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_steps(self) -> FitSteps:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_metrics(self) -> TrainOnlyMetrics:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_optimization(self) -> OptimizationConfig:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_trainer(self) -> TrainerConfig:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_checkpointer(self) -> InspectableCheckpointer:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_logger(self) -> Logger:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_run_log(self) -> RunLogConfig:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_checkpoint_request(self) -> CheckpointRequest:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_inspect_staging_directory(self) -> Directory:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_inspect_payload_directory(self, *, epoch: int) -> Directory:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_eval_loaders(self) -> EvalLoaders:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_evaluate_fn(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_eval_device(self) -> torch.device:
+        raise NotImplementedError
+
+
+def is_ddp_worker() -> bool:
+    rank = _env_int(TrainOnlyEngine.RANK_ENV)
+    if rank is None:
+        rank = _env_int(TrainOnlyEngine.GLOBAL_RANK_ENV)
+    if rank is not None and rank > 0:
+        return True
+    node = _env_int(TrainOnlyEngine.NODE_RANK_ENV)
+    if node is None:
+        node = _env_int(TrainOnlyEngine.GROUP_RANK_ENV)
+    if node is not None and node > 0:
+        return True
+    local = _env_int(TrainOnlyEngine.LOCAL_RANK_ENV)
+    if local is not None and local > 0:
+        return True
+    return False
+
+
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    text = raw.strip()
+    if text == "":
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _raise_or_wait_missing(*, retry: bool, deadline: float, message: str) -> None:
+    if not retry or time.monotonic() >= deadline:
+        raise FileNotFoundError(message)
+    time.sleep(TrainOnlyEngine.ATTACH_POLL_SECONDS)
+
+
+__all__ = [
+    "EnginePurpose",
+    "IdentityOverwritePolicy",
+    "TrainOnlyEngine",
+    "is_ddp_worker",
+    "parse_purpose",
+]
