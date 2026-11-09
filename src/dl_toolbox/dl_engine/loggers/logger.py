@@ -26,6 +26,27 @@ class LoggerError(ValueError):
     """Logger is used before setup, after close, or with an illegal argument."""
 
 
+############################################ Parsing Helpers ############################################
+def parse_log_stream(*, stream: object) -> str:
+    return parse_one_of(
+        stream,
+        allowed=(LogStream.FIT, LogStream.INSPECT),
+        label="stream",
+        error_type=LoggerError,
+        error_message=one_of_message,
+    )
+
+
+def parse_log_existence(*, existence: object) -> str:
+    return parse_one_of(
+        existence,
+        allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
+        label="existence",
+        error_type=LoggerError,
+        error_message=one_of_message,
+    )
+
+
 # TODO move this to the .json_io contract
 def table_as_json(rows: Sequence[Mapping[str, Any]]) -> str:
     payload = [dict(row) for row in rows]
@@ -77,25 +98,6 @@ class Logger(ABC):
         """Unbind this process. Idempotent."""
 
 
-    ############################################ Parsing Helpers ############################################
-    def _parse_log_stream(self, *, stream: object) -> str:
-        return parse_one_of(
-            stream,
-            allowed=(LogStream.FIT, LogStream.INSPECT),
-            label="stream",
-            error_type=LoggerError,
-            error_message=one_of_message,
-        )
-
-
-    def _parse_log_existence(self, *, existence: object) -> str:
-        return parse_one_of(
-            existence,
-            allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
-            label="existence",
-            error_type=LoggerError,
-            error_message=one_of_message,
-        )
 
 
     ############################################ State Validation helpers ############################################

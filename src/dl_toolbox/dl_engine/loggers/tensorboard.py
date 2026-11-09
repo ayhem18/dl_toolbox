@@ -16,6 +16,8 @@ from dl_toolbox.dl_engine.loggers.logger import (
     Logger,
     LoggerError,
     table_as_json,
+    parse_log_stream,
+    parse_log_existence,
 )
 
 # TYPE_CHECKING is True for the language server and False at runtime.
@@ -78,8 +80,8 @@ class TensorBoardLogger(Logger):
         if self._open:
             raise LoggerError("logger is already open")
 
-        parsed_stream = self._parse_log_stream(stream=stream)
-        parsed_existence = self._parse_log_existence(existence=existence)
+        parsed_stream = parse_log_stream(stream=stream)
+        parsed_existence = parse_log_existence(existence=existence)
 
         if parsed_existence == LogExistence.REQUIRE and not self._run_dir.is_dir():
             raise LoggerError(

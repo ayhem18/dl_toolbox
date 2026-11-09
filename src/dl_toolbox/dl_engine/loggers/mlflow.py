@@ -15,6 +15,8 @@ from dl_toolbox.dl_engine.loggers.logger import (
     Logger,
     LoggerError,
     table_as_json,
+    parse_log_stream,
+    parse_log_existence,
 )
 
 # TYPE_CHECKING is True for the language server and False at runtime.
@@ -74,8 +76,8 @@ class MlflowLogger(Logger):
         if self._open:
             raise LoggerError("logger is already open")
 
-        self._parse_log_stream(stream=stream)
-        parsed_existence = self._parse_log_existence(existence=existence)
+        parsed_stream = parse_log_stream(stream=stream)
+        parsed_existence = parse_log_existence(existence=existence)
         self._client = self._build_client()
         if parsed_existence == LogExistence.CREATE:
             self._setup_create()
