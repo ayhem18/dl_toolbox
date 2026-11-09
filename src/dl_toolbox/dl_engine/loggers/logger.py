@@ -1,5 +1,7 @@
 """Logger: setup, log_params, log_tags, log_scalars, log_image, log_text, log_table, close."""
 
+
+
 from __future__ import annotations
 
 import json
@@ -24,48 +26,30 @@ class LoggerError(ValueError):
     """Logger is used before setup, after close, or with an illegal argument."""
 
 
-def require_logger_open(is_open: bool) -> None:
-    if not is_open:
-        raise LoggerError("logger.setup() must run before logging")
-
-
-def parse_log_stream(stream: object) -> str:
-    return parse_one_of(
-        stream,
-        allowed=(LogStream.FIT, LogStream.INSPECT),
-        label="stream",
-        error_type=LoggerError,
-        error_message=one_of_message,
-    )
-
-
-def parse_log_existence(existence: object) -> str:
-    return parse_one_of(
-        existence,
-        allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
-        label="existence",
-        error_type=LoggerError,
-        error_message=one_of_message,
-    )
-
-
+# TODO move this to the .json_io contract
 def table_as_json(rows: Sequence[Mapping[str, Any]]) -> str:
     payload = [dict(row) for row in rows]
     return json.dumps(payload, indent=2, ensure_ascii=True, default=str)
 
 
 class Logger(ABC):
+    def __init__(self) -> None:
+        self._open = False
+
     @abstractmethod
     def setup(self, *, stream: str, existence: str) -> None:
-        """Bind this process so log_* is legal. Both arguments required."""
+        """
+        1. verify the backend is ready 
+        2. connect the process to the run in the backend: the logic depends on the `stream` and `existence` parameters.
+        """
 
     @abstractmethod
     def log_params(self, params: Mapping[str, str]) -> None:
-        """Record flattened string parameters."""
+        """record run-level string maps, no `step`."""
 
     @abstractmethod
     def log_tags(self, tags: Mapping[str, str]) -> None:
-        """Record run tags."""
+        """record run tags. run-level string maps, no `step`."""
 
     @abstractmethod
     def log_scalars(self, values: Mapping[str, float], *, step: int) -> None:
@@ -91,3 +75,30 @@ class Logger(ABC):
     @abstractmethod
     def close(self) -> None:
         """Unbind this process. Idempotent."""
+
+
+    ############################################ Parsing Helpers ############################################
+    def _parse_log_stream(self, *, stream: object) -> str:
+        return parse_one_of(
+            stream,
+            allowed=(LogStream.FIT, LogStream.INSPECT),
+            label="stream",
+            error_type=LoggerError,
+            error_message=one_of_message,
+        )
+
+
+    def _parse_log_existence(self, *, existence: object) -> str:
+        return parse_one_of(
+            existence,
+            allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
+            label="existence",
+            error_type=LoggerError,
+            error_message=one_of_message,
+        )
+
+
+    ############################################ State Validation helpers ############################################
+    def _require_logger_open(self) -> None:
+        if not self._open:
+            raise LoggerError("logger.setup() must run before logging")

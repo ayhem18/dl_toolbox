@@ -8,33 +8,24 @@ alwaysApply: false
 
 ## Context
 
-Among the dl_toolbox objectives is to iterate on experiments by looking at more than a few aggregate numbers. Fit logs the scalars you need to decide (checkpoint, early stop) and the run config. Inspect logs images, tables, text — the artifacts that let you form a hypothesis from more than those aggregates. Those two processes share disk, not a process. They still need to show up as one row in a tracking UI, so you can see fit metrics next to inspect panels.
+Visibility is the most crucial aspect for the success of Deep Learning Project. I don't need to say more to justify when logging is necessary. 
 
-The tracking store is TensorBoard's event tree or MLflow's instance (`.cursor/rules/dl_toolbox_structure/dl_engine/loggers/tensorboard.mdc`, `mlflow.mdc`). What fit and inspect actually call, once that object exists, is the same list of operations: `setup`, `log_params`, `log_tags`, `log_scalars`, `log_image`, `log_text`, `log_table`, `close`.
+At the time of writing this contract, I am supporting 2 logging backends: Tensorboard and MLflow
 
-A Logger is already built. The constructor took the store and the run name; those arguments live on TensorBoardLogger and MlflowLogger. Downstream passes `stream` and `existence` into `setup`, then payloads into `log_*`. Nested configuration becomes `Mapping[str, str]` through `flatten_object` (JSON contract, `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`). That flatten is the caller's step, then `log_params`.
 
 ### What a Logger needs in order to operate
 
-1. already constructed (store and name bound on the backend)
-2. `stream`: `LogStream.FIT` or `LogStream.INSPECT`
-3. `existence`: `LogExistence.CREATE` or `LogExistence.REQUIRE`
-4. process flag `open`: this process is bound and may call `log_*`. Starts false. Not stored in the vendor
+1. the backend must be ready: (for mlflow: the database / file system / remote uri)
+2. 2 parameters that help with reasoning about how to set up the logging backend and connect the process to the run in the backend. 
+
 
 ### What a Logger can do
 
-- **setup:** bind this process so `log_*` is legal. Both `stream` and `existence` required.
+- **setup:** 1. verify the backend is ready 2. connect the process to the run in the backend: the logic depends on the `stream` and `existence` parameters.
 - **log_params / log_tags:** run-level string maps, no `step`.
 - **log_scalars:** every scalar for one step. `step` required.
 - **log_image / log_text / log_table:** one tagged blob at a `step`.
-- **close:** unbind this process. The vendor run stays. Another process can still `require` and log.
-
-Fit, rank 0, calls `setup` with `LogStream.FIT` and `LogExistence.CREATE`. Inspect calls `setup` with `LogStream.INSPECT` and `LogExistence.REQUIRE`. Other DDP ranks skip `setup`. Fit and inspect each `close` their own logger object.
-
-How `setup` mutates the event tree or the MLflow run is those contracts. This one is the operations.
-
-An engine that constructed `MlflowLogger` may also call `log_artifact` / `log_model` on that class (MLflow contract). Fit and inspect use `log_image` / `log_text` / `log_table` for what every backend must show in the UI. Files the inspect process writes under the run's artifacts directory stay on disk.
-
+- **close:** disconnect the process from the run in the backend; the process is no longer allowed to call `log_*`.
 ---
 
 ## Terminology
@@ -48,31 +39,17 @@ JSON: `.cursor/rules/dl_toolbox_structure/base/input_output/json_io.mdc`. parse_
 | `LogStream.FIT` | `fit` |
 | `LogStream.INSPECT` | `inspect` |
 | `LogExistence` | whether this process creates the vendor run or attaches to one |
-| `LogExistence.CREATE` | `create` |
-| `LogExistence.REQUIRE` | `require` |
-| `LoggerError` | used before setup, after close, or with an illegal argument |
-| `open` | this process is bound and may call `log_*`. Process-local |
+| `LogExistence.CREATE` | `the backend representation of the run must be created` |
+| `LogExistence.REQUIRE` | `the backend representation of the run must already exist` |
+| `open` | whether the process is allowed to call  `log_*`. Process-local |
 | `setup` | bind this process so `log_*` is legal |
-| `log_params` | record flattened string parameters |
-| `log_tags` | record run tags |
-| `log_scalars` | record every scalar for one `step` |
-| `log_scalar` | `log_scalars` with a one-key map |
-| `log_image` | record one image at `step` |
-| `log_text` | record a text blob at `step` |
-| `log_table` | record a table at `step` |
 | `close` | unbind this process. Idempotent |
 | `params` | `Mapping[str, str]` for `log_params` |
 | `tags` | `Mapping[str, str]` for `log_tags` |
 | `values` | `Mapping[str, float]` for `log_scalars` |
 | `step` | integer step on scalars / image / text / table |
 | `tag` | non-empty name of one image, text, or table |
-| `image` | array the backend maps for `log_image` |
 | `rows` | sequence of mappings; `log_table` sends them as text |
-| `text` | a `str` for `log_text` |
-| `parse_log_stream` | membership of `stream` in `LogStream.FIT` / `LogStream.INSPECT` |
-| `parse_log_existence` | membership of `existence` in `LogExistence.CREATE` / `LogExistence.REQUIRE` |
-| `require_logger_open` | error unless `open` |
-| `table_as_json` | `rows` → JSON array text |
 
 `LogStream.FIT` and the other three values live on those types. Callers import the type.
 
@@ -117,7 +94,7 @@ Membership is `parse_one_of` with `error_type=LoggerError` and `error_message=on
 
 ### `setup(*, stream, existence)`
 
-bind this process so `log_*` is legal.
+1. verify the backend is ready 2. connect the process to the run in the backend: the logic depends on the `stream` and `existence` parameters.
 
 **input:** `stream`, `existence`.
 
@@ -127,9 +104,9 @@ bind this process so `log_*` is legal.
 
 ```
 if open: error
-parse_log_stream(stream)
-parse_log_existence(existence)
-backend bind for that stream and existence
+verify stream, 
+verify existence
+connect the process to the run in the backend: the logic depends on the `stream` and `existence` parameters.
 open = true
 ```
 
@@ -261,7 +238,7 @@ log_text(tag, table_as_json(rows), step=step)
 
 ### `close()`
 
-unbind this process.
+disconnect the process from the run in the backend; the process is no longer allowed to call `log_*`.
 
 **input:** this Logger.
 
@@ -270,8 +247,8 @@ unbind this process.
 **steps:**
 
 ```
-if not open: return
-backend unbind
+if not open: error
+disconnect the process from the run in the backend; the process is no longer allowed to call `log_*`.
 open = false
 ```
 
@@ -285,99 +262,7 @@ The vendor run stays. Other processes that `require` still can log. Fit and insp
 
 ---
 
-## Secondary functionalities
 
-### `parse_log_stream(stream)`
-
-**input:** `stream`.
-
-**assumptions on the input:** none extra.
-
-**steps:**
-
-```
-return parse_one_of(
-    stream,
-    allowed=(LogStream.FIT, LogStream.INSPECT),
-    label="stream",
-    error_type=LoggerError,
-    error_message=one_of_message,
-)
-```
-
-**side effects:** none.
-
-**outputs:** `LogStream.FIT` or `LogStream.INSPECT`.
-
-### `parse_log_existence(existence)`
-
-**input:** `existence`.
-
-**assumptions on the input:** none extra.
-
-**steps:**
-
-```
-return parse_one_of(
-    existence,
-    allowed=(LogExistence.CREATE, LogExistence.REQUIRE),
-    label="existence",
-    error_type=LoggerError,
-    error_message=one_of_message,
-)
-```
-
-**side effects:** none.
-
-**outputs:** `LogExistence.CREATE` or `LogExistence.REQUIRE`.
-
-### `require_logger_open(open)`
-
-**input:** `open`.
-
-**steps:**
-
-```
-if not open: raise LoggerError
-```
-
-**side effects:** none.
-
-**outputs:** none. After a successful call, `log_*` may proceed.
-
-### `table_as_json(rows)`
-
-**input:** `rows`.
-
-**assumptions on the input:** `rows` is a sequence of mappings.
-
-**steps:**
-
-```
-payload = [dict(row) for row in rows]
-return json.dumps(payload, indent=2, ensure_ascii=True, default=str)
-```
-
-**side effects:** none.
-
-**outputs:** a `str`. It is a JSON *array* of objects.
-
----
-
-## What this implies for the engine
-
-| Caller | Call |
-|---|---|
-| fit, rank 0 | `setup(stream=LogStream.FIT, existence=LogExistence.CREATE)` |
-| inspect | `setup(stream=LogStream.INSPECT, existence=LogExistence.REQUIRE)` |
-
-Other DDP ranks skip `setup`. That is the caller.
-
-Fit: `log_params` once, `log_text` of the run config at `step=0`, `log_scalars` each epoch. Inspect: `log_image` / `log_table` / `log_text` at `step=epoch`. Tag namespace `inspection/...` versus fit metrics is the caller's.
-
-One live fit and one live inspect is the engine. These operations do not lock the vendor run.
-
----
 
 ## Tensions
 

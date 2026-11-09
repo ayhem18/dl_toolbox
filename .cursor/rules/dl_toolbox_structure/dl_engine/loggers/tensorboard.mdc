@@ -8,7 +8,12 @@ alwaysApply: false
 
 ## Context
 
-Logger's Context (`.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`) is why fit and inspect share one call surface. This contract is the TensorBoard side of that surface: the **event tree** under `log_dir / run_name /`.
+Why we need logging is clear. Tensorboard helps with simple quick experiments. 
+
+1. Tensorboard backend is purely a file system containing .tfevents files
+2. The UI is a by product of said file system -> requires the `--reload_multifile` flag to be set to true when running tensorboard
+
+3. 
 
 The UI is a byproduct. It reads `.tfevents` files. `--logdir` for the UI is `log_dir`. Several `run_name`s are several UI runs. When a run directory has more than one event file, the UI process needs `--reload_multifile true`. That flag lives on the UI process.
 
@@ -16,16 +21,12 @@ The UI is a byproduct. It reads `.tfevents` files. `--logdir` for the UI is `log
 
 `stream` chooses the filename suffix: `LogStream.FIT` → `.fit`, `LogStream.INSPECT` → `.inspect`. Existence `create` lets the writer make `run_dir` if it is missing. Existence `require` errors if `run_dir` is missing, then adds this process's file to the same directory.
 
-Optional extra is `require(package="tensorboard")` then `require(package="torch.utils.tensorboard")` (extras contract, `.cursor/rules/dl_toolbox_structure/base/packaging/require.mdc`). `SummaryWriter` is on that second import.
-
-`log_params` / `log_tags` are run-level text: `dump_object(..., form=JsonTextForm.ASCII_PRETTY)` (JSON contract). `log_table` is `log_text` of `table_as_json`.
 
 ### What TensorBoardLogger needs in order to operate
 
-1. `log_dir`: absolute path of the store
-2. `run_name`: one path segment
-3. `stream` and `existence` at `setup`, as Logger
-4. process flag `open`: this process has a writer. Starts false. Not stored on disk
+1. `log_dir`: the parent folder of the backend
+2. `run_name`: the run_name so that the final backend becomes: `log_dir / run_name /`
+3. `stream` and `existence` Helps with 2 things: checks and multi-processing support: fit and inspect share one call surface.
 
 After construction:
 
@@ -42,7 +43,7 @@ The writer creates those files.
 
 - **construct:** store `log_dir` and `run_name`. Disk unchanged. No writer yet.
 - **setup create:** open a `SummaryWriter` on `run_dir` with the stream suffix. The writer creates `run_dir` if missing, and one new event file.
-- **setup require:** `run_dir` already exists. Open a writer the same way. One new event file in that directory.
+- **setup require:** `run_dir` must exists. Open a writer the same way. One new event file in that directory.
 - **log_*:** through the bound writer, then `flush`.
 - **close:** flush and close this process's writer. Event files stay. The UI run stays.
 
@@ -60,8 +61,6 @@ Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. JSON:
 | `run_dir` | `log_dir / run_name` |
 | `SummaryWriter` | vendor writer. `setup` constructs one; `log_*` go through it |
 | `filename_suffix` | `.fit` or `.inspect`, from `stream` |
-| `open` | this process has a writer and may call `log_*` |
-| image map | array → CHW float in `[0, 1]`, what `add_image` takes |
 
 Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `table_as_json`) are Logger's Terminology.
 

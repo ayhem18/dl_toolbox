@@ -10,7 +10,7 @@ alwaysApply: false
 
 Logger's Context (`.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`) is why fit and inspect share one call surface. This contract is the MLflow side of that surface: an MLflow **instance** (backend store + artifact store) and the **runs** in it.
 
-The UI is a byproduct. We talk to `MlflowClient`. Every step names `experiment_name` / `run_name` / `run_id`. MLflow assigns `run_id`. This class makes `(experiment_name, run_name) → run_id` a function by refusing a second run with the same name in the same experiment.
+The UI is a byproduct. We talk to `MlflowClient`. Every step names `experiment_name` / `run_name` / `run_id`. MLflow assigns `run_id`. This class makes `(experiment_name, run_name) → run_id` a function over **running** namesakes: at most one lifecycle-active, non-terminal run with that name in the experiment. Terminal or deleted namesakes are leftover history. They are not occupancy. A later `create` of the same name is a new `run_id`.
 
 `stream` is required by Logger. The entity algorithm is `create` versus `require`. This class validates `stream` and then ignores it for the run.
 
@@ -31,8 +31,8 @@ Optional extra is `require(package="mlflow")` (extras contract, `.cursor/rules/d
 ### What MlflowLogger can do
 
 - **construct:** pin URIs, names, and create-tags. No network bind yet.
-- **setup create:** resolve or create the experiment, refuse an existing namesake, `create_run`, bind that `run_id`.
-- **setup require:** the experiment and exactly one run exist, the run is active and not terminal, bind that `run_id`.
+- **setup create:** resolve or create the experiment, refuse a running namesake, `create_run`, bind that `run_id`.
+- **setup require:** the experiment and exactly one running namesake exist, bind that `run_id`.
 - **log_params / log_tags / log_scalars:** backend store, via `log_batch`.
 - **log_image / log_text / log_table:** artifact store (table is `log_text` of `table_as_json`).
 - **log_artifact / log_model:** artifact store / PyTorch flavor, bound `run_id`.
@@ -50,7 +50,7 @@ Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. Extra
 | `backend_store_uri` | tracking store (sqlite URI in the default layout) |
 | `artifact_store_uri` | artifact root |
 | `experiment_name` | MLflow experiment |
-| `run_name` | MLflow run name. The name map is `(experiment_name, run_name) → run_id` |
+| `run_name` | MLflow run name. The name map is `(experiment_name, run_name) → run_id` among running namesakes |
 | `run_id` | MLflow's id for that run. Readable after `setup` |
 | `MlflowClient` | vendor client pinned to `backend_store_uri` |
 | `tags` | `Mapping[str, str]` applied on `create` |
@@ -62,7 +62,7 @@ Logger: `.cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc`. Extra
 | `log_model` | write a PyTorch flavor under the bound run |
 | `local_path` | absolute path of an existing file, for `log_artifact` |
 | `artifact_path` | destination path under the run, for `log_artifact` / `log_model` |
-| lookup | 0 / 1 / 2+ runs named `run_name` in the experiment |
+| lookup | 0 / 1 / 2+ **running** namesakes named `run_name` in the experiment |
 | `bounded_mapping` | string map with MLflow key/value length limits |
 
 Logger terms (`LogStream`, `LogExistence`, `setup`, `log_*`, `close`, `table_as_json`) are Logger's Terminology.
@@ -89,13 +89,15 @@ All required. Construction leaves the instance unchanged.
 
 `open` starts false. `run_id` is bound after a successful `setup`.
 
-Lookup of `(experiment_name, run_name)`:
+Lookup of `(experiment_name, run_name)` is over running namesakes (`lifecycle_stage` active, `status` `RUNNING`):
 
 ```
-0 rows   → no such run
+0 rows   → no running namesake
 1 row    → that run_id
 2+ rows  → the name map is broken. Error. Do not pick one.
 ```
+
+Terminal and deleted namesakes are not rows.
 
 `log_*` payloads are Logger's Input Specification, plus MLflow length limits on params and tags (`bounded_mapping`). Empty `values` / empty `params` / empty `tags`: no write.
 
@@ -135,7 +137,7 @@ create the run that this name map will point at.
 
 **input:** `stream`, `existence`.
 
-**assumptions on the input:** Logger Input Specification. `open` is false. Lookup of `(experiment_name, run_name)` is 0 rows (after the experiment exists).
+**assumptions on the input:** Logger Input Specification. `open` is false. Lookup of `(experiment_name, run_name)` is 0 running rows (after the experiment exists).
 
 **steps:**
 
@@ -157,7 +159,7 @@ open = true
 bind that run_id
 ```
 
-**side effects:** exactly one run with that name. Status `RUNNING`. This process may log. Create of a namesake is an error: reuse is `require`.
+**side effects:** exactly one **running** run with that name. Status `RUNNING`. This process may log. Create of a running namesake is an error: reuse of that live run is `require`. A terminal namesake does not block create.
 
 **outputs:** none.
 
@@ -167,7 +169,7 @@ bind this process to the run another process created.
 
 **input:** `stream`, `existence`.
 
-**assumptions on the input:** Logger Input Specification. `open` is false. A create already succeeded for this `(experiment_name, run_name)` (or an equivalent run exists). The run is not deleted and not terminal.
+**assumptions on the input:** Logger Input Specification. `open` is false. A create already succeeded for this `(experiment_name, run_name)` and that run is still running (or an equivalent running namesake exists).
 
 **steps:**
 
@@ -184,9 +186,6 @@ run = lookup (experiment_name, run_name)
   0 → error
   2+ → error
   1 → that run
-
-if lifecycle_stage is deleted: error
-if status is terminal: error
 
 open = true
 bind that run_id
@@ -315,13 +314,18 @@ unbind run_id
 **Assume:** `MlflowClient`, experiment id.
 
 ```
-runs = search_runs(experiment, name = run_name, max_results=2)
-0 → no such run
+runs = search_runs(
+    experiment,
+    name = run_name AND status = RUNNING,
+    view = active only,
+    max_results=2,
+)
+0 → no running namesake
 1 → that run
-2+ → error: multiple runs named run_name in experiment_name
+2+ → error: multiple running runs named run_name in experiment_name
 ```
 
-**After:** at most one run. Disk / store unchanged besides the query.
+**After:** at most one running namesake. Terminal and deleted rows were not in the query. Disk / store unchanged besides the query.
 
 ### resolve experiment on create
 
@@ -403,6 +407,6 @@ Create once. Every other process `require`. They share one `run_id`, so the UI s
 
 ## Tensions
 
-- **Two processes both `create`:** if the first has committed, the second errors. If they race, MLflow may accept two namesakes and later lookup errors on 2+. The name map is a function only after a successful create. The engine is what must prevent the race.
-- **`close` leaves the run as it was.** After a crash the UI still shows `RUNNING`; that is engine policy. `require` of a terminal run errors, so inspect that must log after fit depends on the engine not having terminated yet (or reactivating before `setup(require)`).
+- **Two processes both `create`:** if the first has committed a running namesake, the second errors. If they race, MLflow may accept two running namesakes and later lookup errors on 2+. The name map is a function only after a successful create. The engine is what must prevent the race.
+- **`close` leaves the run `RUNNING`.** Identity files and this store are independent. Deleting the HashManager pair does not free the name here. A leftover `RUNNING` namesake still blocks `create` (it is occupancy; inspect may still `require`). Retry after a failed fit needs that leftover to be terminal (`FAILED` / `KILLED` / `FINISHED`) first — this class does not terminate. `require` of a terminal-only name is "does not exist": there is no running run to attach to.
 - **`stream` is required by Logger and unused for this entity.** Filename suffix is a TensorBoard fact. The shared `setup` signature is the reason; this class validates `stream` and then ignores it for the run.
