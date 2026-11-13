@@ -1,9 +1,11 @@
 """ProjectLayout is one toolbox project tree, already located and read.
 
-from_start walks to dl_toolbox_project.json. scaffold writes the tree into
-an existing root. TrackingBackend is tensorboard or mlflow, chosen per
-from_start. HashManager is built from identity.json plus checkpoint.json
-lock timeout.
+from_start walks to dl_toolbox_project.json and checks a caller-supplied
+name. from_marker walks the same way and uses the marker name. scaffold
+writes the tree into an existing root, including one vendor UI script for
+the chosen tracking_backend. TrackingBackend is tensorboard or mlflow,
+chosen per from_start. HashManager is built from identity.json plus
+checkpoint.json lock timeout.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ from dl_toolbox.project_layout.names import (
     MARKER_FILENAME,
     MLFLOW_ARTIFACTS_DIRNAME,
     MLFLOW_DIRNAME,
+    MLFLOW_RUN_FILENAME,
     MLFLOW_TRACKING_DB_FILENAME,
     PROJECT_LEVEL_CONFIGS_DIRNAME,
     RUN_ARTIFACTS_DIRNAME,
@@ -51,6 +54,7 @@ from dl_toolbox.project_layout.names import (
     SQLITE_TIMEOUT_SECONDS,
     STORAGE_DIRNAME,
     TENSORBOARD_DIRNAME,
+    TENSORBOARD_RUN_FILENAME,
     TRACKING_BACKEND_FILENAME,
 )
 
@@ -212,6 +216,21 @@ class ProjectLayout:
         )
 
     @classmethod
+    def from_marker(
+        cls,
+        *,
+        start: File | Directory,
+        tracking_backend: str,
+    ) -> ProjectLayout:
+        marker = File.from_parent_walk(start=start, basename=MARKER_FILENAME)
+        document = _marker_document(read_object(file=marker))
+        return cls.from_start(
+            start=start,
+            project_name=document.name,
+            tracking_backend=tracking_backend,
+        )
+
+    @classmethod
     def scaffold(
         cls,
         *,
@@ -287,6 +306,22 @@ class ProjectLayout:
                 relative_path=reserved[i],
                 policy=DirectoryParsePolicy.CREATE,
             )
+        scripts = Directory.from_under(
+            root=root,
+            relative_path=SCRIPTS_DIRNAME,
+            policy=DirectoryParsePolicy.MUST_EXIST,
+        )
+        if backend == TrackingBackend.MLFLOW:
+            from dl_toolbox.project_layout.serve import mlflow_run_script
+
+            script_name = MLFLOW_RUN_FILENAME
+            script_text = mlflow_run_script()
+        else:
+            from dl_toolbox.project_layout.serve import tensorboard_run_script
+
+            script_name = TENSORBOARD_RUN_FILENAME
+            script_text = tensorboard_run_script()
+        (scripts.path / script_name).write_text(script_text, encoding="utf-8")
 
     @classmethod
     def parse_run_group(cls, segments: object) -> tuple[str, ...]:

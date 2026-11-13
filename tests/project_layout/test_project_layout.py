@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import random
 from pathlib import Path
 
@@ -17,8 +18,11 @@ from dl_toolbox.project_layout.names import (
     DEFAULT_CHECKPOINT_CONFIG,
     DEFAULT_IDENTITY_CONFIG,
     MARKER_FILENAME,
+    MLFLOW_RUN_FILENAME,
+    TENSORBOARD_RUN_FILENAME,
     TRACKING_BACKEND_FILENAME,
 )
+from dl_toolbox.project_layout.serve import mlflow_run_script
 from tests.base.base_support import N_TRIALS, random_generating_process_name
 
 
@@ -93,6 +97,14 @@ def test_scaffold_then_from_start_tensorboard(
         assert index.spec == DirectorySpec.MISSING
         with pytest.raises(ValueError, match="mlflow"):
             layout.mlflow_db_path()
+        script = File.from_under(
+            root=root, relative_path=f"scripts/{TENSORBOARD_RUN_FILENAME}"
+        )
+        ast.parse(script.path.read_text(encoding="utf-8"))
+        with pytest.raises(FileNotFoundError):
+            File.from_under(
+                root=root, relative_path=f"scripts/{MLFLOW_RUN_FILENAME}"
+            )
 
 
 def test_from_start_does_not_use_cwd(
@@ -321,4 +333,58 @@ def test_scaffold_refuses_existing_marker(
             root=root,
             project_name=name,
             tracking_backend=TrackingBackend.TENSORBOARD,
+        )
+
+
+def test_from_marker_uses_marker_name(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    name = random_generating_process_name(rng)
+    root = _scaffold(
+        tmp_path, name=name, backend=TrackingBackend.MLFLOW
+    )
+    via_start = ProjectLayout.from_start(
+        start=root,
+        project_name=name,
+        tracking_backend=TrackingBackend.MLFLOW,
+    )
+    via_marker = ProjectLayout.from_marker(
+        start=root, tracking_backend=TrackingBackend.MLFLOW
+    )
+    assert via_marker.project_name == name
+    assert via_marker.root.path == via_start.root.path
+    assert via_marker.mlflow_db_path() == via_start.mlflow_db_path()
+
+
+def test_from_marker_does_not_read_tracking_backend_file(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    name = random_generating_process_name(rng)
+    root = _scaffold(
+        tmp_path, name=name, backend=TrackingBackend.TENSORBOARD
+    )
+    layout = ProjectLayout.from_marker(
+        start=root, tracking_backend=TrackingBackend.MLFLOW
+    )
+    assert layout.tracking_backend == TrackingBackend.MLFLOW
+    assert layout.mlflow_db_path() == (
+        root.path / "storage" / "mlflow" / "tracking.db"
+    )
+
+
+def test_scaffold_writes_only_mlflow_run(
+    tmp_path: Path, rng: random.Random
+) -> None:
+    name = random_generating_process_name(rng)
+    root = _scaffold(tmp_path, name=name, backend=TrackingBackend.MLFLOW)
+    script = File.from_under(
+        root=root, relative_path=f"scripts/{MLFLOW_RUN_FILENAME}"
+    )
+    text = script.path.read_text(encoding="utf-8")
+    ast.parse(text)
+    assert text == mlflow_run_script()
+    assert "run_mlflow" in text
+    with pytest.raises(FileNotFoundError):
+        File.from_under(
+            root=root, relative_path=f"scripts/{TENSORBOARD_RUN_FILENAME}"
         )

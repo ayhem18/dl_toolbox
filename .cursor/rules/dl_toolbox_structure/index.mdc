@@ -45,6 +45,7 @@ src/dl_toolbox/
   data_contract/           design still in standards/data_contract/
   project_layout/          CONTRACT  .cursor/rules/dl_toolbox_structure/project_layout/project_layout.mdc
     cli.py                 cwd wrapper; setup-project CREATE then scaffold
+    serve.py               vendor UI; from_marker then spawn
   dl_engine/
     metrics/               design still in standards/metrics/
     training/

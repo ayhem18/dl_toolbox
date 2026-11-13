@@ -1,6 +1,6 @@
 ---
-description: ProjectLayout is one toolbox project tree already located and read. from_start walks to dl_toolbox_project.json. scaffold writes the tree into an existing root. TrackingBackend is tensorboard or mlflow, chosen per from_start. HashManager is built from identity.json plus checkpoint.json lock timeout.
-globs: **/project_layout/project_layout.py,**/project_layout/cli.py,**/project_layout/documents.py,**/project_layout/names.py,**/tests/project_layout/**
+description: ProjectLayout is one toolbox project tree already located and read. from_start walks to dl_toolbox_project.json and checks a caller-supplied name. from_marker uses the marker name. scaffold writes the tree into an existing root, including one vendor UI script for the chosen tracking_backend. run_mlflow and run_tensorboard serve that store. TrackingBackend is tensorboard or mlflow. HashManager is built from identity.json plus checkpoint.json lock timeout.
+globs: **/project_layout/project_layout.py,**/project_layout/cli.py,**/project_layout/serve.py,**/project_layout/documents.py,**/project_layout/names.py,**/tests/project_layout/**
 alwaysApply: false
 ---
 
@@ -8,13 +8,13 @@ alwaysApply: false
 
 ## Context
 
-A Digital Lab project is a tree on disk. The training engine, the inspect engine, TensorBoard, MLflow, and HashManager all need the same answers: where is the project root, what is the project name, which tracking backend this process is using, where identity indexes live, where run artifacts live. Without one object that already found those answers, every caller walks the tree again and invents a slightly different layout.
+A Digital Lab project is a tree on disk. The training engine, the inspect engine, TensorBoard, MLflow, and HashManager all need the same answers: where is the project root, what is the project name, which tracking backend this process is using, where identity indexes live, where run artifacts live. Without one object that already found those answers, every caller walks the tree again and invents a slightly different layout. The vendor UI is one of those callers. A script that hardcodes `parents[1]/storage/mlflow/tracking.db` is reconstructing the tree instead of asking it.
 
-`ProjectLayout` is that object: one toolbox project tree, already located and read. Construction is `from_start(*, start, project_name, tracking_backend)`: walk from `start` toward filesystem root until `dl_toolbox_project.json` exists, check that the marker `name` matches `project_name`, then read `project_level_configs/`. The constructor does not create directories. The constructor does not write JSON.
+`ProjectLayout` is that object: one toolbox project tree, already located and read. Construction is `from_start(*, start, project_name, tracking_backend)`: walk from `start` toward filesystem root until `dl_toolbox_project.json` exists, check that the marker `name` matches `project_name`, then read `project_level_configs/`. The constructor does not create directories. The constructor does not write JSON. `from_marker(*, start, tracking_backend)` is the same walk when the caller lives in the tree and has no independent name: it reads `name` from the marker, then calls `from_start`.
 
-The tree is created by `scaffold` (Python) and by `setup-project` (CLI). CLI creates `cwd / project_name`, then calls `scaffold` on that Directory. `scaffold` writes the marker, `.tracking-backend`, the project-level JSON files, and the reserved top-level directories. After that, `from_start` is how every later process attaches.
+The tree is created by `scaffold` (Python) and by `setup-project` (CLI). CLI creates `cwd / project_name`, then calls `scaffold` on that Directory. `scaffold` writes the marker, `.tracking-backend`, the project-level JSON files, the reserved top-level directories, and one vendor UI script under `scripts/`: `mlflow_run.py` when `tracking_backend` is mlflow, `tensorboard_run.py` when it is tensorboard. After that, `from_start` is how a process that knows the project name attaches. The UI script passes its own File as `start` into `run_mlflow` or `run_tensorboard`: `from_marker`, then the vendor CLI on the store paths the layout already read (`mlflow_db_path` / `mlflow_artifact_root`, or `tensorboard_log_dir`). Host and port are CLI arguments, not layout.
 
-`TrackingBackend` is the one choice that changes which logging JSON `from_start` reads: `tensorboard` or `mlflow`. Scaffold writes both logging JSON files. `from_start` still takes `tracking_backend` per process.
+`TrackingBackend` is the one choice that changes which logging JSON `from_start` reads: `tensorboard` or `mlflow`. Scaffold writes both logging JSON files. Scaffold writes only one UI script. `from_start` still takes `tracking_backend` per process.
 
 HashManager is not a hardcoded `hashes/` folder. Identity JSON names the two HashManager directory names. Checkpoint JSON names `lock_timeout_seconds`. `LOCK_POLL_SECONDS` on this class is the poll interval HashManager gets.
 
@@ -32,9 +32,16 @@ Directory, File: `.cursor/rules/dl_toolbox_structure/base/file_management/`. Has
 | `tracking_backend` | `TrackingBackend.TENSORBOARD` or `TrackingBackend.MLFLOW` |
 | `TrackingBackend` | the two backend names |
 | `hash_manager` | `HashManager` built from identity.json + checkpoint lock timeout |
-| `from_start` | walk from `start` to the marker, then construct |
-| `scaffold` | write marker, configs, reserved dirs into an existing `root` |
+| `from_start` | walk from `start` to the marker, check caller `project_name`, then construct |
+| `from_marker` | walk from `start` to the marker, use the marker `name`, then `from_start` |
+| `scaffold` | write marker, configs, reserved dirs, and one vendor UI script into an existing `root` |
 | `setup-project` | CLI: create `cwd / project_name`, then `scaffold` |
+| `run_mlflow` | `from_marker` with mlflow, parse `--host`/`--port`, `serve_mlflow` |
+| `run_tensorboard` | `from_marker` with tensorboard, parse `--host`/`--port`, `serve_tensorboard` |
+| `serve_mlflow` | spawn `python -m mlflow ui` on this layout's sqlite store and artifact root |
+| `serve_tensorboard` | spawn `python -m tensorboard` on this layout's log_dir |
+| `mlflow_run.py` | scaffolded script under `scripts/` when backend is mlflow |
+| `tensorboard_run.py` | scaffolded script under `scripts/` when backend is tensorboard |
 | `parse_run_group` | parse a sequence of basenames into `tuple[str, ...]` |
 | `identity_index` | HashManager index Directory under `storage/runs/` + `run_group` |
 | `artifacts_directory` | Directory under `storage/run_artifacts/` + `run_group` + `name` |
@@ -45,13 +52,21 @@ Filenames (relative to `root`): `dl_toolbox_project.json`, `.tracking-backend`, 
 
 Reserved top-level directories: `storage`, `scripts`, `experiments`, `run_recipes`.
 
+Scaffolded UI scripts (exactly one): `scripts/mlflow_run.py` or `scripts/tensorboard_run.py`.
+
 ---
 
 ## Input Specification
 
 `from_start(*, start, project_name, tracking_backend)`: `start` is a File or an existing Directory. Walking toward filesystem root finds `dl_toolbox_project.json`. Marker JSON exact key `name` (non-empty str) equals `project_name`. `tracking_backend` is `tensorboard` or `mlflow`. Identity JSON exact keys `prefix_len` (int 8..64), `human_readable_dirname`, `hashes_dirname`. Checkpoint JSON exact key `lock_timeout_seconds` (finite float > 0). Logging JSON for that backend exists under `project_level_configs/logging/{backend}.json`.
 
-`scaffold(*, root, project_name, tracking_backend)`: `root` exists. No marker File yet. `project_name` is a non-empty string. `tracking_backend` is `tensorboard` or `mlflow`.
+`from_marker(*, start, tracking_backend)`: `start` and `tracking_backend` as `from_start`. Marker exists. `project_name` is the marker `name`.
+
+`scaffold(*, root, project_name, tracking_backend)`: `root` exists. No marker File yet. `project_name` is a non-empty string. `tracking_backend` is `tensorboard` or `mlflow`. Writes `scripts/mlflow_run.py` XOR `scripts/tensorboard_run.py` to match `tracking_backend`.
+
+`run_mlflow(*, start, argv)` / `run_tensorboard(*, start, argv)`: `start` is a File under the tree. `argv` is the CLI tokens after the script name (`--host`, `--port`). Host is a non-empty string. Port is a positive int.
+
+`serve_mlflow(*, layout, host, port)`: `layout.tracking_backend` is mlflow. `serve_tensorboard(*, layout, host, port)`: `layout.tracking_backend` is tensorboard. Host and port as above.
 
 `setup-project`: positional `project_name` is a single path component (not `.` / `..`, no slash). `--tracking-backend` required. cwd exists. `cwd / project_name` does not exist yet.
 
@@ -91,6 +106,24 @@ return ProjectLayout(root, project_name, tracking_backend, hash_manager, logging
 
 **outputs:** a ProjectLayout.
 
+### `ProjectLayout.from_marker(*, start, tracking_backend)`
+
+**input:** `start`, `tracking_backend`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+marker = File.from_parent_walk(start=start, basename=dl_toolbox_project.json)
+name = marker JSON name
+return from_start(start=start, project_name=name, tracking_backend=tracking_backend)
+```
+
+**side effects:** none. Read only.
+
+**outputs:** a ProjectLayout.
+
 ### `ProjectLayout.scaffold(*, root, project_name, tracking_backend)`
 
 **input:** `root`, `project_name`, `tracking_backend`.
@@ -107,6 +140,8 @@ write project_level_configs/checkpoint.json   DEFAULT_CHECKPOINT_CONFIG
 write logging/tensorboard.json  {log_dir: storage/tensorboard}
 write logging/mlflow.json       sqlite db under storage/mlflow/, timeout SQLITE_TIMEOUT_SECONDS
 create storage/, scripts/, experiments/, run_recipes/
+if MLFLOW: write scripts/mlflow_run.py (calls run_mlflow with this File as start)
+if TENSORBOARD: write scripts/tensorboard_run.py (calls run_tensorboard with this File as start)
 ```
 
 **side effects:** writes those files and directories. Does not return a ProjectLayout.
@@ -168,6 +203,88 @@ on any exception: rmtree the new Directory, re-raise
 
 **outputs:** a Directory.
 
+### `run_mlflow(*, start, argv)`
+
+**input:** `start` (the UI script File), `argv`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+parse argv: --host (default 127.0.0.1), --port (default 5000)
+layout = from_marker(start=start, tracking_backend=mlflow)
+return serve_mlflow(layout, host, port)
+```
+
+**side effects:** those of `serve_mlflow`.
+
+**outputs:** the vendor process exit code.
+
+### `run_tensorboard(*, start, argv)`
+
+**input:** `start` (the UI script File), `argv`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+parse argv: --host (default 127.0.0.1), --port (default 6006)
+layout = from_marker(start=start, tracking_backend=tensorboard)
+return serve_tensorboard(layout, host, port)
+```
+
+**side effects:** those of `serve_tensorboard`.
+
+**outputs:** the vendor process exit code.
+
+### `serve_mlflow(*, layout, host, port)`
+
+**input:** this layout, `host`, `port`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+create parent of mlflow_db_path() if missing
+create mlflow_artifact_root() if missing
+print MLflow UI URL
+subprocess: python -m mlflow ui
+  --backend-store-uri sqlite URI of mlflow_db_path()
+  --default-artifact-root mlflow_artifact_root()
+  --host host --port port
+  cwd = layout.root
+  MLFLOW_DISABLE_AGENT_HINT=1
+```
+
+**side effects:** may create the sqlite parent directory and the artifact root. Spawns the vendor UI. Does not claim HashManager pairs.
+
+**outputs:** the vendor process exit code.
+
+### `serve_tensorboard(*, layout, host, port)`
+
+**input:** this layout, `host`, `port`.
+
+**assumptions on the input:** Input Specification.
+
+**steps:**
+
+```
+create tensorboard_log_dir() if missing
+print TensorBoard URL
+subprocess: python -m tensorboard
+  --logdir tensorboard_log_dir()
+  --reload_multifile true
+  --host host --port port
+  cwd = layout.root
+```
+
+**side effects:** may create the log directory. Spawns the vendor UI. Does not claim HashManager pairs.
+
+**outputs:** the vendor process exit code.
+
 ---
 
 ## Secondary functionalities
@@ -184,17 +301,24 @@ on any exception: rmtree the new Directory, re-raise
 
 Default identity JSON: `prefix_len=12`, `human_readable_dirname="human_readable"`, `hashes_dirname="hashes"`. Default checkpoint JSON: `lock_timeout_seconds=600.0`. Scaffold MLflow timeout: `SQLITE_TIMEOUT_SECONDS = 30.0`.
 
+Argparse defaults on the UI scripts: MLflow host `127.0.0.1`, port `5000`; TensorBoard host `127.0.0.1`, port `6006`. `MLFLOW_DISABLE_AGENT_HINT=1` is set for the MLflow subprocess. TensorBoard `--reload_multifile true` refreshes live event files.
+
+The scaffolded script's only job is to pass its own File as `start` and `sys.argv[1:]` as `argv`. Store paths come from logging JSON through the layout accessors.
+
 ---
 
 ## What this implies for the engine/multiprocess
 
-Fit rank 0 and inspect attach through `from_start` on the same tree, same `project_name`, each passing its `tracking_backend`. They do not scaffold. `identity_index` is per `run_group`: two names in one group share one HashManager index Directory. `artifacts_directory` is per `(run_group, name)`. ExclusiveDirLock for occupancy is the engine's lock on that index, not a getter here.
+Fit rank 0 and inspect attach through `from_start` on the same tree, same `project_name`, each passing its `tracking_backend`. They do not scaffold. The vendor UI attaches through `from_marker` from `scripts/mlflow_run.py` or `scripts/tensorboard_run.py`. It does not claim occupancy. `identity_index` is per `run_group`: two names in one group share one HashManager index Directory. `artifacts_directory` is per `(run_group, name)`. ExclusiveDirLock for occupancy is the engine's lock on that index, not a getter here.
 
 ---
 
 ## Tensions
 
-- **Tracking backend is a constructor argument and a scaffolded file.** `.tracking-backend` records what `setup-project` wrote. `from_start` does not read that file; the process passes `tracking_backend`. Two processes on the same tree can open different backends.
+- **Tracking backend is a constructor argument and a scaffolded file.** `.tracking-backend` records what `setup-project` wrote. `from_start` and `from_marker` do not read that file; the process passes `tracking_backend`. Two processes on the same tree can open different backends.
+- **Scaffold writes both logging JSON files, and only one UI script.** `from_start` can still open the other backend. The script is the scaffolded default.
+- **`from_start` requires the caller to name the project; `from_marker` uses the marker name.** Engines keep `from_start`. The UI script lives in the tree, so it uses `from_marker`.
+- **Serving the vendor UI is not occupancy.** It does not claim HashManager pairs. Creating a missing store directory is a serve side effect, not `from_start`.
 - **The marker is a name, not a Digital Lab package version.** Two checkouts that disagree on layout shape can still attach to the same tree.
 - **Lock timeout is checkpoint.json's field, used as HashManager's timeout.** Occupancy wait and checkpoint wait share that number. Poll interval is `LOCK_POLL_SECONDS`, separate.
 - **`setup-project` owns cwd.** The CLI does not take a parent path. Python `scaffold` takes an already-created `root`.

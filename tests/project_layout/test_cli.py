@@ -14,7 +14,12 @@ from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.input_output.json_io import read_object
 from dl_toolbox.project_layout import ProjectLayout, TrackingBackend
 from dl_toolbox.project_layout.cli import main
-from dl_toolbox.project_layout.names import MARKER_FILENAME, TRACKING_BACKEND_FILENAME
+from dl_toolbox.project_layout.names import (
+    MARKER_FILENAME,
+    MLFLOW_RUN_FILENAME,
+    TENSORBOARD_RUN_FILENAME,
+    TRACKING_BACKEND_FILENAME,
+)
 from tests.base.base_support import N_TRIALS, random_generating_process_name
 
 
@@ -61,6 +66,13 @@ def test_cli_setup_project_uses_cwd(
             == layout.lock_timeout_seconds
         )
         assert layout.hash_manager.lock_poll_seconds == ProjectLayout.LOCK_POLL_SECONDS
+        File.from_under(
+            root=root, relative_path=f"scripts/{TENSORBOARD_RUN_FILENAME}"
+        )
+        with pytest.raises(FileNotFoundError):
+            File.from_under(
+                root=root, relative_path=f"scripts/{MLFLOW_RUN_FILENAME}"
+            )
         again = main(
             [
                 "setup-project",
@@ -117,6 +129,11 @@ def test_cli_setup_project_tracking_backend_mlflow(
     )
     assert layout.mlflow_db_path() == root.path / "storage" / "mlflow" / "tracking.db"
     assert layout.mlflow_artifact_root().spec == DirectorySpec.MISSING
+    File.from_under(root=root, relative_path=f"scripts/{MLFLOW_RUN_FILENAME}")
+    with pytest.raises(FileNotFoundError):
+        File.from_under(
+            root=root, relative_path=f"scripts/{TENSORBOARD_RUN_FILENAME}"
+        )
 
 
 def test_cli_requires_tracking_backend(
