@@ -2,7 +2,7 @@
 
 Fit construction takes a fit-recipe File, an experiment with build_fit /
 build_eval, and force. Inspect adds inspect_recipe File and eval_device.
-GPU count picks the first N visible CUDA devices; a list is explicit indices.
+GPU count binds the N CUDA devices with the most free memory; a list is explicit indices.
 """
 
 from __future__ import annotations
@@ -44,6 +44,10 @@ from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
     EnginePurpose,
     TrainValEngine,
     parse_force,
+)
+from dl_toolbox.dl_engine.exp_engine.visible_gpus import (
+    bind_visible_gpus,
+    distributed_launch_started,
 )
 from dl_toolbox.dl_engine.loggers.logger import Logger
 from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
@@ -362,12 +366,19 @@ def devices_and_strategy(
 
 
 def pick_visible_gpu_indices(*, count: int) -> tuple[int, ...]:
-    n_visible = torch.cuda.device_count()
-    if n_visible < count:
-        raise ValueError(
-            f"need {count} visible CUDA devices, found {n_visible}"
-        )
-    return tuple(range(count))
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError(f"need a GPU count >= 1, got {count!r}")
+    if distributed_launch_started():
+        n_visible = torch.cuda.device_count()
+        if n_visible < 1:
+            raise ValueError(
+                "need visible CUDA devices after distributed launch, found 0"
+            )
+        if n_visible < count:
+            return tuple(range(n_visible))
+        return tuple(range(count))
+    selected = bind_visible_gpus(count=count)
+    return tuple(range(len(selected)))
 
 
 def _bind_experiment(experiment: object) -> object:

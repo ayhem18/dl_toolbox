@@ -2,7 +2,7 @@
 
 Fit construction takes a train-recipe File, an experiment with build_train_only /
 build_eval, and force. Inspect adds inspect_recipe File and eval_device.
-GPU count picks the first N visible CUDA devices; a list is explicit indices.
+GPU count binds the N CUDA devices with the most free memory; a list is explicit indices.
 """
 
 from __future__ import annotations

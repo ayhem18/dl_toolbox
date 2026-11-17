@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -34,33 +35,43 @@ def test_cpu_devices_are_empty_tuple() -> None:
     assert strategy == Strategy.SINGLE_DEVICE
 
 
-def test_gpu_count_picks_first_visible_indices(
+def test_gpu_count_binds_the_freest_physical_indices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.delenv("RANK", raising=False)
+    monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.train_val_engine.default_layout.torch.cuda.device_count",
-        lambda: 4,
+        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        lambda: ((0, 1000), (1, 20000), (2, 9000), (3, 15000)),
     )
     devices, strategy = devices_and_strategy(
         accelerator=Accelerator.GPU, devices_field=2
     )
     assert devices == (0, 1)
     assert strategy == Strategy.DDP
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "1,3"
     one, one_strategy = devices_and_strategy(
         accelerator=Accelerator.GPU, devices_field=1
     )
     assert one == (0,)
     assert one_strategy == Strategy.SINGLE_DEVICE
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "1"
 
 
-def test_gpu_count_errors_when_not_enough_visible(
+def test_gpu_count_errors_when_not_enough_gpus(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.delenv("RANK", raising=False)
+    monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.train_val_engine.default_layout.torch.cuda.device_count",
-        lambda: 1,
+        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        lambda: ((0, 9000),),
     )
-    with pytest.raises(ValueError, match="need 3 visible CUDA devices"):
+    with pytest.raises(ValueError, match="need 3 GPU devices"):
         pick_visible_gpu_indices(count=3)
 
 
@@ -75,9 +86,13 @@ def test_explicit_gpu_indices_skip_the_pick() -> None:
 def test_get_trainer_converts_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.delenv("RANK", raising=False)
+    monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.train_val_engine.default_layout.torch.cuda.device_count",
-        lambda: 2,
+        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        lambda: ((0, 8000), (1, 12000)),
     )
     root = scaffold_project(tmp_path, name="proj_gpu", backend="tensorboard")
     recipe = write_recipe(
