@@ -5,7 +5,9 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from dl_toolbox.dl_engine.dl_engine_utils.batches import cycling_batches, mapping_to_device
-from dl_toolbox.dl_engine.dl_engine_utils.optimizer_lr import set_optimizer_lr
+from dl_toolbox.dl_engine.dl_engine_utils.optimization.optimizer_lr import (
+    set_optimizer_lr,
+)
 
 
 def test_cycling_batches_restarts_after_exhaustion() -> None:

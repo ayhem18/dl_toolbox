@@ -32,6 +32,12 @@ mlflow = [
     "mlflow",
     "numpy>=1.26.0",
 ]
+fcmae = [
+    "numpy>=1.26.0",
+    "torch>=2.4.0",
+    "lightning>=2.0.0",
+    "transformers>=4.56.0",
+]
 
 [project.scripts]
 dl-toolbox = "dl_toolbox.project_layout.cli:main"

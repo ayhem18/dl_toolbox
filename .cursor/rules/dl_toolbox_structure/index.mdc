@@ -79,8 +79,11 @@ src/dl_toolbox/
       precision/           AmpSession; no contract yet
       progress.py
       trainable_snapshot.py
-      optimizer_lr.py
+      optimization/        set_optimizer_lr, linear scale, warmup cosine
       batches.py
+    task_engines/
+      cv_pretraining/
+        fcmae/             ConvNeXt V2 FCMAE model, loss, mask, metrics
   experiment_management/   design still in standards/exp_mng_engine/
   dl_engine_utils/         unspecified leftover; not the DL home
 ```

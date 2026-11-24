@@ -11,7 +11,7 @@ from dl_toolbox.dl_engine.representation_eval.knn.crowding import (
     CrowdingExtremes,
     crowding_filename,
 )
-from dl_toolbox.dl_engine_utils.images.neighbor_sheet import neighbor_sheet
+from dl_toolbox.dl_engine.dl_engine_utils.images.neighbor_sheet import neighbor_sheet
 
 LoadIndexImage = Callable[[int], object]
 

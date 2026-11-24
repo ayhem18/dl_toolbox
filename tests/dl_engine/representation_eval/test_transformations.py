@@ -15,7 +15,7 @@ from dl_toolbox.dl_engine.representation_eval.transformations.project import (
     concat_train_val,
     project_2d,
 )
-from dl_toolbox.dl_engine_utils.images.scatter import plot_labeled_scatter
+from dl_toolbox.dl_engine.dl_engine_utils.images.scatter import plot_labeled_scatter
 from tests.dl_engine.representation_eval.support import two_gaussians
 
 pytest.importorskip("sklearn")

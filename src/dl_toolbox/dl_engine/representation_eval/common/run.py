@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dl_toolbox.base.input_output.json_io import write_json
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
+)
+from dl_toolbox.base.input_output.json_io import JsonTextForm, write_object
 from dl_toolbox.dl_engine.representation_eval.common.config import (
     RepresentationProbeConfig,
 )
@@ -29,7 +33,7 @@ from dl_toolbox.dl_engine.representation_eval.transformations.project import (
     concat_train_val,
     project_2d,
 )
-from dl_toolbox.dl_engine_utils.images.scatter import plot_labeled_scatter
+from dl_toolbox.dl_engine.dl_engine_utils.images.scatter import plot_labeled_scatter
 
 LINEAR_DIRNAME = "linear_regression"
 KNN_DIRNAME = "knn"
@@ -75,20 +79,20 @@ def run_representation_probes(
             probe_root / "embeddings.npz", train=train, val=val
         )
     linear_rows = _linear_prediction_rows(val, linear)
-    confusion_path = write_json(
+    confusion_path = _write_json(
         linear_dir / "confusion.json",
         {
             "class_names": list(train.class_names),
             "matrix": linear.confusion.tolist(),
         },
     )
-    predictions_path = write_json(
+    predictions_path = _write_json(
         linear_dir / "predictions.json", {"rows": linear_rows}
     )
     paths["linear_confusion"] = confusion_path
     paths["linear_predictions"] = predictions_path
     crowding_rows = _crowding_rows(val, train, knn)
-    crowding_path = write_json(
+    crowding_path = _write_json(
         knn_dir / "crowding.json",
         {"k": knn.k, "rows": crowding_rows},
     )
@@ -155,6 +159,19 @@ def run_representation_probes(
         linear_table=tuple(linear_rows),
         paths=paths,
     )
+
+
+def _write_json(path: Path, payload: object) -> Path:
+    parent = Directory.from_absolute(
+        path=path.parent, policy=DirectoryParsePolicy.CREATE
+    )
+    written = write_object(
+        directory=parent,
+        name=path.name,
+        payload=payload,
+        form=JsonTextForm.DOCUMENT,
+    )
+    return written.path
 
 
 def _linear_prediction_rows(

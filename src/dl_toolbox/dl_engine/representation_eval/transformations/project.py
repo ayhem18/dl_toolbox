@@ -12,7 +12,7 @@ from dl_toolbox.dl_engine.representation_eval.common.feature_bank import (
     l2_normalize,
 )
 from dl_toolbox.base.packaging import require
-from dl_toolbox.dl_engine_utils.images.scatter import SPLIT_TRAIN, SPLIT_VAL
+from dl_toolbox.dl_engine.dl_engine_utils.images.scatter import SPLIT_TRAIN, SPLIT_VAL
 
 METHOD_PCA = "pca"
 METHOD_TSNE = "tsne"

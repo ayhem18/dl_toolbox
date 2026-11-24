@@ -13,7 +13,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dl_toolbox.dl_engine.dl_engine_utils.batches import cycling_batches, mapping_to_device
-from dl_toolbox.dl_engine.dl_engine_utils.optimizer_lr import set_optimizer_lr
+from dl_toolbox.dl_engine.dl_engine_utils.optimization.optimizer_lr import (
+    set_optimizer_lr,
+)
 from dl_toolbox.dl_engine.dl_engine_utils.precision.amp import AmpSession
 from dl_toolbox.dl_engine.dl_engine_utils.trainable_snapshot import (
     TrainableSnapshot,
