@@ -1,19 +1,16 @@
 """``S3Connection``: the boto3/MinIO implementation of ``RemoteStoreConnection``.
 
-Constructed by ``S3Credentials.connect()`` with a live boto3 S3 client. boto3
-and botocore are imported lazily, so importing this module never requires the
-``s3`` extra; only building a client or calling an operation does.
-
-Local ends are ``File`` / ``Directory``; destination keys resolve with
-``resolve_under_project`` and nested output folders are created through
-``Directory.from_under`` — the ``base.file_management`` helpers, not hand-rolled
-path checks.
+Pure, location-keyed byte transport. boto3/botocore are imported lazily, so
+importing this module never requires the ``s3`` extra; only building a client
+or calling an operation does. A directory push writes the manifest
+(``DIRECTORY_MANIFEST_NAME``) last; a directory pull reads it and fetches
+exactly the files it lists.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
-from pathlib import PurePosixPath
 
 from dl_toolbox.base.file_management.directory import (
     Directory,
@@ -21,12 +18,12 @@ from dl_toolbox.base.file_management.directory import (
 )
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.base.file_management.join import resolve_under_project
-from dl_toolbox.base.hashing.identity import is_full_sha256
 from dl_toolbox.remote_store.backends import RemoteBackend
-from dl_toolbox.remote_store.connection import RemoteStoreConnection
+from dl_toolbox.remote_store.connection import (
+    DIRECTORY_MANIFEST_NAME,
+    RemoteStoreConnection,
+)
 from dl_toolbox.remote_store.locations import S3Location, parse_s3_location
-
-IDENTITY_METADATA_KEY = "dltoolbox-identity"
 
 
 class S3Connection(RemoteStoreConnection):
@@ -37,8 +34,7 @@ class S3Connection(RemoteStoreConnection):
     def backend(self) -> str:
         return RemoteBackend.S3
 
-    def object_exists(self, *, identity: str, location: Mapping) -> bool:
-        _require_identity(identity)
+    def exists(self, *, location: Mapping) -> bool:
         loc = parse_s3_location(location)
         from botocore.exceptions import ClientError
 
@@ -50,20 +46,15 @@ class S3Connection(RemoteStoreConnection):
                 return False
             raise
 
-    def push_file(self, *, identity: str, location: Mapping, source: File) -> None:
-        _require_identity(identity)
+    def push_file(self, *, location: Mapping, source: File) -> None:
         loc = parse_s3_location(location)
         self._client.upload_file(
-            Filename=str(source.path),
-            Bucket=loc.bucket,
-            Key=_object_key(loc),
-            ExtraArgs={"Metadata": {IDENTITY_METADATA_KEY: identity}},
+            Filename=str(source.path), Bucket=loc.bucket, Key=_object_key(loc)
         )
 
     def pull_file(
-        self, *, identity: str, location: Mapping, destination: Directory, name: str
+        self, *, location: Mapping, destination: Directory, name: str
     ) -> File:
-        _require_identity(identity)
         loc = parse_s3_location(location)
         dest_path = resolve_under_project(destination.path, name, label="name")
         self._client.download_file(
@@ -71,58 +62,65 @@ class S3Connection(RemoteStoreConnection):
         )
         return File.from_absolute(path=dest_path)
 
-    def push_directory(
-        self, *, identity: str, location: Mapping, source: Directory
-    ) -> None:
-        _require_identity(identity)
+    def push_directory(self, *, location: Mapping, source: Directory) -> None:
         loc = parse_s3_location(location)
-        root = source.path
         prefix = _object_prefix(loc)
-        files = sorted(p for p in root.rglob("*") if p.is_file())
+        root = source.path
+        files = sorted(
+            p.relative_to(root).as_posix()
+            for p in root.rglob("*")
+            if p.is_file()
+        )
+        if DIRECTORY_MANIFEST_NAME in files:
+            raise ValueError(
+                f"{DIRECTORY_MANIFEST_NAME!r} is reserved and cannot be a member "
+                f"of a pushed directory"
+            )
         n_files = len(files)
         for i in range(n_files):
-            relative = files[i].relative_to(root).as_posix()
             self._client.upload_file(
-                Filename=str(files[i]),
+                Filename=str(root / files[i]),
                 Bucket=loc.bucket,
-                Key=prefix + relative,
-                ExtraArgs={"Metadata": {IDENTITY_METADATA_KEY: identity}},
+                Key=prefix + files[i],
             )
+        # Manifest strictly last: its presence marks the push complete.
+        self._client.put_object(
+            Bucket=loc.bucket,
+            Key=prefix + DIRECTORY_MANIFEST_NAME,
+            Body=_manifest_bytes(files),
+            ContentType="application/json",
+        )
 
-    def pull_directory(
-        self, *, identity: str, location: Mapping, destination: Directory
-    ) -> None:
-        _require_identity(identity)
+    def pull_directory(self, *, location: Mapping, destination: Directory) -> None:
         loc = parse_s3_location(location)
         prefix = _object_prefix(loc)
-        paginator = self._client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=loc.bucket, Prefix=prefix):
-            contents = page.get("Contents", [])
-            n_objects = len(contents)
-            for i in range(n_objects):
-                key = contents[i]["Key"]
-                if key.endswith("/") or not key.startswith(prefix):
-                    continue
-                relative = key[len(prefix):]
-                if not relative:
-                    continue
-                self._prepare_subdirectory(destination, relative)
-                dest_path = resolve_under_project(
-                    destination.path, relative, label="key"
-                )
-                self._client.download_file(
-                    Bucket=loc.bucket, Key=key, Filename=str(dest_path)
-                )
+        files = self._read_manifest(loc.bucket, prefix)
+        n_files = len(files)
+        for i in range(n_files):
+            relative = files[i]
+            _ensure_subdirectory(destination, relative)
+            dest_path = resolve_under_project(
+                destination.path, relative, label="manifest entry"
+            )
+            self._client.download_file(
+                Bucket=loc.bucket, Key=prefix + relative, Filename=str(dest_path)
+            )
 
-    def _prepare_subdirectory(self, destination: Directory, relative: str) -> None:
-        parent = PurePosixPath(relative).parent
-        if str(parent) in ("", "."):
-            return
-        Directory.from_under(
-            root=destination,
-            relative_path=str(parent),
-            policy=DirectoryParsePolicy.CREATE,
-        )
+    def _read_manifest(self, bucket: str, prefix: str) -> list[str]:
+        from botocore.exceptions import ClientError
+
+        try:
+            response = self._client.get_object(
+                Bucket=bucket, Key=prefix + DIRECTORY_MANIFEST_NAME
+            )
+        except ClientError as exc:
+            if _is_not_found(exc):
+                raise FileNotFoundError(
+                    f"no completed directory at {bucket}/{prefix} "
+                    f"(manifest {DIRECTORY_MANIFEST_NAME} absent)"
+                ) from exc
+            raise
+        return _parse_manifest(response["Body"].read())
 
 
 def _object_key(location: S3Location) -> str:
@@ -133,12 +131,31 @@ def _object_prefix(location: S3Location) -> str:
     return location.path_within_bucket.rstrip("/") + "/"
 
 
-def _require_identity(identity: object) -> str:
-    if not isinstance(identity, str) or not is_full_sha256(identity):
-        raise ValueError(
-            f"identity must be a 64-char lowercase SHA-256, got {identity!r}"
-        )
-    return identity
+def _manifest_bytes(files: list[str]) -> bytes:
+    return json.dumps({"files": files}, indent=2, sort_keys=True).encode("utf-8")
+
+
+def _parse_manifest(raw: bytes) -> list[str]:
+    document = json.loads(raw.decode("utf-8"))
+    if not isinstance(document, dict) or "files" not in document:
+        raise ValueError("directory manifest must be a JSON object with 'files'")
+    files = document["files"]
+    if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
+        raise ValueError("directory manifest 'files' must be a list of strings")
+    return files
+
+
+def _ensure_subdirectory(destination: Directory, relative: str) -> None:
+    from pathlib import PurePosixPath
+
+    parent = PurePosixPath(relative).parent
+    if str(parent) in ("", "."):
+        return
+    Directory.from_under(
+        root=destination,
+        relative_path=str(parent),
+        policy=DirectoryParsePolicy.CREATE,
+    )
 
 
 def _is_not_found(exc: object) -> bool:

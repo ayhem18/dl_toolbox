@@ -1,11 +1,11 @@
 """ProjectLayout <-> remote store wiring: scaffold writes remote/ config and a
 blank per-backend credential file (git-ignored), and remote_mirror builds the
-mirror from them. connect() is monkeypatched so these run without boto3.
+mirror from them. S3Credentials.connect is monkeypatched, so these run without
+boto3.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -25,33 +25,11 @@ from dl_toolbox.project_layout.names import (
     MARKER_FILENAME,
 )
 from dl_toolbox.remote_store.backends import RemoteBackend
-from dl_toolbox.remote_store.connection import RemoteStoreConnection
 from dl_toolbox.remote_store.credentials import S3Credentials, blank_credential_document
 from dl_toolbox.remote_store.project_mirror import ProjectRemoteMirror
+from tests.remote_store.support import InMemoryConnection
 
-_REMOTE_DIR = "project_level_configs/remote"
-_CREDENTIALS_DIR = f"{_REMOTE_DIR}/credentials"
-
-
-class _FakeConnection(RemoteStoreConnection):
-    @property
-    def backend(self) -> str:
-        return RemoteBackend.S3
-
-    def object_exists(self, *, identity: str, location: Mapping) -> bool:
-        return False
-
-    def push_file(self, *, identity, location, source) -> None:  # noqa: ANN001
-        return None
-
-    def pull_file(self, *, identity, location, destination, name):  # noqa: ANN001
-        raise NotImplementedError
-
-    def push_directory(self, *, identity, location, source) -> None:  # noqa: ANN001
-        return None
-
-    def pull_directory(self, *, identity, location, destination) -> None:  # noqa: ANN001
-        return None
+_CREDENTIALS_DIR = "project_level_configs/remote/credentials"
 
 
 def _scaffold(tmp_path: Path, *, name: str, remote_backend: str) -> Directory:
@@ -76,7 +54,7 @@ def _layout(root: Directory, *, name: str) -> ProjectLayout:
     )
 
 
-def _write_credentials(root: Directory, *, payload: dict) -> None:
+def _fill_credentials(root: Directory) -> None:
     credentials_dir = Directory.from_under(
         root=root,
         relative_path=_CREDENTIALS_DIR,
@@ -85,7 +63,7 @@ def _write_credentials(root: Directory, *, payload: dict) -> None:
     write_object(
         directory=credentials_dir,
         name=f"{RemoteBackend.S3}.json",
-        payload=payload,
+        payload={"access_key_id": "AKIA", "secret_access_key": "secret"},
         form=JsonTextForm.DOCUMENT,
     )
 
@@ -97,7 +75,9 @@ def test_scaffold_writes_remote_config_and_blank_credentials(tmp_path: Path) -> 
     root = _scaffold(tmp_path, name="proj", remote_backend="s3")
 
     remote = read_object(
-        file=File.from_under(root=root, relative_path=f"{_REMOTE_DIR}/remote.json")
+        file=File.from_under(
+            root=root, relative_path="project_level_configs/remote/remote.json"
+        )
     )
     document = S3RemoteDocument.model_validate(remote)
     assert document.backend == RemoteBackend.S3
@@ -136,21 +116,19 @@ def test_remote_mirror_builds_from_config_and_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _scaffold(tmp_path, name="proj", remote_backend="s3")
-    _write_credentials(
-        root, payload={"access_key_id": "AKIA", "secret_access_key": "secret"}
-    )
+    _fill_credentials(root)
     captured: dict[str, S3Credentials] = {}
 
-    def fake_connect(self: S3Credentials) -> RemoteStoreConnection:
+    def fake_connect(self: S3Credentials) -> InMemoryConnection:
         captured["credentials"] = self
-        return _FakeConnection()
+        return InMemoryConnection()
 
     monkeypatch.setattr(S3Credentials, "connect", fake_connect)
 
     mirror = _layout(root, name="proj").remote_mirror()
     assert isinstance(mirror, ProjectRemoteMirror)
     assert mirror.bucket == "proj"
-    assert isinstance(mirror.connection, _FakeConnection)
+    assert isinstance(mirror.connection, InMemoryConnection)
 
     credentials = captured["credentials"]
     assert credentials.endpoint_url == DEFAULT_S3_ENDPOINT_URL

@@ -1,14 +1,20 @@
-"""``RemoteStoreConnection``: a live connection and every transport operation.
+"""``RemoteStoreConnection``: backend-neutral byte transport, keyed only by
+``location``.
 
-The remote is the source of truth. ``push_*`` overwrites the remote, ``pull_*``
-overwrites the local file. ``object_exists`` is the resolve-or-fetch gate; it is
-**file-only** and reads a single object key (the index entry), never a payload
-tree. This ABC knows backends and nothing about dl_toolbox; the project mapping
-is ``ProjectRemoteMirror``.
+The remote is the source of truth. ``push_*`` overwrites the remote; ``pull_*``
+overwrites local. There is no hashing, no verification, and no identity at this
+layer: a thing is addressed solely by its ``location`` (a backend-specific dict;
+for S3 ``{bucket, path_within_bucket}``). Content addressing, where a project
+wants it, lives in how the local paths are named, not here.
 
-Local ends are ``File`` (an existing absolute file) and ``Directory`` (presence
-carried on the object), so this layer does not re-check absoluteness or
-existence: ``base.file_management`` already owns that.
+A directory is not a real object — it is a key prefix. ``push_directory`` writes
+every file under the prefix and then, **strictly last**, a manifest
+(``DIRECTORY_MANIFEST_NAME``) listing the files it wrote; its presence is what
+marks the push complete. ``pull_directory`` reads that manifest and downloads
+exactly the files it lists, so a half-finished push (manifest absent) is never
+pulled as if complete. Per-file transfers are not mutually atomic — object
+stores have no atomic multi-object swap — the manifest is the completeness
+signal, not a transaction.
 """
 
 from __future__ import annotations
@@ -19,6 +25,8 @@ from collections.abc import Mapping
 from dl_toolbox.base.file_management.directory import Directory
 from dl_toolbox.base.file_management.file import File
 
+DIRECTORY_MANIFEST_NAME = ".dltoolbox-manifest.json"
+
 
 class RemoteStoreConnection(abc.ABC):
     @property
@@ -27,27 +35,23 @@ class RemoteStoreConnection(abc.ABC):
         """``RemoteBackend`` value this connection speaks."""
 
     @abc.abstractmethod
-    def object_exists(self, *, identity: str, location: Mapping) -> bool:
-        """Does the single object at ``(identity, location)`` exist. File-only."""
+    def exists(self, *, location: Mapping) -> bool:
+        """Is there a single object at ``location``. File-granular (a key)."""
 
     @abc.abstractmethod
-    def push_file(self, *, identity: str, location: Mapping, source: File) -> None:
-        """Overwrite the remote object from ``source``, unconditionally."""
+    def push_file(self, *, location: Mapping, source: File) -> None:
+        """Overwrite the remote object at ``location`` from ``source``."""
 
     @abc.abstractmethod
     def pull_file(
-        self, *, identity: str, location: Mapping, destination: Directory, name: str
+        self, *, location: Mapping, destination: Directory, name: str
     ) -> File:
-        """Overwrite ``name`` under ``destination`` from the remote object."""
+        """Overwrite ``destination/name`` from the remote object at ``location``."""
 
     @abc.abstractmethod
-    def push_directory(
-        self, *, identity: str, location: Mapping, source: Directory
-    ) -> None:
-        """Upload a tree under the location prefix. No ``object_exists`` for a tree."""
+    def push_directory(self, *, location: Mapping, source: Directory) -> None:
+        """Overwrite every file under the ``location`` prefix, manifest written last."""
 
     @abc.abstractmethod
-    def pull_directory(
-        self, *, identity: str, location: Mapping, destination: Directory
-    ) -> None:
-        """Download the tree under the location prefix into ``destination``."""
+    def pull_directory(self, *, location: Mapping, destination: Directory) -> None:
+        """Download the files the manifest lists under ``location`` into ``destination``."""

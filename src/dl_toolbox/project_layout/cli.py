@@ -54,15 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
         "remote-push",
         help="Push a file or directory under storage/ to the remote store.",
     )
-    push.add_argument("path", help="A file or directory under the project's storage/.")
     push.add_argument(
-        "--hash",
-        dest="hash",
-        default=None,
-        help=(
-            "Identity (full SHA-256). Required for a directory. For a file it is "
-            "optional and, if given, verified against the computed hash."
-        ),
+        "path", help="A file or directory under the project's storage/."
     )
 
     pull = subparsers.add_parser(
@@ -70,12 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pull a file or directory under storage/ from the remote (overwrites).",
     )
     pull.add_argument("path", help="A path under the project's storage/.")
-    pull.add_argument(
-        "--hash",
-        dest="hash",
-        required=True,
-        help="Expected identity (full SHA-256). A file is verified after download.",
-    )
     pull.add_argument(
         "--dir",
         dest="is_dir",
@@ -88,12 +75,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check whether a file is present in the remote store (prints present/absent).",
     )
     exists.add_argument("path", help="A file under the project's storage/.")
-    exists.add_argument(
-        "--hash",
-        dest="hash",
-        required=True,
-        help="Expected identity (full SHA-256).",
-    )
 
     return parser
 
@@ -179,43 +160,39 @@ def _relative_under_storage(layout: ProjectLayout, path_arg: str) -> str:
     return relative.as_posix()
 
 
-def _remote_push(*, path: str, hash_opt: str | None) -> int:
+def _remote_push(*, path: str) -> int:
     absolute = _absolute(path)
     is_directory = absolute.is_dir()
-    if is_directory and hash_opt is None:
-        raise ValueError("pushing a directory requires --hash <full SHA-256>")
     layout = _layout_from_cwd()
     mirror = layout.remote_mirror()
     if is_directory:
         relative = _relative_under_storage(layout, path)
-        mirror.push_directory(relative_path=relative, identity=hash_opt)
+        mirror.push_directory(relative_path=relative)
         sys.stdout.write(f"{relative}\n")
         return 0
-    identity = mirror.push_file(local_file=File.from_absolute(path=absolute))
-    if hash_opt is not None and hash_opt != identity:
-        raise ValueError(f"{path} hashes to {identity}, not --hash {hash_opt}")
-    sys.stdout.write(f"{identity}\n")
+    relative = mirror.push_file(local_file=File.from_absolute(path=absolute))
+    sys.stdout.write(f"{relative}\n")
     return 0
 
 
-def _remote_pull(*, path: str, hash_value: str, is_dir: bool) -> int:
+def _remote_pull(*, path: str, is_dir: bool) -> int:
     layout = _layout_from_cwd()
     mirror = layout.remote_mirror()
     relative = _relative_under_storage(layout, path)
     if is_dir:
-        mirror.pull_directory(relative_path=relative, identity=hash_value)
+        mirror.pull_directory(relative_path=relative)
         sys.stdout.write(f"{relative}\n")
         return 0
-    pulled = mirror.pull_file(relative_path=relative, expected_hash=hash_value)
+    pulled = mirror.pull_file(relative_path=relative)
     sys.stdout.write(f"{pulled.path}\n")
     return 0
 
 
-def _remote_exists(*, path: str, hash_value: str) -> int:
+def _remote_exists(*, path: str) -> int:
     layout = _layout_from_cwd()
     mirror = layout.remote_mirror()
     relative = _relative_under_storage(layout, path)
-    present = mirror.object_exists(relative_path=relative, expected_hash=hash_value)
+    present = mirror.exists(relative_path=relative)
     sys.stdout.write("present\n" if present else "absent\n")
     return 0
 
@@ -230,11 +207,11 @@ def _dispatch(args: argparse.Namespace) -> int:
         sys.stdout.write(f"{root}\n")
         return 0
     if args.command == "remote-push":
-        return _remote_push(path=args.path, hash_opt=args.hash)
+        return _remote_push(path=args.path)
     if args.command == "remote-pull":
-        return _remote_pull(path=args.path, hash_value=args.hash, is_dir=args.is_dir)
+        return _remote_pull(path=args.path, is_dir=args.is_dir)
     if args.command == "remote-exists":
-        return _remote_exists(path=args.path, hash_value=args.hash)
+        return _remote_exists(path=args.path)
     raise ValueError(f"unknown command {args.command!r}")
 
 

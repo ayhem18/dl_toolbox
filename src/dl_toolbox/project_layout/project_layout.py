@@ -454,7 +454,6 @@ class ProjectLayout:
         )
         return ProjectRemoteMirror(
             connection=credentials.connect(),
-            hash_manager=self._hash_manager,
             storage=self.storage(),
             bucket=document.bucket,
         )
