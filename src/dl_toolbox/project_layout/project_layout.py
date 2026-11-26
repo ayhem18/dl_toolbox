@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
@@ -32,16 +33,27 @@ from dl_toolbox.project_layout.documents import (
     IdentityDocument,
     MarkerDocument,
     MlflowLoggingDocument,
+    S3RemoteDocument,
     TensorBoardLoggingDocument,
 )
+from dl_toolbox.remote_store.backends import RemoteBackend, parse_backend
+from dl_toolbox.remote_store.credentials import blank_credential_document
+
+if TYPE_CHECKING:
+    from dl_toolbox.remote_store.project_mirror import ProjectRemoteMirror
 from dl_toolbox.project_layout.names import (
     CHECKPOINT_CONFIG_FILENAME,
     DEFAULT_CHECKPOINT_CONFIG,
     DEFAULT_IDENTITY_CONFIG,
     EXPERIMENTS_DIRNAME,
+    GITIGNORE_FILENAME,
     IDENTITY_CONFIG_FILENAME,
     LOGGING_CONFIGS_DIRNAME,
     MARKER_FILENAME,
+    REMOTE_CONFIG_FILENAME,
+    REMOTE_CONFIGS_DIRNAME,
+    REMOTE_CREDENTIALS_DIRNAME,
+    default_remote_config,
     MLFLOW_ARTIFACTS_DIRNAME,
     MLFLOW_DIRNAME,
     MLFLOW_RUN_FILENAME,
@@ -237,10 +249,12 @@ class ProjectLayout:
         root: Directory,
         project_name: str,
         tracking_backend: str,
+        remote_backend: str,
     ) -> None:
         if root.spec != DirectorySpec.EXISTS:
             raise ValueError(f"scaffold root Directory must exist: {root.path}")
         backend = _parse_backend(tracking_backend)
+        remote = parse_backend(remote_backend)
         name = parse_non_empty_str(project_name, label="project_name")
         try:
             existing = File.from_under(root=root, relative_path=MARKER_FILENAME)
@@ -292,6 +306,37 @@ class ProjectLayout:
             name=f"{TrackingBackend.MLFLOW}.json",
             payload=_mlflow_scaffold_payload(),
             form=JsonTextForm.DOCUMENT,
+        )
+        remote_dir = Directory.from_under(
+            root=root,
+            relative_path=f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{REMOTE_CONFIGS_DIRNAME}",
+            policy=DirectoryParsePolicy.CREATE,
+        )
+        write_object(
+            directory=remote_dir,
+            name=REMOTE_CONFIG_FILENAME,
+            payload=default_remote_config(backend=remote, project_name=name),
+            form=JsonTextForm.DOCUMENT,
+        )
+        credentials_dir = Directory.from_under(
+            root=remote_dir,
+            relative_path=REMOTE_CREDENTIALS_DIRNAME,
+            policy=DirectoryParsePolicy.CREATE,
+        )
+        backends = RemoteBackend.BACKENDS
+        n_backends = len(backends)
+        for i in range(n_backends):
+            write_object(
+                directory=credentials_dir,
+                name=f"{backends[i]}.json",
+                payload=blank_credential_document(backends[i]),
+                form=JsonTextForm.DOCUMENT,
+            )
+        (root.path / GITIGNORE_FILENAME).write_text(
+            "# dl-toolbox: never commit remote-store credentials\n"
+            f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{REMOTE_CONFIGS_DIRNAME}/"
+            f"{REMOTE_CREDENTIALS_DIRNAME}/\n",
+            encoding="utf-8",
         )
         reserved = (
             STORAGE_DIRNAME,
@@ -358,6 +403,80 @@ class ProjectLayout:
             policy=DirectoryParsePolicy.ALLOW_MISSING,
         )
 
+    def storage(self) -> Directory:
+        return Directory.from_under(
+            root=self._root,
+            relative_path=STORAGE_DIRNAME,
+            policy=DirectoryParsePolicy.MUST_EXIST,
+        )
+
+    def remote_mirror(self) -> ProjectRemoteMirror:
+        """Build the remote-store mirror from ``remote/`` config + credentials.
+
+        Reads the committed ``remote.json`` and the git-ignored per-backend
+        credential file, builds the backend credentials, connects, and returns a
+        ``ProjectRemoteMirror`` bound to this project's ``storage/`` and bucket.
+        Only the S3/MinIO backend is wired today.
+        """
+        from dl_toolbox.remote_store.credentials import (
+            S3Credentials,
+            credential_file_model,
+        )
+        from dl_toolbox.remote_store.project_mirror import ProjectRemoteMirror
+
+        remote_payload = read_object(file=self._remote_config_file())
+        remote_backend = parse_backend(remote_payload.get("backend"))
+        if remote_backend != RemoteBackend.S3:
+            raise ValueError(
+                f"remote backend {remote_backend!r} is not wired yet; "
+                f"only {RemoteBackend.S3!r} is supported"
+            )
+        document = _s3_remote_document(remote_payload)
+        secrets_payload = read_object(file=self._remote_credentials_file(remote_backend))
+        try:
+            secrets = credential_file_model(remote_backend).model_validate(
+                secrets_payload
+            )
+        except ValidationError as exc:
+            raise ValueError(
+                f"remote credentials "
+                f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{REMOTE_CONFIGS_DIRNAME}/"
+                f"{REMOTE_CREDENTIALS_DIRNAME}/{remote_backend}.json "
+                f"are incomplete; fill them in: {exc}"
+            ) from exc
+        credentials = S3Credentials(
+            endpoint_url=document.endpoint_url,
+            access_key_id=secrets.access_key_id,
+            secret_access_key=secrets.secret_access_key,
+            region=document.region,
+            secure=document.secure,
+            addressing_style=document.addressing_style,
+        )
+        return ProjectRemoteMirror(
+            connection=credentials.connect(),
+            hash_manager=self._hash_manager,
+            storage=self.storage(),
+            bucket=document.bucket,
+        )
+
+    def _remote_config_file(self) -> File:
+        return File.from_under(
+            root=self._root,
+            relative_path=(
+                f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{REMOTE_CONFIGS_DIRNAME}/"
+                f"{REMOTE_CONFIG_FILENAME}"
+            ),
+        )
+
+    def _remote_credentials_file(self, backend: str) -> File:
+        return File.from_under(
+            root=self._root,
+            relative_path=(
+                f"{PROJECT_LEVEL_CONFIGS_DIRNAME}/{REMOTE_CONFIGS_DIRNAME}/"
+                f"{REMOTE_CREDENTIALS_DIRNAME}/{backend}.json"
+            ),
+        )
+
     def _mlflow_logging(self) -> _MlflowLogging:
         logging = self._logging
         if not isinstance(logging, _MlflowLogging):
@@ -415,6 +534,13 @@ def _checkpoint_document(payload: object) -> CheckpointDocument:
         return CheckpointDocument.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(f"{CHECKPOINT_CONFIG_FILENAME}: {exc}") from exc
+
+
+def _s3_remote_document(payload: object) -> S3RemoteDocument:
+    try:
+        return S3RemoteDocument.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError(f"{REMOTE_CONFIG_FILENAME}: {exc}") from exc
 
 
 def _tensorboard_log_dir(root: Directory, payload: object) -> Directory:

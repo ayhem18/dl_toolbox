@@ -79,11 +79,19 @@ src/dl_toolbox/
       precision/           AmpSession; no contract yet
       progress.py
       trainable_snapshot.py
-      optimization/        set_optimizer_lr, linear scale, warmup cosine
+      optimization/        one folder, no shim at optimizer_lr.py
+        optimizer_lr.py    set_optimizer_lr
+        linear_lr_scale.py effective_batch_size, scaled_learning_rate
+        warmup_cosine.py   warmup_cosine_lambda, make_warmup_cosine_scheduler
       batches.py
-    task_engines/
+    task_engines/          task algorithm a project engine wires in. Not a run, not an exp_engine.
       cv_pretraining/
-        fcmae/             ConvNeXt V2 FCMAE model, loss, mask, metrics
+        fcmae/             ConvNeXt V2 FCMAE. No CONTRACT. No JSON name switch.
+          model/           fcmae_masked_encoder, fcmae_decoder, fcmae_init, fcmae_weights
+          loss/            MaskedMseLoss, NormPixelLoss in fcmae_patch_loss; z-score in fcmae_patch_zscore
+          mask/            fcmae_mask_sampling.random_patch_mask
+          metrics/         fcmae_reconstruction: mse_pixel_metric, mse_z_metric
+                           Project owns the loss-name switch, batch keys, and FitSteps assembly.
   experiment_management/   design still in standards/exp_mng_engine/
   dl_engine_utils/         unspecified leftover; not the DL home
 ```

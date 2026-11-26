@@ -12,6 +12,7 @@ class Extra:
     TENSORBOARD = "tensorboard"
     WANDB = "wandb"
     MLFLOW = "mlflow"
+    S3 = "s3"
 
 
 class HintKind:
@@ -20,6 +21,7 @@ class HintKind:
 
 
 IMPORT_HINTS: dict[str, tuple[str, str]] = {
+    "boto3": (HintKind.EXTRA, Extra.S3),
     "cv2": (HintKind.EXTRA, Extra.GEOMETRY),
     "lightning": (HintKind.EXTRA, Extra.DL),
     "matplotlib": (HintKind.DIST, "matplotlib"),

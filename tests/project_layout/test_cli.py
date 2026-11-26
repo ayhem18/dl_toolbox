@@ -203,8 +203,14 @@ def test_cli_removes_directory_if_scaffold_fails(
     monkeypatch.chdir(tmp_path)
     name = random_generating_process_name(rng)
 
-    def fake_scaffold(*, root: Directory, project_name: str, tracking_backend: str) -> None:
-        del project_name, tracking_backend
+    def fake_scaffold(
+        *,
+        root: Directory,
+        project_name: str,
+        tracking_backend: str,
+        remote_backend: str,
+    ) -> None:
+        del project_name, tracking_backend, remote_backend
         (root.path / "partial.txt").write_text("x\n", encoding="utf-8")
         raise ValueError("scaffold exploded")
 

@@ -35,7 +35,7 @@ def existing_root(path: Path) -> Directory:
 def scaffold_project(tmp_path: Path, *, name: str, backend: str) -> Directory:
     root = existing_root(tmp_path / name)
     ProjectLayout.scaffold(
-        root=root, project_name=name, tracking_backend=backend
+        root=root, project_name=name, tracking_backend=backend, remote_backend="s3"
     )
     return root
 

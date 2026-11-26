@@ -70,3 +70,16 @@ class MlflowLoggingDocument(BaseModel):
 
     backend_store: MlflowBackendStoreDocument
     artifact_store: MlflowArtifactStoreDocument
+
+
+class S3RemoteDocument(BaseModel):
+    """Non-secret ``remote.json`` for the S3/MinIO backend. Secrets live apart."""
+
+    model_config = _STRICT
+
+    backend: Literal["s3"]
+    bucket: _NonEmptyStr
+    endpoint_url: _NonEmptyStr
+    region: _NonEmptyStr
+    secure: bool
+    addressing_style: Literal["path", "virtual"]

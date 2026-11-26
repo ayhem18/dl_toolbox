@@ -35,7 +35,7 @@ def _scaffold(
 ) -> Directory:
     root = _existing_root(tmp_path / name)
     ProjectLayout.scaffold(
-        root=root, project_name=name, tracking_backend=backend
+        root=root, project_name=name, tracking_backend=backend, remote_backend="s3"
     )
     return root
 
@@ -333,6 +333,7 @@ def test_scaffold_refuses_existing_marker(
             root=root,
             project_name=name,
             tracking_backend=TrackingBackend.TENSORBOARD,
+            remote_backend="s3",
         )
 
 
