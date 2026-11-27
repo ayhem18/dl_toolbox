@@ -43,7 +43,7 @@ def test_gpu_count_binds_the_freest_physical_indices(
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        "dl_toolbox.dl_engine.dl_engine_utils.visible_gpus.query_gpu_free_mib",
         lambda: ((0, 1000), (1, 20000), (2, 9000), (3, 15000)),
     )
     devices, strategy = devices_and_strategy(
@@ -68,7 +68,7 @@ def test_gpu_count_errors_when_not_enough_gpus(
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        "dl_toolbox.dl_engine.dl_engine_utils.visible_gpus.query_gpu_free_mib",
         lambda: ((0, 9000),),
     )
     with pytest.raises(ValueError, match="need 3 GPU devices"):
@@ -91,7 +91,7 @@ def test_get_trainer_converts_count(
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        "dl_toolbox.dl_engine.dl_engine_utils.visible_gpus.query_gpu_free_mib",
         lambda: ((0, 8000), (1, 12000)),
     )
     root = scaffold_project(tmp_path, name="proj_gpu", backend="tensorboard")

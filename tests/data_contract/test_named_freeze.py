@@ -166,6 +166,16 @@ def test_file_backed_name_deletes_payload_directory(
         )
         assert removed is True
         assert not payload.path.exists()
+        second = remove_named_freeze(
+            manager,
+            directory,
+            generating_process_name=name,
+            configs_dir=configs_dir,
+            payload=payload,
+        )
+        assert second is False
+        assert payload.spec == DirectorySpec.EXISTS
+        assert not payload.path.exists()
 
 
 def test_does_not_delete_a_different_name(tmp_path: Path, rng: random.Random) -> None:

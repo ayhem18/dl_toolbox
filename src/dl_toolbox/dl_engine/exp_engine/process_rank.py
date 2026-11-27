@@ -3,6 +3,8 @@
 is_ddp_worker is true when any named rank variable parses as an int > 0.
 A missing name, an empty string, or a non-integer string is unset.
 Unset is not a worker.
+distributed_launch_started is true when LOCAL_RANK, RANK, or GLOBAL_RANK is set
+to a non-empty string. Rank 0 after torchrun is a started launch and not a worker.
 """
 
 from __future__ import annotations
@@ -36,9 +38,30 @@ class ProcessRank:
             return True
         return False
 
+    @staticmethod
+    def distributed_launch_started() -> bool:
+        names = (
+            ProcessRank.LOCAL_RANK_ENV,
+            ProcessRank.RANK_ENV,
+            ProcessRank.GLOBAL_RANK_ENV,
+        )
+        n = len(names)
+        for i in range(n):
+            raw = os.environ.get(names[i])
+            if raw is None:
+                continue
+            if raw.strip() == "":
+                continue
+            return True
+        return False
+
 
 def is_ddp_worker() -> bool:
     return ProcessRank.is_ddp_worker()
+
+
+def distributed_launch_started() -> bool:
+    return ProcessRank.distributed_launch_started()
 
 
 def _env_int(name: str) -> int | None:
@@ -56,5 +79,6 @@ def _env_int(name: str) -> int | None:
 
 __all__ = [
     "ProcessRank",
+    "distributed_launch_started",
     "is_ddp_worker",
 ]

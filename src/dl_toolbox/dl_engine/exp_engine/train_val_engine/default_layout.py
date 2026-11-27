@@ -45,10 +45,8 @@ from dl_toolbox.dl_engine.exp_engine.train_val_engine.train_val_engine import (
     TrainValEngine,
     parse_force,
 )
-from dl_toolbox.dl_engine.exp_engine.visible_gpus import (
-    bind_visible_gpus,
-    distributed_launch_started,
-)
+from dl_toolbox.dl_engine.dl_engine_utils.visible_gpus import bind_visible_gpus
+from dl_toolbox.dl_engine.exp_engine.process_rank import distributed_launch_started
 from dl_toolbox.dl_engine.loggers.logger import Logger
 from dl_toolbox.dl_engine.loggers.mlflow import MlflowLogger
 from dl_toolbox.dl_engine.loggers.tensorboard import TensorBoardLogger

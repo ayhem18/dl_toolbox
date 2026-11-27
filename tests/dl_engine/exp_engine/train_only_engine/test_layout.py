@@ -182,7 +182,7 @@ def test_get_trainer_converts_count(
     monkeypatch.delenv("RANK", raising=False)
     monkeypatch.delenv("GLOBAL_RANK", raising=False)
     monkeypatch.setattr(
-        "dl_toolbox.dl_engine.exp_engine.visible_gpus.query_gpu_free_mib",
+        "dl_toolbox.dl_engine.dl_engine_utils.visible_gpus.query_gpu_free_mib",
         lambda: ((0, 8000), (1, 12000)),
     )
     root = scaffold_project(tmp_path, name="proj_gpu", backend="tensorboard")

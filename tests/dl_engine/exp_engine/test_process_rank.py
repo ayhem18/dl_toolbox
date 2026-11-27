@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from dl_toolbox.dl_engine.exp_engine.process_rank import ProcessRank, is_ddp_worker
+from dl_toolbox.dl_engine.exp_engine.process_rank import (
+    ProcessRank,
+    distributed_launch_started,
+    is_ddp_worker,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -72,3 +76,12 @@ def test_any_one_worker_signal_is_enough(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv(ProcessRank.RANK_ENV, "0")
     monkeypatch.setenv(ProcessRank.LOCAL_RANK_ENV, "1")
     assert is_ddp_worker() is True
+
+
+def test_distributed_launch_started_is_any_named_rank_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert distributed_launch_started() is False
+    monkeypatch.setenv(ProcessRank.LOCAL_RANK_ENV, "0")
+    assert distributed_launch_started() is True
+    assert ProcessRank.distributed_launch_started() is True

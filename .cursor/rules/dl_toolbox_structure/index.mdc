@@ -64,6 +64,7 @@ src/dl_toolbox/
                            CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/train_only_engine/default_layout.mdc
       find_lr_engine/      CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/find_lr_engine/find_lr_engine.mdc
                            CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/exp_engine/find_lr_engine/default_layout.mdc
+      grid_search/         enumerate, validate, filter; persist keepers; GPU batch
     loggers/
       logger.py            CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/loggers/logger.mdc
       tensorboard.py       CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/loggers/tensorboard.mdc
@@ -72,6 +73,7 @@ src/dl_toolbox/
     lr_finder/
     representation_eval/   design still in standards/representation_eval/
     dl_engine_utils/       DL-only
+      visible_gpus.py      query_gpu_free_mib, bind_visible_gpus, query_free_gpu_indices
       image_patchify/
         patchified_tensor.py  CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/dl_engine_utils/image_patchify/patchified_tensor.mdc
         patchified_mask.py    CONTRACT  .cursor/rules/dl_toolbox_structure/dl_engine/dl_engine_utils/image_patchify/patchified_mask.mdc

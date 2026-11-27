@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import shutil
 
-from dl_toolbox.base.file_management.directory import Directory, DirectorySpec
+from dl_toolbox.base.file_management.directory import (
+    Directory,
+    DirectoryParsePolicy,
+    DirectorySpec,
+)
 from dl_toolbox.base.hashing.hash_manager import HashManager
 from dl_toolbox.base.hashing.identity import is_full_sha256
 from dl_toolbox.data_contract.configs import delete_collection_configuration
@@ -64,9 +68,16 @@ def remove_named_freeze(
         collection_removed = delete_collection_configuration(
             configs_dir, generating_process_name=name, manager=manager
         )
-    payload_exists = payload is not None and payload.spec == DirectorySpec.EXISTS
+    live_payload = None
+    if payload is not None:
+        live_payload = Directory.from_absolute(
+            path=payload.path, policy=DirectoryParsePolicy.ALLOW_MISSING
+        )
+    payload_exists = (
+        live_payload is not None and live_payload.spec == DirectorySpec.EXISTS
+    )
     if dropped is None and not collection_removed and not payload_exists:
         return False
-    if payload is not None and payload.spec == DirectorySpec.EXISTS:
-        shutil.rmtree(payload.path)
+    if payload_exists:
+        shutil.rmtree(live_payload.path)
     return True

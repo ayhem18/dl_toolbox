@@ -13,6 +13,7 @@ from dl_toolbox.dl_engine.representation_eval.common.feature_bank import (
     FeatureBank,
     l2_normalize,
 )
+
 from dl_toolbox.dl_engine.dl_engine_utils.classification.pred_metrics import (
     classification_pred_metrics,
     pred_metrics_as_scalars,
