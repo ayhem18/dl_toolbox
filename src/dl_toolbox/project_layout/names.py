@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dl_toolbox.remote_store.backends import RemoteBackend
+from dl_toolbox.remote_store.locations import is_valid_bucket_name
 
 MARKER_FILENAME = "dl_toolbox_project.json"
 TRACKING_BACKEND_FILENAME = ".tracking-backend"
@@ -41,6 +42,17 @@ DEFAULT_S3_ENDPOINT_URL = "http://localhost:9000"
 DEFAULT_S3_REGION = "us-east-1"
 
 
+def default_bucket_name(project_name: str) -> str:
+    """The scaffold-time default bucket for ``project_name``.
+
+    ``T``: lowercase, every ``_`` becomes ``-``. Returns the result when it is a
+    valid bucket name, else ``""`` (not fixable: the user sets ``bucket`` in
+    ``remote.json``). See remote_store_buckets.md.
+    """
+    candidate = project_name.strip().lower().replace("_", "-")
+    return candidate if is_valid_bucket_name(candidate) else ""
+
+
 def default_remote_config(*, backend: str, project_name: str) -> dict:
     """Opinionated, non-secret ``remote.json`` for ``backend``, committed to git.
 
@@ -51,7 +63,7 @@ def default_remote_config(*, backend: str, project_name: str) -> dict:
     if backend == RemoteBackend.S3:
         return {
             "backend": RemoteBackend.S3,
-            "bucket": project_name,
+            "bucket": default_bucket_name(project_name),
             "endpoint_url": DEFAULT_S3_ENDPOINT_URL,
             "region": DEFAULT_S3_REGION,
             "secure": False,

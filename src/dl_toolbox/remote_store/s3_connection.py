@@ -48,6 +48,7 @@ class S3Connection(RemoteStoreConnection):
 
     def push_file(self, *, location: Mapping, source: File) -> None:
         loc = parse_s3_location(location)
+        self._ensure_bucket(loc.bucket)
         self._client.upload_file(
             Filename=str(source.path), Bucket=loc.bucket, Key=_object_key(loc)
         )
@@ -64,6 +65,7 @@ class S3Connection(RemoteStoreConnection):
 
     def push_directory(self, *, location: Mapping, source: Directory) -> None:
         loc = parse_s3_location(location)
+        self._ensure_bucket(loc.bucket)
         prefix = _object_prefix(loc)
         root = source.path
         files = sorted(
@@ -105,6 +107,19 @@ class S3Connection(RemoteStoreConnection):
             self._client.download_file(
                 Bucket=loc.bucket, Key=prefix + relative, Filename=str(dest_path)
             )
+
+    def _ensure_bucket(self, bucket: str) -> None:
+        """Create the bucket if missing. Push-only; pull/exists never call this."""
+        from botocore.exceptions import ClientError
+
+        try:
+            self._client.head_bucket(Bucket=bucket)
+            return
+        except ClientError as exc:
+            if not _is_not_found(exc):
+                raise
+        # MinIO and S3 us-east-1 take no LocationConstraint.
+        self._client.create_bucket(Bucket=bucket)
 
     def _read_manifest(self, bucket: str, prefix: str) -> list[str]:
         from botocore.exceptions import ClientError

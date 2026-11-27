@@ -12,7 +12,11 @@ from dl_toolbox.base.file_management.directory import Directory, DirectoryParseP
 from dl_toolbox.base.file_management.file import File
 from dl_toolbox.remote_store.backends import RemoteBackend, parse_backend
 from dl_toolbox.remote_store.connection import DIRECTORY_MANIFEST_NAME
-from dl_toolbox.remote_store.locations import S3Location, parse_s3_location
+from dl_toolbox.remote_store.locations import (
+    S3Location,
+    is_valid_bucket_name,
+    parse_s3_location,
+)
 from dl_toolbox.remote_store.project_mirror import ProjectRemoteMirror
 from tests.remote_store.support import InMemoryConnection
 
@@ -46,25 +50,50 @@ def test_parse_backend() -> None:
 
 
 def test_s3_location_valid() -> None:
-    loc = parse_s3_location({"bucket": "b", "path_within_bucket": "runs/a.json"})
+    loc = parse_s3_location({"bucket": "bkt", "path_within_bucket": "runs/a.json"})
     assert isinstance(loc, S3Location)
-    assert loc.bucket == "b"
+    assert loc.bucket == "bkt"
     assert loc.path_within_bucket == "runs/a.json"
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"bucket": "b"},
-        {"bucket": "b", "path_within_bucket": "a", "extra": 1},
-        {"bucket": "b", "path_within_bucket": "/abs/key"},
-        {"bucket": "b", "path_within_bucket": "a/../b"},
+        {"bucket": "bkt"},
+        {"bucket": "bkt", "path_within_bucket": "a", "extra": 1},
+        {"bucket": "bkt", "path_within_bucket": "/abs/key"},
+        {"bucket": "bkt", "path_within_bucket": "a/../b"},
         {"bucket": "", "path_within_bucket": "a"},
+        {"bucket": "ccf_tabformer", "path_within_bucket": "a"},
     ],
 )
 def test_s3_location_rejects(payload: dict) -> None:
     with pytest.raises(ValueError):
         parse_s3_location(payload)
+
+
+@pytest.mark.parametrize(
+    "name", ["ccf-tabformer", "fraud2024", "a1b", "x" * 63]
+)
+def test_valid_bucket_names(name: str) -> None:
+    assert is_valid_bucket_name(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ccf_tabformer",  # underscore
+        "CCF-tabformer",  # uppercase
+        "my.project",  # dot
+        "ab",  # too short
+        "-tmp",  # leading hyphen
+        "tmp-",  # trailing hyphen
+        "x" * 64,  # too long
+        "",
+    ],
+)
+def test_invalid_bucket_names(name: str) -> None:
+    assert not is_valid_bucket_name(name)
 
 
 # --- file ops -----------------------------------------------------------------

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from dl_toolbox.base.hashing.identity import SHA256_HEX_LENGTH
 from dl_toolbox.base.parsing.parse_numerical import parse_positive_number
+from dl_toolbox.remote_store.locations import parse_s3_bucket_name
 
 _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 _NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -78,8 +79,13 @@ class S3RemoteDocument(BaseModel):
     model_config = _STRICT
 
     backend: Literal["s3"]
-    bucket: _NonEmptyStr
+    bucket: str
     endpoint_url: _NonEmptyStr
     region: _NonEmptyStr
     secure: bool
     addressing_style: Literal["path", "virtual"]
+
+    @field_validator("bucket")
+    @classmethod
+    def _bucket(cls, value: str) -> str:
+        return parse_s3_bucket_name(value, label="bucket")

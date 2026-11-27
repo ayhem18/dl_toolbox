@@ -23,6 +23,7 @@ from dl_toolbox.project_layout.names import (
     DEFAULT_S3_REGION,
     GITIGNORE_FILENAME,
     MARKER_FILENAME,
+    default_bucket_name,
 )
 from dl_toolbox.remote_store.backends import RemoteBackend
 from dl_toolbox.remote_store.credentials import S3Credentials, blank_credential_document
@@ -99,6 +100,31 @@ def test_scaffold_gitignores_credentials(tmp_path: Path) -> None:
     root = _scaffold(tmp_path, name="proj", remote_backend="s3")
     gitignore = (root.path / GITIGNORE_FILENAME).read_text(encoding="utf-8")
     assert f"{_CREDENTIALS_DIR}/" in gitignore
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("ccf-tabformer", "ccf-tabformer"),
+        ("ccf_tabformer", "ccf-tabformer"),
+        ("CCF_Tabformer", "ccf-tabformer"),
+        ("_tmp", ""),
+        ("my.project", ""),
+        ("ab", ""),
+    ],
+)
+def test_default_bucket_name(name: str, expected: str) -> None:
+    assert default_bucket_name(name) == expected
+
+
+def test_scaffold_bucket_sanitizes_underscores(tmp_path: Path) -> None:
+    root = _scaffold(tmp_path, name="ccf_tabformer", remote_backend="s3")
+    remote = read_object(
+        file=File.from_under(
+            root=root, relative_path="project_level_configs/remote/remote.json"
+        )
+    )
+    assert remote["bucket"] == "ccf-tabformer"
 
 
 def test_blank_credentials_keys_per_backend() -> None:

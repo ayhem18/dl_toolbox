@@ -5,6 +5,7 @@ the dict is validated without a hand-rolled check.
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -17,6 +18,26 @@ from pydantic import (
 
 _STRICT = ConfigDict(extra="forbid", frozen=True, strict=True)
 _NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# 3-63 chars, lowercase letters/digits/'-', starting and ending alphanumeric.
+# A deliberately strict subset of the S3/MinIO rule: no dots, so no ``..`` or
+# IPv4 edge cases. See standards/contract/proposals/remote_store_buckets.md.
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")
+
+
+def is_valid_bucket_name(text: str) -> bool:
+    return isinstance(text, str) and _BUCKET_RE.fullmatch(text) is not None
+
+
+def parse_s3_bucket_name(value: object, *, label: str = "bucket") -> str:
+    text = str(value)
+    if not is_valid_bucket_name(text):
+        raise ValueError(
+            f"{label} {value!r} is not a valid bucket name: 3-63 chars, only "
+            f"lowercase letters, digits and '-', starting and ending with a "
+            f"letter or digit"
+        )
+    return text
 
 
 def _require_relative_key(value: str, *, label: str) -> str:
@@ -38,8 +59,13 @@ class S3Location(BaseModel):
 
     model_config = _STRICT
 
-    bucket: _NonEmptyStr
+    bucket: str
     path_within_bucket: _NonEmptyStr
+
+    @field_validator("bucket")
+    @classmethod
+    def _bucket(cls, value: str) -> str:
+        return parse_s3_bucket_name(value, label="bucket")
 
     @field_validator("path_within_bucket")
     @classmethod
