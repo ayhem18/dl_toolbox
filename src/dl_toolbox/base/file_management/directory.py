@@ -173,7 +173,12 @@ class Directory:
         if policy == DirectoryParsePolicy.CREATE:
             path.mkdir(parents=True, exist_ok=True)
             return cls(path=path, spec=DirectorySpec.EXISTS)
-        return cls(path=path, spec=DirectorySpec.MISSING)
+        try:
+            return cls(path=path, spec=DirectorySpec.MISSING)
+        except ValueError:
+            if path.is_dir():
+                return cls(path=path, spec=DirectorySpec.EXISTS)
+            raise
 
     def __fspath__(self) -> str:
         return str(self._path)

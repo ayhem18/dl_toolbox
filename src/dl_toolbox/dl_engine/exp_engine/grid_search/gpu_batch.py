@@ -6,11 +6,18 @@ import os
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TextIO
 
 from dl_toolbox.dl_engine.dl_engine_utils.visible_gpus import VisibleGpus
 
 PopenFn = Callable[..., subprocess.Popen]
 QueryFreeFn = Callable[[], tuple[int, ...]]
+
+
+class GpuBatch:
+    """Child-log conventions for run_recipes_on_free_gpus."""
+
+    LOG_TAIL_LINES = 40
 
 
 def run_recipes_on_free_gpus(
@@ -45,23 +52,20 @@ def run_recipes_on_free_gpus(
             )
         remaining = n_recipes - offset
         batch_size = n_free if n_free < remaining else remaining
-        procs: list[tuple[Path, subprocess.Popen]] = []
+        procs: list[tuple[Path, Path, TextIO, subprocess.Popen]] = []
         claimed: dict[int, None] = {}
         for i in range(batch_size):
             gpu = _next_unclaimed(free, claimed)
             recipe = recipes[offset + i]
             procs.append(
-                (
-                    recipe,
-                    _launch_train(
-                        python=python,
-                        train_script=train_script,
-                        recipe=recipe,
-                        gpu_index=gpu,
-                        force=force,
-                        tracking_backend=tracking_backend,
-                        popen=popen,
-                    ),
+                _launch_train(
+                    python=python,
+                    train_script=train_script,
+                    recipe=recipe,
+                    gpu_index=gpu,
+                    force=force,
+                    tracking_backend=tracking_backend,
+                    popen=popen,
                 )
             )
             claimed[gpu] = None
@@ -90,24 +94,54 @@ def _launch_train(
     force: bool,
     tracking_backend: str | None,
     popen: PopenFn,
-) -> subprocess.Popen:
+) -> tuple[Path, Path, TextIO, subprocess.Popen]:
     env = os.environ.copy()
     env[VisibleGpus.CUDA_VISIBLE_DEVICES] = str(gpu_index)
+    env["PYTHONUNBUFFERED"] = "1"
     cmd: list[str] = [python, str(train_script), str(recipe)]
     if force:
         cmd.append("--force")
     if tracking_backend is not None:
         cmd.append("--tracking-backend")
         cmd.append(tracking_backend)
-    return popen(cmd, env=env)
+    log_path = recipe.with_suffix(".log")
+    log_file = log_path.open("w", encoding="utf-8")
+    log_file.write(f"gpu={gpu_index} cmd={' '.join(cmd)}\n")
+    log_file.flush()
+    print(f"grid child gpu={gpu_index} recipe={recipe.name} log={log_path}", flush=True)
+    try:
+        proc = popen(
+            cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT
+        )
+    except BaseException:
+        log_file.close()
+        raise
+    return recipe, log_path, log_file, proc
 
 
-def _wait_batch(procs: list[tuple[Path, subprocess.Popen]]) -> list[str]:
+def _wait_batch(
+    procs: list[tuple[Path, Path, TextIO, subprocess.Popen]],
+) -> list[str]:
     failures: list[str] = []
     n = len(procs)
     for i in range(n):
-        recipe, proc = procs[i]
-        code = proc.wait()
+        recipe, log_path, log_file, proc = procs[i]
+        try:
+            code = proc.wait()
+        finally:
+            log_file.close()
         if code != 0:
-            failures.append(f"{recipe} (exit {code})")
+            tail = _log_tail(log_path, n_lines=GpuBatch.LOG_TAIL_LINES)
+            failures.append(
+                f"{recipe} (exit {code}; log {log_path})\n{tail}".rstrip()
+            )
     return failures
+
+
+def _log_tail(path: Path, *, n_lines: int) -> str:
+    if not path.is_file():
+        return ""
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    n = len(lines)
+    start = 0 if n <= n_lines else n - n_lines
+    return "\n".join(lines[start:n])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pytest
@@ -315,6 +316,32 @@ def test_create_identity_index_is_idempotent_and_refuses_unmarked(
     )
     with pytest.raises(ValueError, match="not an identity index"):
         manager.create_identity_index(unmarked)
+
+
+def test_create_identity_index_is_safe_from_parallel_claimers(
+    tmp_path: Path,
+) -> None:
+    manager = _manager()
+    path = tmp_path / "idx"
+
+    def claim() -> Path:
+        directory = Directory.from_absolute(
+            path=path, policy=DirectoryParsePolicy.ALLOW_MISSING
+        )
+        created = manager.create_identity_index(directory)
+        return created.path
+
+    n_claimers = 8
+    with ThreadPoolExecutor(max_workers=n_claimers) as pool:
+        futures = [pool.submit(claim) for _ in range(n_claimers)]
+        paths = [future.result() for future in as_completed(futures)]
+    assert len(set(paths)) == 1
+    live = Directory.from_absolute(
+        path=path, policy=DirectoryParsePolicy.MUST_EXIST
+    )
+    assert (live.path / HashManager.DIR_INDEX_NAME).is_file()
+    assert (live.path / manager.hash_dir_name).is_dir()
+    assert (live.path / manager.human_readable_dir_name).is_dir()
 
 
 def test_prefix_collision_is_error_not_occupancy(tmp_path: Path) -> None:

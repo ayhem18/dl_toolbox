@@ -256,13 +256,19 @@ class MlflowLogger(Logger):
 
     def _resolve_experiment_create(self) -> str:
         existing = self._client.get_experiment_by_name(self._experiment_name)
-        if existing is None:
+        if existing is not None:
+            return str(existing.experiment_id)
+        try:
             experiment_id = self._client.create_experiment(
                 self._experiment_name,
                 artifact_location=self._artifact_store_uri,
             )
             return str(experiment_id)
-        return str(existing.experiment_id)
+        except Exception:
+            raced = self._client.get_experiment_by_name(self._experiment_name)
+            if raced is None:
+                raise
+            return str(raced.experiment_id)
 
     def _lookup_run(self, *, experiment_id: str):
         from mlflow.entities import ViewType

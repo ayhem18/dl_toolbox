@@ -196,28 +196,44 @@ class HashManager:
     def create_identity_index(self, directory: Directory) -> Directory:
         if not isinstance(directory, Directory):
             raise TypeError(f"directory must be Directory, got {type(directory)!r}")
-        if directory.spec == DirectorySpec.EXISTS:
-            if self._is_identity_index(directory):
-                return directory
-            raise ValueError(
-                f"directory is not an identity index: {directory.path}"
+        if directory.spec == DirectorySpec.EXISTS and self._is_identity_index(
+            directory
+        ):
+            return directory
+        directory.path.parent.mkdir(parents=True, exist_ok=True)
+        lock = ExclusiveDirLock(
+            directory.path.parent
+            / f"{directory.path.name}.{HashManager.IDENTITY_LOCK_NAME}",
+            timeout_seconds=self._lock_timeout_seconds,
+            poll_seconds=self._lock_poll_seconds,
+        )
+        with lock:
+            live = Directory.from_absolute(
+                path=directory.path,
+                policy=DirectoryParsePolicy.ALLOW_MISSING,
             )
-        created = Directory.from_absolute(
-            path=directory.path, policy=DirectoryParsePolicy.CREATE
-        )
-        Directory.from_under(
-            root=created,
-            relative_path=self._hash_dir_name,
-            policy=DirectoryParsePolicy.CREATE,
-        )
-        Directory.from_under(
-            root=created,
-            relative_path=self._human_readable_dir_name,
-            policy=DirectoryParsePolicy.CREATE,
-        )
-        marker = created.path / HashManager.DIR_INDEX_NAME
-        marker.write_text("", encoding="utf-8")
-        return created
+            if live.spec == DirectorySpec.EXISTS:
+                if self._is_identity_index(live):
+                    return live
+                raise ValueError(
+                    f"directory is not an identity index: {live.path}"
+                )
+            created = Directory.from_absolute(
+                path=directory.path, policy=DirectoryParsePolicy.CREATE
+            )
+            Directory.from_under(
+                root=created,
+                relative_path=self._hash_dir_name,
+                policy=DirectoryParsePolicy.CREATE,
+            )
+            Directory.from_under(
+                root=created,
+                relative_path=self._human_readable_dir_name,
+                policy=DirectoryParsePolicy.CREATE,
+            )
+            marker = created.path / HashManager.DIR_INDEX_NAME
+            marker.write_text("", encoding="utf-8")
+            return created
 
     def lookup(
         self,

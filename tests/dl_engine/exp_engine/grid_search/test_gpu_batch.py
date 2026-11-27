@@ -24,7 +24,8 @@ def test_batches_recipes_onto_unique_free_gpus(tmp_path: Path) -> None:
     def query_free() -> tuple[int, ...]:
         return queries.pop(0)
 
-    def popen(cmd: list[str], env: dict[str, str]) -> _FakeProc:
+    def popen(cmd: list[str], env: dict[str, str], **kwargs) -> _FakeProc:
+        del kwargs
         launched.append((cmd[2], env[VisibleGpus.CUDA_VISIBLE_DEVICES]))
         return _FakeProc(0)
 
@@ -50,8 +51,8 @@ def test_passes_force_and_tracking_backend(tmp_path: Path) -> None:
     recipe = tmp_path / "r0.json"
     captured: list[list[str]] = []
 
-    def popen(cmd: list[str], env: dict[str, str]) -> _FakeProc:
-        del env
+    def popen(cmd: list[str], env: dict[str, str], **kwargs) -> _FakeProc:
+        del env, kwargs
         captured.append(cmd)
         return _FakeProc(0)
 
@@ -78,7 +79,7 @@ def test_raises_when_no_free_gpu(tmp_path: Path) -> None:
             tracking_backend=None,
             python="python",
             query_free=lambda: (),
-            popen=lambda cmd, env: _FakeProc(0),
+            popen=lambda cmd, env, **kwargs: _FakeProc(0),
         )
 
 
@@ -91,7 +92,7 @@ def test_raises_when_a_child_fails(tmp_path: Path) -> None:
             tracking_backend=None,
             python="python",
             query_free=lambda: (0,),
-            popen=lambda cmd, env: _FakeProc(1),
+            popen=lambda cmd, env, **kwargs: _FakeProc(1),
         )
 
 
@@ -104,8 +105,8 @@ def test_later_batches_still_run_after_a_child_fails(tmp_path: Path) -> None:
     def query_free() -> tuple[int, ...]:
         return queries.pop(0)
 
-    def popen(cmd: list[str], env: dict[str, str]) -> _FakeProc:
-        del env
+    def popen(cmd: list[str], env: dict[str, str], **kwargs) -> _FakeProc:
+        del env, kwargs
         launched.append(cmd[2])
         return _FakeProc(codes[cmd[2]])
 
@@ -121,3 +122,26 @@ def test_later_batches_still_run_after_a_child_fails(tmp_path: Path) -> None:
         )
     assert launched == [str(recipes[0]), str(recipes[1]), str(recipes[2])]
     assert queries == []
+
+
+def test_failed_child_error_includes_log_path_and_tail(tmp_path: Path) -> None:
+    recipe = tmp_path / "r0.json"
+
+    def popen(cmd: list[str], env: dict[str, str], **kwargs) -> _FakeProc:
+        del cmd, env
+        stdout = kwargs["stdout"]
+        stdout.write("identity index is not an identity index\n")
+        stdout.flush()
+        return _FakeProc(1)
+
+    with pytest.raises(RuntimeError, match="r0.log") as raised:
+        run_recipes_on_free_gpus(
+            recipes=(recipe,),
+            train_script=tmp_path / "train.py",
+            force=False,
+            tracking_backend=None,
+            python="python",
+            query_free=lambda: (0,),
+            popen=popen,
+        )
+    assert "not an identity index" in str(raised.value)
