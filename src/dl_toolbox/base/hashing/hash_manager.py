@@ -216,7 +216,8 @@ class HashManager:
                 if self._is_identity_index(live):
                     return live
                 raise ValueError(
-                    f"directory is not an identity index: {live.path}"
+                    f"directory is not an identity index: {live.path} "
+                    "(a run_group leaf cannot also be a parent of nested groups)"
                 )
             created = Directory.from_absolute(
                 path=directory.path, policy=DirectoryParsePolicy.CREATE
